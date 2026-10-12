@@ -1,26 +1,32 @@
 {
-  "name": "destruction",
+  "name": "shatter-run",
   "tree": {
     "$className": "DataModel",
-
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"
       },
       "Remotes": {
         "$className": "Folder",
-        "SmashRequest": {
+        "RunStarted": {
           "$className": "RemoteEvent"
+        },
+        "RunEnded": {
+          "$className": "RemoteEvent"
+        },
+        "PurchaseGranted": {
+          "$className": "RemoteEvent"
+        },
+        "ShopRequest": {
+          "$className": "RemoteFunction"
         }
       }
     },
-
     "ServerScriptService": {
       "Server": {
         "$path": "src/server"
       }
     },
-
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "Client": {
