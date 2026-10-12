@@ -1,0 +1,12 @@
+# Roblox place files (the code lives in src/, Rojo syncs it into Studio)
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+
+# Editor / OS junk
+.DS_Store
+.vscode/settings.json
+sourcemap.json
