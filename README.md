@@ -30,7 +30,15 @@ src/client/              Runs on each player's device
 assets/sounds/           Sound effects + music to upload to Roblox
 ```
 
-## Setup (first time)
+## Easiest way to play (no setup)
+
+1. Download **`ShatterRun.rbxlx`** from this repo (on GitHub: click the file, then the download button).
+2. Double-click it. It opens in Roblox Studio with the whole game inside.
+3. Press **Play**.
+
+To rebuild that file after code changes: `rojo build place.project.json -o ShatterRun.rbxlx`.
+
+## Setup with live syncing (optional, for editing code)
 
 1. Install [Rokit](https://github.com/rojo-rbx/rokit), then run `rokit install` in this folder to get Rojo.
 2. In Roblox Studio install the **Rojo** plugin (Plugins → Manage Plugins, or from the Creator Store).

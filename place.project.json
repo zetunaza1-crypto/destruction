@@ -1,0 +1,93 @@
+{
+  "name": "ShatterRun",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "RunStarted": {
+          "$className": "RemoteEvent"
+        },
+        "RunEnded": {
+          "$className": "RemoteEvent"
+        },
+        "PurchaseGranted": {
+          "$className": "RemoteEvent"
+        },
+        "ShopRequest": {
+          "$className": "RemoteFunction"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Locked": true,
+          "Size": [
+            512,
+            20,
+            512
+          ],
+          "Position": [
+            0,
+            -10,
+            0
+          ],
+          "Color": [
+            0.39,
+            0.37,
+            0.36
+          ],
+          "Material": "Plastic",
+          "TopSurface": "Smooth",
+          "BottomSurface": "Smooth"
+        }
+      },
+      "SpawnLocation": {
+        "$className": "SpawnLocation",
+        "$properties": {
+          "Anchored": true,
+          "Size": [
+            12,
+            1,
+            12
+          ],
+          "Position": [
+            0,
+            0.5,
+            0
+          ],
+          "Neutral": true,
+          "Duration": 0,
+          "TopSurface": "Smooth",
+          "BottomSurface": "Smooth"
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "ClockTime": 14
+      }
+    }
+  }
+}

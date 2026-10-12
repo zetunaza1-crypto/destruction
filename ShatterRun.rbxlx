@@ -1,0 +1,4261 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="ClockTime">14</float>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="1">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="2">
+      <Properties>
+        <string name="Name">Remotes</string>
+      </Properties>
+      <Item class="RemoteEvent" referent="3">
+        <Properties>
+          <string name="Name">PurchaseGranted</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="4">
+        <Properties>
+          <string name="Name">RunEnded</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteEvent" referent="5">
+        <Properties>
+          <string name="Name">RunStarted</string>
+        </Properties>
+      </Item>
+      <Item class="RemoteFunction" referent="6">
+        <Properties>
+          <string name="Name">ShopRequest</string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Folder" referent="7">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="8">
+        <Properties>
+          <string name="Name">Config</string>
+          <string name="Source"><![CDATA[--[[
+	All the numbers that control the game live here.
+	Tweak these to change difficulty, rewards and monetization
+	without touching the gameplay code.
+]]
+
+local Config = {}
+
+Config.GAME_NAME = "Shatter Run"
+
+-- Track ----------------------------------------------------------------------
+-- Every player's run is built locally on their own device, far above the lobby.
+Config.TRACK_ORIGIN = Vector3.new(0, 500, 0)
+Config.CORRIDOR_WIDTH = 20
+Config.CORRIDOR_HEIGHT = 14
+Config.ROOM_LENGTH = 80
+Config.ROOMS_AHEAD = 5 -- how many rooms are built in front of the camera
+Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
+Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
+Config.CAMERA_HEIGHT = 6
+Config.STUDS_PER_METER = 3
+
+-- Speed ----------------------------------------------------------------------
+Config.START_SPEED = 22 -- studs per second
+Config.MAX_SPEED = 55
+Config.SPEED_GAIN_PER_ROOM = 0.8
+
+-- Balls ----------------------------------------------------------------------
+Config.START_BALLS = 25
+Config.CRASH_PENALTY = 10 -- balls lost when you fly into glass
+Config.CRYSTAL_REWARD = 3 -- balls gained per crystal
+Config.CRYSTALS_PER_MULTIBALL_LEVEL = 5 -- crystals in a row to level up multiball
+Config.MAX_MULTIBALL = 5
+Config.THROW_COOLDOWN = 0.12
+Config.BALL_SPEED = 160
+Config.BALL_GRAVITY = 30
+Config.BALL_RADIUS = 0.6
+Config.BALL_LIFETIME = 3
+
+-- Rewards --------------------------------------------------------------------
+Config.GEMS_PER_METER = 0.1
+Config.DAILY_REWARD_GEMS = 100
+Config.DAILY_REWARD_COOLDOWN = 20 * 60 * 60 -- 20 hours, so it fits any daily routine
+
+-- Ball skins, bought with gems in the shop ------------------------------------
+-- Order here is the order they show up in the shop.
+Config.Skins = {
+	{ Id = "Default", Name = "Steel", Price = 0, Color = Color3.fromRGB(200, 205, 215), Material = Enum.Material.Metal },
+	{ Id = "Gold", Name = "Gold", Price = 500, Color = Color3.fromRGB(255, 200, 60), Material = Enum.Material.Metal },
+	{ Id = "Ruby", Name = "Ruby", Price = 800, Color = Color3.fromRGB(230, 40, 70), Material = Enum.Material.Glass },
+	{ Id = "Toxic", Name = "Toxic", Price = 1200, Color = Color3.fromRGB(110, 255, 80), Material = Enum.Material.Neon },
+	{ Id = "Void", Name = "Void", Price = 2000, Color = Color3.fromRGB(20, 10, 40), Material = Enum.Material.Neon, Trail = Color3.fromRGB(170, 80, 255) },
+	{ Id = "Plasma", Name = "Plasma", Price = 3500, Color = Color3.fromRGB(80, 220, 255), Material = Enum.Material.ForceField, Trail = Color3.fromRGB(80, 220, 255) },
+	{ Id = "Rainbow", Name = "Rainbow", Price = 6000, Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
+}
+
+function Config.getSkin(skinId)
+	for _, skin in Config.Skins do
+		if skin.Id == skinId then
+			return skin
+		end
+	end
+	return Config.Skins[1]
+end
+
+function Config.checkpointMeters(checkpoint)
+	return checkpoint * Config.ROOMS_PER_CHECKPOINT * Config.ROOM_LENGTH / Config.STUDS_PER_METER
+end
+
+-- Monetization ---------------------------------------------------------------
+-- Create these in the Creator Hub (Monetization > Developer Products / Passes)
+-- and paste the IDs here. An ID of 0 hides that button in the game.
+-- Suggested prices are just a starting point.
+Config.Products = {
+	Revive = { Id = 0, Balls = 25 }, -- game over screen (~25 R$)
+	BallPack = { Id = 0, Balls = 50 }, -- during a run (~15 R$)
+	GemPack = { Id = 0, Gems = 500 }, -- shop (~49 R$)
+}
+
+Config.GamePasses = {
+	VIP = { Id = 0, ExtraStartBalls = 15, GemMultiplier = 2 }, -- ~149 R$
+	Multiball = { Id = 0 }, -- multiball never drops below x2 (~99 R$)
+	Checkpoints = { Id = 0 }, -- start from any checkpoint you've reached (~199 R$)
+}
+
+Config.REVIVE_SECONDS = 6 -- how long the revive button stays up after game over
+
+-- Sounds ---------------------------------------------------------------------
+-- Upload sounds in the Creator Hub and paste the asset IDs. 0 = silent.
+Config.Sounds = {
+	Throw = 0,
+	Shatter = 0,
+	Crystal = 0,
+	Crash = 0,
+	Checkpoint = 0,
+	Music = 0,
+}
+
+-- Visual themes, one per checkpoint (cycles when it runs out) ----------------
+Config.Themes = {
+	{
+		Wall = Color3.fromRGB(235, 238, 245),
+		Accent = Color3.fromRGB(90, 200, 255),
+		Fog = Color3.fromRGB(215, 230, 245),
+	},
+	{
+		Wall = Color3.fromRGB(40, 44, 60),
+		Accent = Color3.fromRGB(255, 90, 170),
+		Fog = Color3.fromRGB(30, 30, 45),
+	},
+	{
+		Wall = Color3.fromRGB(245, 225, 200),
+		Accent = Color3.fromRGB(255, 150, 40),
+		Fog = Color3.fromRGB(250, 215, 170),
+	},
+	{
+		Wall = Color3.fromRGB(20, 60, 50),
+		Accent = Color3.fromRGB(80, 255, 160),
+		Fog = Color3.fromRGB(15, 45, 40),
+	},
+	{
+		Wall = Color3.fromRGB(70, 40, 90),
+		Accent = Color3.fromRGB(255, 230, 80),
+		Fog = Color3.fromRGB(55, 30, 75),
+	},
+}
+
+-- Which obstacles show up in each zone. Zones after the last one use all of them.
+Config.ZonePatterns = {
+	{ "Window", "Pillars", "Beam" },
+	{ "Window", "Pillars", "Beam", "FullWall", "Moving" },
+	{ "Pillars", "Beam", "FullWall", "Moving", "Door", "Grid" },
+	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double" },
+	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
+}
+
+Config.GLASS_COLOR = Color3.fromRGB(200, 235, 255)
+Config.CRYSTAL_COLOR = Color3.fromRGB(60, 140, 255)
+Config.DOOR_COLOR = Color3.fromRGB(60, 62, 70)
+Config.BUTTON_COLOR = Color3.fromRGB(255, 60, 60)
+
+return Config
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="9">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Folder" referent="10">
+      <Properties>
+        <string name="Name">Server</string>
+      </Properties>
+      <Item class="Script" referent="11">
+        <Properties>
+          <string name="Name">Main</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[--[[
+	Server entry point: player data, run results, gems and the global leaderboard.
+	The runs themselves happen on each player's device (see Client/RunController).
+]]
+
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+local Monetization = require(script.Parent.Monetization)
+local Shop = require(script.Parent.Shop)
+
+local Remotes = ReplicatedStorage.Remotes
+local leaderboardStore = DataStoreService:GetOrderedDataStore("BestDistance_v1")
+
+local LEADERBOARD_SIZE = 10
+local LEADERBOARD_REFRESH = 60
+
+-- player -> {
+--   startedAt, pausedAt (set while on the game over screen), pausedTotal,
+--   startMeters, metersRewarded
+-- }
+local activeRuns = {}
+
+-- The furthest anyone can legitimately travel in `seconds`, following the same
+-- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
+local function maxStudsIn(seconds)
+	local studs, time, dt = 0, 0, 0.05
+	while time < seconds do
+		local rooms = studs // Config.ROOM_LENGTH
+		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + rooms * Config.SPEED_GAIN_PER_ROOM)
+		studs += speed * dt
+		time += dt
+	end
+	return studs
+end
+
+local function activeSeconds(run)
+	local now = run.pausedAt or os.clock()
+	return now - run.startedAt - run.pausedTotal
+end
+
+-- A revive (or ball pack on the game over screen) continues the run.
+Monetization.onProductGranted = function(player, productKey)
+	local run = activeRuns[player]
+	if run and run.pausedAt and (productKey == "Revive" or productKey == "BallPack") then
+		run.pausedTotal += os.clock() - run.pausedAt
+		run.pausedAt = nil
+	end
+end
+
+local function createLeaderstats(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+
+	local best = Instance.new("IntValue")
+	best.Name = "Best"
+	best.Parent = leaderstats
+
+	local gems = Instance.new("IntValue")
+	gems.Name = "Gems"
+	gems.Parent = leaderstats
+
+	leaderstats.Parent = player
+end
+
+local function onPlayerAdded(player)
+	createLeaderstats(player)
+	PlayerData.load(player)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, player in Players:GetPlayers() do
+	task.spawn(onPlayerAdded, player)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	activeRuns[player] = nil
+	Shop.release(player)
+	PlayerData.release(player)
+end)
+
+game:BindToClose(function()
+	-- Roblox gives us up to 30 seconds to finish saving.
+	PlayerData.releaseAll(25)
+end)
+
+Monetization.init()
+Shop.init()
+
+-- startCheckpoint lets Checkpoints pass owners skip ahead to a zone they've reached.
+Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint)
+	local data = PlayerData.get(player)
+	if not data then
+		return
+	end
+
+	local checkpoint = 0
+	if
+		type(startCheckpoint) == "number"
+		and startCheckpoint == math.floor(startCheckpoint)
+		and startCheckpoint > 0
+		and startCheckpoint <= data.Checkpoint
+		and Monetization.ownsPass(player, "Checkpoints")
+	then
+		checkpoint = startCheckpoint
+	end
+
+	local startMeters = math.floor(Config.checkpointMeters(checkpoint))
+	activeRuns[player] = {
+		startedAt = os.clock(),
+		pausedAt = nil,
+		pausedTotal = 0,
+		startMeters = startMeters,
+		metersRewarded = startMeters, -- no gems for the part you skipped
+	}
+end)
+
+-- Sent at every game over. A revive continues the same run, so we only pay
+-- out gems for the meters added since the last report.
+Remotes.RunEnded.OnServerEvent:Connect(function(player, meters)
+	local run = activeRuns[player]
+	local data = PlayerData.get(player)
+	if not run or not data or type(meters) ~= "number" or meters ~= meters then
+		return
+	end
+
+	-- Anti-cheat: nobody can go further than the speed ramp allows in the time
+	-- they actually spent running (time on the game over screen doesn't count).
+	local maxMeters = run.startMeters + maxStudsIn(activeSeconds(run)) / Config.STUDS_PER_METER * 1.1 + 15
+	meters = math.clamp(math.floor(meters), 0, math.floor(maxMeters))
+	run.pausedAt = run.pausedAt or os.clock()
+
+	local newMeters = math.max(0, meters - run.metersRewarded)
+	run.metersRewarded = math.max(run.metersRewarded, meters)
+
+	local multiplier = 1
+	if Monetization.ownsPass(player, "VIP") then
+		multiplier = Config.GamePasses.VIP.GemMultiplier
+	end
+	local gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * multiplier)
+
+	local changes = { Gems = data.Gems + gemsEarned }
+
+	local metersPerZone = Config.checkpointMeters(1)
+	local reachedCheckpoint = math.floor(meters / metersPerZone)
+	if reachedCheckpoint > data.Checkpoint then
+		changes.Checkpoint = reachedCheckpoint
+	end
+
+	if meters > data.Best then
+		changes.Best = meters
+		-- Skip if their data didn't load: their real best is unknown.
+		if PlayerData.canSave(player) then
+			task.spawn(function()
+				local ok, err = pcall(leaderboardStore.UpdateAsync, leaderboardStore, tostring(player.UserId), function(old)
+					if old and old >= meters then
+						return nil -- keep the higher score already stored
+					end
+					return meters
+				end)
+				if not ok then
+					warn("Could not update leaderboard:", err)
+				end
+			end)
+		end
+	end
+	PlayerData.update(player, changes)
+end)
+
+-- Global leaderboard ---------------------------------------------------------
+
+local nameCache = {}
+
+local function getName(userId)
+	if nameCache[userId] then
+		return nameCache[userId]
+	end
+	local ok, name = pcall(Players.GetNameFromUserIdAsync, Players, userId)
+	if ok then
+		nameCache[userId] = name
+		return name
+	end
+	return "???"
+end
+
+local function refreshLeaderboard()
+	local ok, pages = pcall(leaderboardStore.GetSortedAsync, leaderboardStore, false, LEADERBOARD_SIZE)
+	if not ok then
+		warn("Could not load leaderboard:", pages)
+		return
+	end
+
+	local top = {}
+	for rank, entry in pages:GetCurrentPage() do
+		table.insert(top, {
+			rank = rank,
+			name = getName(tonumber(entry.key)),
+			meters = entry.value,
+		})
+	end
+	ReplicatedStorage:SetAttribute("TopRuns", HttpService:JSONEncode(top))
+end
+
+task.spawn(function()
+	while true do
+		refreshLeaderboard()
+		task.wait(LEADERBOARD_REFRESH)
+	end
+end)
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
+        <Properties>
+          <string name="Name">Monetization</string>
+          <string name="Source"><![CDATA[--[[
+	Game passes and developer products.
+	IDs come from Shared/Config. Anything with an ID of 0 is ignored.
+]]
+
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+
+local Remotes = ReplicatedStorage.Remotes
+
+-- Products the server delivers itself. Everything else (balls) is delivered
+-- to the player's device, because runs happen there.
+local serverRewards = {
+	GemPack = function(player)
+		local data = PlayerData.get(player)
+		data.Gems += Config.Products.GemPack.Gems
+		PlayerData.update(player, { Gems = data.Gems })
+		return true
+	end,
+}
+
+function Monetization.ownsPass(player, passKey)
+	return player:GetAttribute("Pass_" .. passKey) == true
+end
+
+local function checkPasses(player)
+	for passKey, pass in Config.GamePasses do
+		if pass.Id ~= 0 then
+			local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.Id)
+			if ok and owns then
+				player:SetAttribute("Pass_" .. passKey, true)
+			end
+		end
+	end
+end
+
+-- Roblox calls this for every developer product purchase, and keeps retrying
+-- until we return PurchaseGranted. Each PurchaseId is only ever paid out once.
+local function processReceipt(receipt)
+	local player = Players:GetPlayerByUserId(receipt.PlayerId)
+	if not player or not PlayerData.get(player) then
+		-- Not here (or still loading). Roblox will retry later.
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if not PlayerData.canSave(player) then
+		-- Their data failed to load, so we couldn't keep a record of this. Try again later.
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	-- Already paid out earlier in this session (an earlier save failed): just retry the save.
+	if PlayerData.hasReceipt(player, receipt.PurchaseId) then
+		return if PlayerData.save(player)
+			then Enum.ProductPurchaseDecision.PurchaseGranted
+			else Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	for productKey, product in Config.Products do
+		if product.Id ~= 0 and product.Id == receipt.ProductId then
+			local reward = serverRewards[productKey]
+			if reward then
+				reward(player)
+			end
+			PlayerData.addReceipt(player, receipt.PurchaseId)
+
+			-- Deliver right away so the player isn't left waiting on a slow DataStore.
+			Remotes.PurchaseGranted:FireClient(player, productKey)
+			if Monetization.onProductGranted then
+				Monetization.onProductGranted(player, productKey)
+			end
+
+			-- Only tell Roblox we're done once the receipt is safely saved.
+			-- If the save fails, Roblox retries and hasReceipt() above stops a double payout.
+			return if PlayerData.save(player)
+				then Enum.ProductPurchaseDecision.PurchaseGranted
+				else Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+	end
+
+	warn("Unknown product purchased:", receipt.ProductId)
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+function Monetization.init()
+	MarketplaceService.ProcessReceipt = processReceipt
+
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
+		if not purchased then
+			return
+		end
+		for passKey, pass in Config.GamePasses do
+			if pass.Id == passId then
+				player:SetAttribute("Pass_" .. passKey, true)
+			end
+		end
+	end)
+
+	Players.PlayerAdded:Connect(checkPasses)
+	for _, player in Players:GetPlayers() do
+		task.spawn(checkPasses, player)
+	end
+end
+
+return Monetization
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">PlayerData</string>
+          <string name="Source"><![CDATA[--[[
+	Loads and saves each player's progress (best distance, gems, skins...).
+	Note: DataStores only work in Studio if "Enable Studio Access to
+	API Services" is turned on in Game Settings > Security.
+]]
+
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+
+local PlayerData = {}
+
+local store = DataStoreService:GetDataStore("PlayerData_v1")
+
+local LOAD_ATTEMPTS = 3
+local MAX_RECEIPTS = 50 -- remembered purchase IDs, so a retried receipt is never paid twice
+
+local DEFAULT_DATA = {
+	Best = 0, -- meters
+	Gems = 0,
+	Checkpoint = 0, -- highest zone reached
+	OwnedSkins = { "Default" },
+	EquippedSkin = "Default",
+	NextDaily = 0, -- os.time() when the daily reward can be claimed again
+	Receipts = {}, -- recent developer product PurchaseIds
+}
+
+-- player -> { data = {...}, canSave = bool }
+local profiles = {}
+local pendingSaves = 0
+
+local function key(player)
+	return "player_" .. player.UserId
+end
+
+local function publish(player, data)
+	-- Attributes replicate to the client, which is how the UI reads progress.
+	player:SetAttribute("Best", data.Best)
+	player:SetAttribute("Gems", data.Gems)
+	player:SetAttribute("Checkpoint", data.Checkpoint)
+	player:SetAttribute("OwnedSkins", HttpService:JSONEncode(data.OwnedSkins))
+	player:SetAttribute("EquippedSkin", data.EquippedSkin)
+	player:SetAttribute("NextDaily", data.NextDaily)
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		leaderstats.Best.Value = data.Best
+		leaderstats.Gems.Value = data.Gems
+	end
+end
+
+local function defaultData()
+	local data = table.clone(DEFAULT_DATA)
+	data.OwnedSkins = table.clone(DEFAULT_DATA.OwnedSkins)
+	data.Receipts = {}
+	return data
+end
+
+function PlayerData.load(player)
+	local ok, saved
+	for attempt = 1, LOAD_ATTEMPTS do
+		ok, saved = pcall(store.GetAsync, store, key(player))
+		if ok then
+			break
+		end
+		warn("Could not load data for", player.Name, "attempt", attempt, saved)
+		task.wait(attempt * 2)
+	end
+
+	local data = defaultData()
+	if ok and type(saved) == "table" then
+		for field, value in saved do
+			data[field] = value
+		end
+	end
+
+	-- If loading failed we never save, so we can't wipe their real data.
+	profiles[player] = { data = data, canSave = ok }
+	publish(player, data)
+end
+
+function PlayerData.get(player)
+	local profile = profiles[player]
+	return profile and profile.data
+end
+
+function PlayerData.canSave(player)
+	local profile = profiles[player]
+	return profile ~= nil and profile.canSave
+end
+
+function PlayerData.update(player, changes)
+	local profile = profiles[player]
+	if not profile then
+		return
+	end
+	for field, value in changes do
+		profile.data[field] = value
+	end
+	publish(player, profile.data)
+end
+
+function PlayerData.hasReceipt(player, purchaseId)
+	local data = PlayerData.get(player)
+	return data ~= nil and table.find(data.Receipts, purchaseId) ~= nil
+end
+
+function PlayerData.addReceipt(player, purchaseId)
+	local data = PlayerData.get(player)
+	if not data then
+		return
+	end
+	table.insert(data.Receipts, purchaseId)
+	while #data.Receipts > MAX_RECEIPTS do
+		table.remove(data.Receipts, 1)
+	end
+end
+
+-- Returns true only if the data really reached the DataStore.
+function PlayerData.save(player)
+	local profile = profiles[player]
+	if not profile or not profile.canSave then
+		return false
+	end
+
+	pendingSaves += 1
+	local ok, err = pcall(store.SetAsync, store, key(player), profile.data, { player.UserId })
+	pendingSaves -= 1
+
+	if not ok then
+		warn("Could not save data for", player.Name, err)
+	end
+	return ok
+end
+
+function PlayerData.release(player)
+	local profile = profiles[player]
+	if not profile or profile.released then
+		return
+	end
+	profile.released = true
+	PlayerData.save(player)
+	profiles[player] = nil
+end
+
+-- Used when the server shuts down: saves everyone and waits until done.
+function PlayerData.releaseAll(timeout)
+	for player in profiles do
+		task.spawn(PlayerData.release, player)
+	end
+	local deadline = os.clock() + timeout
+	task.wait()
+	while pendingSaves > 0 and os.clock() < deadline do
+		task.wait(0.1)
+	end
+end
+
+return PlayerData
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="14">
+        <Properties>
+          <string name="Name">Shop</string>
+          <string name="Source"><![CDATA[--[[
+	Gem shop (ball skins) and the daily reward.
+	The client asks through the ShopRequest RemoteFunction; every check happens here.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+
+local Remotes = ReplicatedStorage.Remotes
+
+local Shop = {}
+
+local function findSkin(skinId)
+	for _, skin in Config.Skins do
+		if skin.Id == skinId then
+			return skin
+		end
+	end
+	return nil
+end
+
+local function owns(data, skinId)
+	return table.find(data.OwnedSkins, skinId) ~= nil
+end
+
+local actions = {}
+
+function actions.BuySkin(player, data, skinId)
+	local skin = findSkin(skinId)
+	if not skin then
+		return false, "That skin doesn't exist"
+	end
+	if owns(data, skinId) then
+		return false, "You already own " .. skin.Name
+	end
+	if data.Gems < skin.Price then
+		return false, "Not enough gems"
+	end
+
+	local ownedSkins = table.clone(data.OwnedSkins)
+	table.insert(ownedSkins, skinId)
+	PlayerData.update(player, {
+		Gems = data.Gems - skin.Price,
+		OwnedSkins = ownedSkins,
+		EquippedSkin = skinId,
+	})
+	return true, skin.Name .. " unlocked"
+end
+
+function actions.EquipSkin(player, data, skinId)
+	if not findSkin(skinId) or not owns(data, skinId) then
+		return false, "You don't own that skin"
+	end
+	PlayerData.update(player, { EquippedSkin = skinId })
+	return true
+end
+
+function actions.ClaimDaily(player, data)
+	local now = os.time()
+	if now < data.NextDaily then
+		return false, "Come back later"
+	end
+	PlayerData.update(player, {
+		Gems = data.Gems + Config.DAILY_REWARD_GEMS,
+		NextDaily = now + Config.DAILY_REWARD_COOLDOWN,
+	})
+	return true, "+" .. Config.DAILY_REWARD_GEMS .. " gems"
+end
+
+-- One request at a time per player, so spamming can't double-spend.
+local busy = {}
+
+function Shop.init()
+	Remotes.ShopRequest.OnServerInvoke = function(player, action, argument)
+		local handler = actions[action]
+		local data = PlayerData.get(player)
+		if type(action) ~= "string" or not handler or not data then
+			return false, "Try again in a moment"
+		end
+		if busy[player] then
+			return false, "Slow down"
+		end
+
+		busy[player] = true
+		local ok, success, message = pcall(handler, player, data, argument)
+		busy[player] = nil
+
+		if not ok then
+			warn("Shop error:", success)
+			return false, "Something went wrong"
+		end
+		if success then
+			task.spawn(PlayerData.save, player)
+		end
+		return success, message
+	end
+end
+
+function Shop.release(player)
+	busy[player] = nil
+end
+
+return Shop
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="15">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="16">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="Folder" referent="17">
+        <Properties>
+          <string name="Name">Client</string>
+        </Properties>
+        <Item class="LocalScript" referent="18">
+          <Properties>
+            <string name="Name">Main</string>
+            <string name="Source"><![CDATA[--[[
+	Client entry point. Everything interesting is in RunController.
+]]
+
+local RunController = require(script.Parent.RunController)
+
+RunController.start()
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="19">
+          <Properties>
+            <string name="Name">RunController</string>
+            <string name="Source"><![CDATA[--[[
+	The game itself: moves the camera down the corridor, throws balls,
+	smashes glass, counts crystals and handles game over / revive.
+	Runs entirely on the player's device. The server only gets the final distance.
+]]
+
+local Lighting = game:GetService("Lighting")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Shatter = require(script.Parent.Shatter)
+local Sounds = require(script.Parent.Sounds)
+local TrackBuilder = require(script.Parent.TrackBuilder)
+local UI = require(script.Parent.UI)
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local ORIGIN = Config.TRACK_ORIGIN
+local FORWARD = Vector3.new(0, 0, -1)
+local CRASH_MARGIN = 0.8 -- how close to a pane's edge still counts as hitting it
+
+local RunController = {}
+
+-- State ----------------------------------------------------------------------
+
+local state = "Menu" -- "Menu" | "Running" | "GameOver"
+local world -- Folder holding everything for the current run
+local shardFolder
+local track
+local raycastParams
+
+local cameraZ = ORIGIN.Z
+local speed = Config.START_SPEED
+local balls = 0
+local multiball = 1
+local streak = 0
+local lastThrow = 0
+local lastRoom = 0
+local startCheckpoint = 0
+local shake = 0
+local activeBalls = {}
+local pendingBalls = 0 -- balls bought while not in a run, added to the next one
+local reportedMeters = 0
+local ui
+
+-- Helpers --------------------------------------------------------------------
+
+local function ownsPass(passKey)
+	return player:GetAttribute("Pass_" .. passKey) == true
+end
+
+local function minimumMultiball()
+	return if ownsPass("Multiball") then 2 else 1
+end
+
+local function meters()
+	return math.max(0, math.floor((ORIGIN.Z - cameraZ) / Config.STUDS_PER_METER))
+end
+
+local function currentRoom()
+	return math.max(0, (ORIGIN.Z - cameraZ) // Config.ROOM_LENGTH)
+end
+
+local function cameraPosition()
+	return Vector3.new(ORIGIN.X, ORIGIN.Y + Config.CAMERA_HEIGHT, cameraZ)
+end
+
+local function updateHud()
+	ui:setHud({
+		balls = balls,
+		multiball = multiball,
+		streak = (streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL) / Config.CRYSTALS_PER_MULTIBALL_LEVEL,
+		meters = meters(),
+		zone = currentRoom() // Config.ROOMS_PER_CHECKPOINT,
+	})
+end
+
+-- Lighting -------------------------------------------------------------------
+
+local bloom
+local colorCorrection
+
+local function setupLighting()
+	-- The Baseplate template ships an Atmosphere (which overrides fog) and its own bloom.
+	-- Removing them here only affects this player's screen.
+	for _, child in Lighting:GetChildren() do
+		if child:IsA("Atmosphere") or child:IsA("BloomEffect") then
+			child:Destroy()
+		end
+	end
+
+	Lighting.FogStart = 60
+	Lighting.FogEnd = Config.ROOM_LENGTH * (Config.ROOMS_AHEAD - 1)
+	Lighting.Brightness = 2
+	Lighting.GlobalShadows = false
+	Lighting.Ambient = Color3.fromRGB(150, 150, 160)
+	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)
+
+	bloom = Instance.new("BloomEffect")
+	bloom.Intensity = 0.8
+	bloom.Size = 30
+	bloom.Threshold = 0.9
+	bloom.Parent = Lighting
+
+	colorCorrection = Instance.new("ColorCorrectionEffect")
+	colorCorrection.Contrast = 0.1
+	colorCorrection.Saturation = 0.1
+	colorCorrection.Parent = Lighting
+end
+
+local function applyTheme(zone)
+	local theme = TrackBuilder.themeFor(zone * Config.ROOMS_PER_CHECKPOINT)
+	Lighting.FogColor = theme.Fog
+	ui:setTheme(theme)
+end
+
+-- Balls ----------------------------------------------------------------------
+
+local function makeBallPart()
+	local skin = Config.getSkin(player:GetAttribute("EquippedSkin"))
+
+	local part = Instance.new("Part")
+	part.Name = "Ball"
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.one * Config.BALL_RADIUS * 2
+	part.Material = skin.Material
+	part.Color = skin.Color
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+
+	if skin.Rainbow then
+		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
+	end
+
+	if skin.Trail or skin.Rainbow then
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, Config.BALL_RADIUS * 0.6, 0)
+		a0.Parent = part
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -Config.BALL_RADIUS * 0.6, 0)
+		a1.Parent = part
+
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = a0
+		trail.Attachment1 = a1
+		trail.Lifetime = 0.25
+		trail.LightEmission = 1
+		trail.Color = ColorSequence.new(skin.Trail or part.Color)
+		trail.Transparency = NumberSequence.new(0.2, 1)
+		trail.Parent = part
+	end
+
+	part.Parent = shardFolder
+	return part
+end
+
+local function spawnBall(origin, velocity)
+	local part = makeBallPart()
+	part.CFrame = CFrame.new(origin)
+	table.insert(activeBalls, { part = part, position = origin, velocity = velocity, age = 0 })
+end
+
+local function throw(screenPosition)
+	if state ~= "Running" or balls <= 0 then
+		return
+	end
+	local now = os.clock()
+	if now - lastThrow < Config.THROW_COOLDOWN then
+		return
+	end
+	lastThrow = now
+	balls -= 1
+
+	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
+	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	for i = 1, multiball do
+		-- Spread extra balls out in a small fan.
+		local angle = (i - (multiball + 1) / 2) * 0.05
+		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
+		spawnBall(ray.Origin + direction * 1.5, direction * Config.BALL_SPEED + carry)
+	end
+
+	Sounds.play("Throw", 0.95 + math.random() * 0.1)
+	updateHud()
+end
+
+local function collectCrystal(crystal)
+	Shatter.crystal(crystal)
+	balls += Config.CRYSTAL_REWARD
+	streak += 1
+	if streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL == 0 and multiball < Config.MAX_MULTIBALL then
+		multiball += 1
+		ui:toast("MULTIBALL x" .. multiball, "multiball")
+	end
+	Sounds.play("Crystal", 1 + math.min(streak, 10) * 0.03)
+	updateHud()
+end
+
+local function smashGlass(glass, hitPoint, push)
+	Shatter.glass(glass, hitPoint, push, shardFolder)
+	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
+end
+
+-- Moves one ball forward, bouncing off walls and breaking what it hits.
+-- Returns false when the ball should be removed.
+local function stepBall(ball, dt)
+	ball.age += dt
+	if ball.age > Config.BALL_LIFETIME then
+		return false
+	end
+
+	ball.velocity += Vector3.new(0, -Config.BALL_GRAVITY, 0) * dt
+	local travel = ball.velocity * dt
+
+	-- A few iterations so a fast ball can break glass and still bounce this frame.
+	for _ = 1, 3 do
+		local hit = workspace:Raycast(ball.position, travel, raycastParams)
+		if not hit then
+			ball.position += travel
+			break
+		end
+
+		local kind = hit.Instance:GetAttribute("Kind")
+		local remaining = travel.Magnitude - hit.Distance
+		ball.position = hit.Position
+
+		if kind == "Glass" then
+			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit)
+			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
+			travel = ball.velocity.Unit * remaining * 0.7
+		elseif kind == "Crystal" then
+			collectCrystal(hit.Instance)
+			travel = travel.Unit * remaining
+		elseif kind == "Button" then
+			track:openDoor(track:doorFor(hit.Instance))
+			Sounds.play("Checkpoint")
+			ball.velocity = -ball.velocity * 0.4
+			travel = ball.velocity.Unit * remaining * 0.4
+		else
+			-- Walls, floor, doors: bounce.
+			local normal = hit.Normal
+			ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
+			ball.position += normal * 0.05
+			travel = ball.velocity.Unit * remaining * 0.6
+		end
+	end
+
+	ball.part.CFrame = CFrame.new(ball.position)
+	return true
+end
+
+local function stepBalls(dt)
+	for i = #activeBalls, 1, -1 do
+		local ball = activeBalls[i]
+		if not stepBall(ball, dt) then
+			ball.part:Destroy()
+			table.remove(activeBalls, i)
+		end
+	end
+end
+
+local function clearBalls()
+	for _, ball in activeBalls do
+		ball.part:Destroy()
+	end
+	table.clear(activeBalls)
+end
+
+-- Run lifecycle ----------------------------------------------------------------
+
+local function gameOver()
+	if state ~= "Running" then
+		return
+	end
+	state = "GameOver"
+
+	local distance = meters()
+	local best = player:GetAttribute("Best") or 0
+	local gemMultiplier = if ownsPass("VIP") then Config.GamePasses.VIP.GemMultiplier else 1
+	local newMeters = math.max(0, distance - reportedMeters)
+	reportedMeters = math.max(reportedMeters, distance)
+	Remotes.RunEnded:FireServer(distance)
+
+	ui:showGameOver({
+		meters = distance,
+		best = math.max(best, distance),
+		isNewBest = distance > best,
+		gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * gemMultiplier),
+		canRevive = Config.Products.Revive.Id ~= 0,
+	})
+end
+
+local function crash(hazard)
+	local door = track:doorFor(hazard)
+	if door then
+		track:openDoor(door)
+	else
+		smashGlass(hazard, cameraPosition(), FORWARD)
+	end
+
+	balls = math.max(0, balls - Config.CRASH_PENALTY)
+	multiball = minimumMultiball()
+	streak = 0
+	shake = 0.35
+	Sounds.play("Crash")
+	ui:flashDamage()
+	updateHud()
+
+	if balls <= 0 then
+		gameOver()
+	end
+end
+
+-- Did the camera fly through any pane between prevZ and newZ?
+local function checkCrashes(prevZ, newZ)
+	local position = cameraPosition()
+	for _, hazard in track:hazards() do
+		-- The list was built before the loop, so skip anything an earlier crash already cleared
+		-- (both panels of a door would otherwise each cost a crash).
+		local door = track:doorFor(hazard)
+		if not hazard.Parent or (door and door.open) then
+			continue
+		end
+		local z = hazard.Position.Z
+		if prevZ > z and newZ <= z then
+			local localPoint = hazard.CFrame:PointToObjectSpace(Vector3.new(position.X, position.Y, z))
+			local size = hazard.Size
+			if
+				math.abs(localPoint.X) <= size.X / 2 + CRASH_MARGIN
+				and math.abs(localPoint.Y) <= size.Y / 2 + CRASH_MARGIN
+			then
+				crash(hazard)
+				if state ~= "Running" then
+					return
+				end
+			end
+		end
+	end
+end
+
+-- Throws away the old track and builds a fresh one starting at a checkpoint.
+local function resetWorld(checkpoint)
+	if world then
+		world:Destroy()
+	end
+	clearBalls()
+
+	world = Instance.new("Folder")
+	world.Name = "LocalRun"
+	world.Parent = workspace
+
+	shardFolder = Instance.new("Folder")
+	shardFolder.Name = "Effects"
+	shardFolder.Parent = world
+
+	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
+	track = TrackBuilder.new(world, firstRoom)
+	cameraZ = TrackBuilder.roomStartZ(firstRoom) + 4
+	track:update(cameraZ, 0)
+
+	raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Include
+	raycastParams.FilterDescendantsInstances = { track.folder }
+
+	lastRoom = firstRoom
+	applyTheme(checkpoint)
+end
+
+local function startRun(checkpoint)
+	checkpoint = checkpoint or 0
+	if checkpoint > 0 and not ownsPass("Checkpoints") then
+		checkpoint = 0
+	end
+	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
+	startCheckpoint = checkpoint
+
+	resetWorld(checkpoint)
+
+	balls = Config.START_BALLS + pendingBalls
+	if ownsPass("VIP") then
+		balls += Config.GamePasses.VIP.ExtraStartBalls
+	end
+	pendingBalls = 0
+	multiball = minimumMultiball()
+	streak = 0
+	speed = Config.START_SPEED
+	reportedMeters = math.floor(Config.checkpointMeters(checkpoint))
+	state = "Running"
+
+	Remotes.RunStarted:FireServer(checkpoint)
+	ui:showHud()
+	updateHud()
+	Sounds.startMusic()
+end
+
+local function revive(extraBalls)
+	if state ~= "GameOver" then
+		return false
+	end
+
+	-- Clear everything right in front of the player so they don't crash instantly.
+	for _, hazard in track:hazards() do
+		local ahead = cameraZ - hazard.Position.Z
+		if ahead > -2 and ahead < 40 then
+			local door = track:doorFor(hazard)
+			if door then
+				track:openDoor(door)
+			else
+				smashGlass(hazard, hazard.Position, FORWARD)
+			end
+		end
+	end
+
+	balls = extraBalls
+	multiball = minimumMultiball()
+	streak = 0
+	state = "Running"
+	ui:hideRevive()
+	ui:showHud()
+	updateHud()
+	return true
+end
+
+local function showMenu()
+	state = "Menu"
+	resetWorld(0)
+	ui:showMenu()
+end
+
+-- Frame loop -----------------------------------------------------------------
+
+local function onRoomEntered(room)
+	if room > 0 and room % Config.ROOMS_PER_CHECKPOINT == 0 then
+		local zone = room // Config.ROOMS_PER_CHECKPOINT
+		applyTheme(zone)
+		ui:toast(string.format("ZONE %02d", zone), "checkpoint")
+		Sounds.play("Checkpoint")
+	end
+end
+
+local menuTime = 0
+
+local function step(dt)
+	if state == "Running" then
+		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
+		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
+
+		local prevZ = cameraZ
+		cameraZ -= speed * dt
+		checkCrashes(prevZ, cameraZ)
+
+		local room = currentRoom()
+		if room ~= lastRoom then
+			lastRoom = room
+			onRoomEntered(room)
+		end
+	end
+
+	if track then
+		track:update(cameraZ, dt)
+	end
+	stepBalls(dt)
+
+	if state == "Running" then
+		if balls <= 0 and #activeBalls == 0 then
+			gameOver()
+		end
+		updateHud()
+	end
+
+	-- Camera: gentle sway, wider view at high speed, shake on crash.
+	menuTime += dt
+	shake = math.max(0, shake - dt)
+	local sway = Vector3.new(math.sin(menuTime * 0.7) * 0.15, math.sin(menuTime * 1.3) * 0.1, 0)
+	local jitter = Vector3.zero
+	if shake > 0 then
+		jitter = Vector3.new(math.random() - 0.5, math.random() - 0.5, 0) * shake * 2
+	end
+	local position = cameraPosition() + sway + jitter
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.CFrame = CFrame.lookAt(position, position + FORWARD)
+	camera.FieldOfView = 70 + (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * 15
+end
+
+-- Purchases ------------------------------------------------------------------
+
+local function promptProduct(productKey)
+	local product = Config.Products[productKey]
+	if product and product.Id ~= 0 then
+		MarketplaceService:PromptProductPurchase(player, product.Id)
+	end
+end
+
+local function promptPass(passKey)
+	local pass = Config.GamePasses[passKey]
+	if pass and pass.Id ~= 0 then
+		MarketplaceService:PromptGamePassPurchase(player, pass.Id)
+	end
+end
+
+local function onPurchaseGranted(productKey)
+	local product = Config.Products[productKey]
+	if productKey == "GemPack" then
+		ui:toast("+" .. product.Gems .. " GEMS", "reward")
+		return
+	end
+	if not product or not product.Balls then
+		return
+	end
+
+	if state == "GameOver" then
+		revive(product.Balls)
+	elseif state == "Running" then
+		balls += product.Balls
+		updateHud()
+	else
+		pendingBalls += product.Balls
+	end
+	ui:toast("+" .. product.Balls .. " BALLS", "reward")
+end
+
+local function shopRequest(action, argument)
+	local ok, success, message = pcall(function()
+		return Remotes.ShopRequest:InvokeServer(action, argument)
+	end)
+	if not ok then
+		return false, "Connection problem"
+	end
+	return success == true, message
+end
+
+-- Startup --------------------------------------------------------------------
+
+local function disableCharacterControls()
+	local playerScripts = player:WaitForChild("PlayerScripts")
+	local ok, playerModule = pcall(function()
+		return require(playerScripts:WaitForChild("PlayerModule"))
+	end)
+	if ok then
+		playerModule:GetControls():Disable()
+	end
+end
+
+function RunController.start()
+	ui = UI.new({
+		onPlay = function(checkpoint)
+			startRun(checkpoint)
+		end,
+		onPlayAgain = function()
+			startRun(startCheckpoint)
+		end,
+		onMenu = showMenu,
+		onRevive = function()
+			promptProduct("Revive")
+		end,
+		onBuyProduct = promptProduct,
+		onBuyPass = promptPass,
+		onBuySkin = function(skinId)
+			return shopRequest("BuySkin", skinId)
+		end,
+		onEquipSkin = function(skinId)
+			return shopRequest("EquipSkin", skinId)
+		end,
+		onClaimDaily = function()
+			return shopRequest("ClaimDaily")
+		end,
+	})
+
+	setupLighting()
+	showMenu()
+	task.spawn(disableCharacterControls)
+
+	Remotes.PurchaseGranted.OnClientEvent:Connect(onPurchaseGranted)
+
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+		then
+			throw(input.Position)
+		end
+	end)
+
+	RunService:BindToRenderStep("ShatterRun", Enum.RenderPriority.Camera.Value + 1, step)
+end
+
+return RunController
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="20">
+          <Properties>
+            <string name="Name">Shatter</string>
+            <string name="Source"><![CDATA[--[[
+	Visual effects for breaking glass and collecting crystals.
+	Glass panes are swapped for a grid of loose shards that fly apart.
+]]
+
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+
+local Shatter = {}
+
+local SHARD_SIZE = 2.5
+local SHARD_LIFETIME = 2
+local rng = Random.new()
+
+function Shatter.glass(panel, hitPoint, push, parent)
+	local size = panel.Size
+	local columns = math.clamp(math.round(size.X / SHARD_SIZE), 2, 6)
+	local rows = math.clamp(math.round(size.Y / SHARD_SIZE), 2, 6)
+	local shardWidth = size.X / columns
+	local shardHeight = size.Y / rows
+	local reach = math.max(size.X, size.Y)
+
+	for column = 1, columns do
+		for row = 1, rows do
+			local offset = Vector3.new(
+				-size.X / 2 + shardWidth * (column - 0.5),
+				-size.Y / 2 + shardHeight * (row - 0.5),
+				0
+			)
+
+			local shard = Instance.new("Part")
+			shard.Size = Vector3.new(
+				shardWidth * rng:NextNumber(0.6, 0.95),
+				shardHeight * rng:NextNumber(0.6, 0.95),
+				size.Z
+			)
+			shard.CFrame = panel.CFrame * CFrame.new(offset) * CFrame.Angles(0, 0, rng:NextNumber(-0.6, 0.6))
+			shard.Material = panel.Material
+			shard.Color = panel.Color
+			shard.Transparency = panel.Transparency
+			shard.Reflectance = panel.Reflectance
+			shard.CanCollide = false
+			shard.CanQuery = false
+			shard.CanTouch = false
+			shard.CastShadow = false
+			shard.Anchored = false
+			shard.Parent = parent
+
+			-- Shards near the impact fly out harder.
+			local away = shard.Position - hitPoint
+			local closeness = math.max(0, 1 - away.Magnitude / reach)
+			local direction = if away.Magnitude > 0.01 then away.Unit else Vector3.zero
+			shard.AssemblyLinearVelocity = direction * (8 + 30 * closeness) + push * (10 + 25 * closeness)
+			shard.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(5, 15)
+
+			Debris:AddItem(shard, SHARD_LIFETIME)
+		end
+	end
+
+	panel:Destroy()
+end
+
+function Shatter.crystal(crystal)
+	crystal.CanQuery = false
+	local tween = TweenService:Create(crystal, TweenInfo.new(0.25), {
+		Size = Vector3.zero,
+		Transparency = 1,
+	})
+	tween.Completed:Connect(function()
+		crystal:Destroy()
+	end)
+	tween:Play()
+end
+
+return Shatter
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="21">
+          <Properties>
+            <string name="Name">Sounds</string>
+            <string name="Source"><![CDATA[--[[
+	Plays the sound IDs from Config.Sounds. IDs left at 0 are silently skipped,
+	so the game works before any audio is uploaded.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local Sounds = {}
+
+local cache = {}
+
+local function getSound(name)
+	local id = Config.Sounds[name]
+	if not id or id == 0 then
+		return nil
+	end
+	if not cache[name] then
+		local sound = Instance.new("Sound")
+		sound.Name = name
+		sound.SoundId = "rbxassetid://" .. id
+		sound.Parent = SoundService
+		cache[name] = sound
+	end
+	return cache[name]
+end
+
+function Sounds.play(name, pitch)
+	local sound = getSound(name)
+	if not sound then
+		return
+	end
+	if pitch then
+		-- Varying the pitch a little keeps repeated shatters from sounding robotic.
+		local copy = sound:Clone()
+		copy.PlaybackSpeed = pitch
+		copy.Parent = SoundService
+		copy.Ended:Once(function()
+			copy:Destroy()
+		end)
+		copy:Play()
+	else
+		SoundService:PlayLocalSound(sound)
+	end
+end
+
+function Sounds.startMusic()
+	local music = getSound("Music")
+	if music and not music.IsPlaying then
+		music.Looped = true
+		music.Volume = 0.4
+		music:Play()
+	end
+end
+
+return Sounds
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="22">
+          <Properties>
+            <string name="Name">TrackBuilder</string>
+            <string name="Source"><![CDATA[--[[
+	Builds the corridor rooms in front of the camera and deletes the ones behind it.
+	Everything here is created on the player's device only, so nobody else sees it.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local WIDTH = Config.CORRIDOR_WIDTH
+local HEIGHT = Config.CORRIDOR_HEIGHT
+local LENGTH = Config.ROOM_LENGTH
+local ORIGIN = Config.TRACK_ORIGIN
+local EYE_Y = ORIGIN.Y + Config.CAMERA_HEIGHT
+
+local TrackBuilder = {}
+TrackBuilder.__index = TrackBuilder
+
+local function newPart(parent, kind, props)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	for name, value in props do
+		part[name] = value
+	end
+	part:SetAttribute("Kind", kind)
+	part.Parent = parent
+	return part
+end
+
+function TrackBuilder.themeFor(roomIndex)
+	local checkpoint = roomIndex // Config.ROOMS_PER_CHECKPOINT
+	return Config.Themes[checkpoint % #Config.Themes + 1]
+end
+
+function TrackBuilder.roomStartZ(roomIndex)
+	return ORIGIN.Z - roomIndex * LENGTH
+end
+
+function TrackBuilder.new(parent, firstRoom)
+	local self = setmetatable({}, TrackBuilder)
+	self.folder = Instance.new("Folder")
+	self.folder.Name = "Track"
+	self.folder.Parent = parent
+	self.rooms = {} -- roomIndex -> { folder, glass = { Part }, doors = { door }, crystals = { Part } }
+	self.doorOf = setmetatable({}, { __mode = "k" }) -- door panel / button -> door
+	self.nextRoom = firstRoom or 0
+	self.rng = Random.new()
+	return self
+end
+
+function TrackBuilder:addGlass(room, position, size)
+	local glass = newPart(room.folder, "Glass", {
+		Name = "Glass",
+		Size = size,
+		CFrame = CFrame.new(position),
+		Material = Enum.Material.Glass,
+		Color = Config.GLASS_COLOR,
+		Transparency = 0.35,
+		Reflectance = 0.15,
+	})
+	table.insert(room.glass, glass)
+	return glass
+end
+
+function TrackBuilder:addCrystal(room, position)
+	local crystal = newPart(room.folder, "Crystal", {
+		Name = "Crystal",
+		Size = Vector3.new(1.6, 1.6, 1.6),
+		CFrame = CFrame.new(position) * CFrame.Angles(math.rad(45), 0, math.rad(45)),
+		Material = Enum.Material.Neon,
+		Color = Config.CRYSTAL_COLOR,
+	})
+	table.insert(room.crystals, crystal)
+end
+
+local function patternsForZone(zone)
+	return Config.ZonePatterns[math.min(zone + 1, #Config.ZonePatterns)]
+end
+
+-- Loops a part between two CFrames forever. Destroying the part stops it.
+local function animate(part, goal, duration, reverses)
+	local info = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, reverses)
+	TweenService:Create(part, info, { CFrame = goal }):Play()
+end
+
+TrackBuilder.Patterns = {}
+local Patterns = TrackBuilder.Patterns
+
+-- A pane right in front of you, slightly off center.
+function Patterns.Window(self, room, z)
+	local x = ORIGIN.X + self.rng:NextNumber(-2, 2)
+	self:addGlass(room, Vector3.new(x, EYE_Y, z), Vector3.new(8, 8, 0.4))
+end
+
+-- Tall panes across the corridor, one always in the middle.
+function Patterns.Pillars(self, room, z)
+	for _, x in { -7, 0, 7 } do
+		self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + HEIGHT / 2, z), Vector3.new(4, HEIGHT, 0.4))
+	end
+end
+
+-- A wide horizontal pane at eye level.
+function Patterns.Beam(self, room, z)
+	self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, z), Vector3.new(WIDTH, 3, 0.4))
+end
+
+-- Blocks the whole corridor.
+function Patterns.FullWall(self, room, z)
+	self:addGlass(room, Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT / 2, z), Vector3.new(WIDTH, HEIGHT, 0.4))
+end
+
+-- Two panes close together: one throw won't clear both.
+function Patterns.Double(self, room, z)
+	self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, z), Vector3.new(10, 8, 0.4))
+	self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, z - 6), Vector3.new(10, 8, 0.4))
+end
+
+-- A pane sliding side to side.
+function Patterns.Moving(self, room, z)
+	local rng = self.rng
+	local side = if rng:NextNumber() < 0.5 then -1 else 1
+	local from = CFrame.new(ORIGIN.X + 6 * side, EYE_Y, z)
+	local to = CFrame.new(ORIGIN.X - 6 * side, EYE_Y, z)
+	local glass = self:addGlass(room, from.Position, Vector3.new(7, 8, 0.4))
+	animate(glass, to, rng:NextNumber(1.4, 2.4), true)
+end
+
+-- Spinning glass blades, like a fan.
+function Patterns.Spinner(self, room, z)
+	local center = CFrame.new(ORIGIN.X, EYE_Y, z)
+	local duration = self.rng:NextNumber(2, 3.2)
+	for _, startAngle in { 0, math.pi / 2 } do
+		local from = center * CFrame.Angles(0, 0, startAngle)
+		local blade = self:addGlass(room, from.Position, Vector3.new(HEIGHT - 1, 2.5, 0.4))
+		blade.CFrame = from
+		-- A blade turned half a circle looks identical, so the loop is seamless.
+		animate(blade, from * CFrame.Angles(0, 0, math.pi), duration, false)
+	end
+end
+
+-- A wall of small panes. You need several throws (or multiball) to clear a hole.
+function Patterns.Grid(self, room, z)
+	for _, x in { -5, 0, 5 } do
+		for _, y in { 2.5, 6.5, 10.5 } do
+			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4))
+		end
+	end
+end
+
+-- Metal doors you can't break. Hit the red button to open them.
+function Patterns.Door(self, room, z)
+	local half = WIDTH / 2
+	local doorSize = Vector3.new(half, HEIGHT, 1)
+	local y = ORIGIN.Y + HEIGHT / 2
+	local door = { open = false, panels = {} }
+
+	for _, side in { -1, 1 } do
+		local panel = newPart(room.folder, "Door", {
+			Name = "Door",
+			Size = doorSize,
+			CFrame = CFrame.new(ORIGIN.X + side * half / 2, y, z),
+			Material = Enum.Material.DiamondPlate,
+			Color = Config.DOOR_COLOR,
+		})
+		panel:SetAttribute("Side", side)
+		table.insert(door.panels, panel)
+		self.doorOf[panel] = door
+	end
+
+	local buttonX = ORIGIN.X + self.rng:NextNumber(-5, 5)
+	local buttonY = ORIGIN.Y + self.rng:NextNumber(4, HEIGHT - 4)
+	door.button = newPart(room.folder, "Button", {
+		Name = "Button",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 3, 3),
+		CFrame = CFrame.new(buttonX, buttonY, z + 0.7) * CFrame.Angles(0, math.rad(90), 0),
+		Material = Enum.Material.Neon,
+		Color = Config.BUTTON_COLOR,
+	})
+	self.doorOf[door.button] = door
+	table.insert(room.doors, door)
+end
+
+function TrackBuilder:openDoor(door)
+	if door.open then
+		return
+	end
+	door.open = true
+	door.button.Color = Color3.fromRGB(80, 255, 120)
+	door.button.CanQuery = false
+	for _, panel in door.panels do
+		local side = panel:GetAttribute("Side")
+		local goal = panel.CFrame + Vector3.new(side * WIDTH / 2, 0, 0)
+		TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { CFrame = goal }):Play()
+	end
+end
+
+-- Returns the door a button or door panel belongs to.
+function TrackBuilder:doorFor(part)
+	return self.doorOf[part]
+end
+
+-- One group of obstacles at depth z, picked from what this zone allows.
+function TrackBuilder:addObstacle(room, z, zone)
+	local patterns = patternsForZone(zone)
+	local name = patterns[self.rng:NextInteger(1, #patterns)]
+	Patterns[name](self, room, z)
+end
+
+function TrackBuilder:buildRoom(roomIndex)
+	local theme = TrackBuilder.themeFor(roomIndex)
+	local startZ = TrackBuilder.roomStartZ(roomIndex)
+	local centerZ = startZ - LENGTH / 2
+	local rng = self.rng
+
+	local zone = roomIndex // Config.ROOMS_PER_CHECKPOINT
+	local isZoneStart = roomIndex % Config.ROOMS_PER_CHECKPOINT == 0
+
+	local folder = Instance.new("Folder")
+	folder.Name = "Room" .. roomIndex
+	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
+
+	local wallProps = { Color = theme.Wall, Material = Enum.Material.SmoothPlastic }
+	local function wall(size, position)
+		local props = table.clone(wallProps)
+		props.Size = size
+		props.CFrame = CFrame.new(position)
+		newPart(folder, "Wall", props)
+	end
+	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y - 0.5, centerZ))
+	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT + 0.5, centerZ))
+	wall(Vector3.new(1, HEIGHT, LENGTH), Vector3.new(ORIGIN.X - WIDTH / 2 - 0.5, ORIGIN.Y + HEIGHT / 2, centerZ))
+	wall(Vector3.new(1, HEIGHT, LENGTH), Vector3.new(ORIGIN.X + WIDTH / 2 + 0.5, ORIGIN.Y + HEIGHT / 2, centerZ))
+
+	-- Glowing door frame at the start of each room gives a sense of speed.
+	local accent = { Color = theme.Accent, Material = Enum.Material.Neon }
+	local function trim(size, position)
+		local props = table.clone(accent)
+		props.Size = size
+		props.CFrame = CFrame.new(position)
+		newPart(folder, "Wall", props)
+	end
+	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + 0.2, startZ))
+	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT - 0.2, startZ))
+	trim(Vector3.new(0.4, HEIGHT, 0.4), Vector3.new(ORIGIN.X - WIDTH / 2 + 0.2, ORIGIN.Y + HEIGHT / 2, startZ))
+	trim(Vector3.new(0.4, HEIGHT, 0.4), Vector3.new(ORIGIN.X + WIDTH / 2 - 0.2, ORIGIN.Y + HEIGHT / 2, startZ))
+
+	-- Glowing strips along the floor edges.
+	for _, side in { -1, 1 } do
+		trim(Vector3.new(0.3, 0.15, LENGTH), Vector3.new(ORIGIN.X + side * (WIDTH / 2 - 0.4), ORIGIN.Y + 0.08, centerZ))
+	end
+
+	-- Ribs along the walls every 10 studs.
+	for ribZ = startZ - 10, startZ - LENGTH + 1, -10 do
+		for _, side in { -1, 1 } do
+			local props = table.clone(wallProps)
+			props.Size = Vector3.new(0.6, HEIGHT, 1.2)
+			props.CFrame = CFrame.new(ORIGIN.X + side * (WIDTH / 2 - 0.3), ORIGIN.Y + HEIGHT / 2, ribZ)
+			props.Color = theme.Wall:Lerp(Color3.new(0, 0, 0), 0.12)
+			newPart(folder, "Wall", props)
+		end
+	end
+
+	-- Big double gate marks the start of every new zone.
+	if isZoneStart then
+		for _, offset in { 0, -2 } do
+			trim(Vector3.new(WIDTH, 1, 1), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT - 0.5, startZ + offset))
+			trim(Vector3.new(1, HEIGHT, 1), Vector3.new(ORIGIN.X - WIDTH / 2 + 0.5, ORIGIN.Y + HEIGHT / 2, startZ + offset))
+			trim(Vector3.new(1, HEIGHT, 1), Vector3.new(ORIGIN.X + WIDTH / 2 - 0.5, ORIGIN.Y + HEIGHT / 2, startZ + offset))
+		end
+	end
+
+	if roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
+		-- Difficulty climbs inside each zone and keeps climbing zone to zone.
+		local inZone = (roomIndex % Config.ROOMS_PER_CHECKPOINT) / Config.ROOMS_PER_CHECKPOINT
+		local difficulty = math.min(inZone * 0.6 + zone * 0.15, 1)
+
+		local groups = 1
+		if rng:NextNumber() < difficulty then
+			groups += 1
+		end
+		if rng:NextNumber() < difficulty * 0.6 then
+			groups += 1
+		end
+		for group = 1, groups do
+			self:addObstacle(room, startZ - LENGTH * group / (groups + 1), zone)
+		end
+
+		for _ = 1, rng:NextInteger(1, 2) do
+			local position = Vector3.new(
+				ORIGIN.X + rng:NextNumber(-7, 7),
+				ORIGIN.Y + rng:NextNumber(3, HEIGHT - 3),
+				startZ - rng:NextNumber(10, LENGTH - 10)
+			)
+			self:addCrystal(room, position)
+		end
+	end
+
+	folder.Parent = self.folder
+	self.rooms[roomIndex] = room
+end
+
+-- Call every frame with the camera's Z position.
+function TrackBuilder:update(cameraZ, dt)
+	local spin = CFrame.Angles(0, dt * 2, 0)
+	for _, room in self.rooms do
+		for _, crystal in room.crystals do
+			if crystal.Parent and crystal.CanQuery then
+				crystal.CFrame = crystal.CFrame * spin
+			end
+		end
+	end
+
+	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - Config.ROOMS_AHEAD * LENGTH do
+		self:buildRoom(self.nextRoom)
+		self.nextRoom += 1
+	end
+
+	for roomIndex, room in self.rooms do
+		local endZ = TrackBuilder.roomStartZ(roomIndex) - LENGTH
+		if endZ > cameraZ + 10 then
+			room.folder:Destroy()
+			self.rooms[roomIndex] = nil
+		end
+	end
+end
+
+-- Everything you can crash into: unbroken glass and closed doors.
+function TrackBuilder:hazards()
+	local result = {}
+	for _, room in self.rooms do
+		for _, glass in room.glass do
+			if glass.Parent then
+				table.insert(result, glass)
+			end
+		end
+		for _, door in room.doors do
+			if not door.open then
+				for _, panel in door.panels do
+					table.insert(result, panel)
+				end
+			end
+		end
+	end
+	return result
+end
+
+function TrackBuilder:destroy()
+	self.folder:Destroy()
+end
+
+return TrackBuilder
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="23">
+          <Properties>
+            <string name="Name">UI</string>
+            <string name="Source"><![CDATA[--[[
+	All on-screen UI: menu, HUD, game over, toasts and damage effects.
+
+	Look: "Glass Lab" technical annotation laid over the world. Paper panels,
+	ink hairlines, sharp corners, hard offset shadows, and one accent color that
+	follows the current zone theme (see setTheme). Red is reserved for damage
+	and revive.
+
+	Layout is drawn on a 600x340 reference sheet. Every block carries a UIScale
+	that is refit whenever the screen changes size, so a 640x360 phone and a
+	1080p monitor get the same composition (touch targets stay >= 44px on phones).
+]]
+
+local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local player = Players.LocalPlayer
+
+local UI = {}
+UI.__index = UI
+
+-- Look -----------------------------------------------------------------------
+local PAPER = Color3.fromRGB(244, 241, 234)
+local INK = Color3.fromRGB(17, 17, 17)
+local GREY = Color3.fromRGB(112, 108, 100)
+local DANGER = Color3.fromRGB(240, 38, 38)
+
+local FONT_NUM = Enum.Font.Michroma -- numbers, titles, buttons
+local FONT_LABEL = Enum.Font.RobotoMono -- small uppercase annotation
+
+local REF_W, REF_H = 600, 340
+local SCALE_MIN, SCALE_MAX = 0.8, 2
+local HUD_SCALE = 0.85 -- HUD plates are drawn a bit smaller than menus
+local SHADOW = 4 -- hard shadow offset behind buttons
+local EDGE = 12 -- distance from the safe-area edge
+local LOW_BALLS = 5
+local TAB_H = 44
+local FOOTER_H = 18
+
+local ZONE_CARD_TIME = 1.6
+local TOAST_TIME = 2
+local MAX_TOASTS = 3
+
+local PASS_ORDER = { "VIP", "Multiball", "Checkpoints" }
+local PASS_INFO = {
+	VIP = {
+		code = "VIP",
+		title = "VIP PASS",
+		copy = string.format(
+			"%dX GEMS + %d EXTRA BALLS EVERY RUN",
+			Config.GamePasses.VIP.GemMultiplier or 2,
+			Config.GamePasses.VIP.ExtraStartBalls or 0
+		),
+	},
+	Multiball = { code = "x2", title = "MULTIBALL", copy = "NEVER DROP BELOW x2 MULTIBALL" },
+	Checkpoints = { code = "CP", title = "CHECKPOINTS", copy = "START FROM ANY ZONE YOU'VE REACHED" },
+}
+
+local TOAST_KINDS = {
+	multiball = { tag = "MULTIBALL", accent = true },
+	reward = { tag = "REWARD", accent = true },
+	info = { tag = "NOTE", accent = false },
+	error = { tag = "ERROR", accent = false, hatch = true },
+}
+
+local rng = Random.new()
+
+-- Shared registries (one UI per client) ---------------------------------------
+
+local accentColor = Config.Themes[1].Accent
+local accentTargets = {} -- instance -> property (pruned in setTheme once unparented)
+local scalers = {} -- { uiScale, multiplier }
+local textCaps = {} -- { constraint, label, max, min }
+local currentScale = 1
+
+-- Small helpers ----------------------------------------------------------------
+
+local function tween(inst, time, props, style, direction)
+	local t = TweenService:Create(
+		inst,
+		TweenInfo.new(time, style or Enum.EasingStyle.Quint, direction or Enum.EasingDirection.Out),
+		props
+	)
+	t:Play()
+	return t
+end
+
+local function commas(n)
+	local s = tostring(math.floor(tonumber(n) or 0))
+	local sign, digits = string.match(s, "^(-?)(%d+)$")
+	if not digits then
+		return s
+	end
+	local out = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
+	if string.sub(out, 1, 1) == "," then
+		out = string.sub(out, 2)
+	end
+	return sign .. out
+end
+
+local function twoDigits(n)
+	return string.format("%02d", math.max(0, math.floor(tonumber(n) or 0)))
+end
+
+local function clock(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	return string.format("%02d:%02d:%02d", seconds // 3600, (seconds % 3600) // 60, seconds % 60)
+end
+
+local function themeFor(zone)
+	return Config.Themes[zone % #Config.Themes + 1]
+end
+
+local function ownedSkins()
+	local owned = { Default = true }
+	local raw = player:GetAttribute("OwnedSkins")
+	if type(raw) == "string" then
+		local ok, list = pcall(HttpService.JSONDecode, HttpService, raw)
+		if ok and type(list) == "table" then
+			for _, id in list do
+				if type(id) == "string" then
+					owned[id] = true
+				end
+			end
+		end
+	end
+	return owned
+end
+
+local function hasPass(key)
+	return player:GetAttribute("Pass_" .. key) == true
+end
+
+-- Prices are fetched once per id and cached; waiters are called when it lands.
+local priceCache = {}
+local priceWaiters = {}
+
+local function withPrice(id, infoType, onPrice)
+	if not id or id == 0 then
+		return
+	end
+	local key = tostring(infoType) .. ":" .. tostring(id)
+	local cached = priceCache[key]
+	if cached ~= nil then
+		if cached then
+			onPrice(cached)
+		end
+		return
+	end
+	if priceWaiters[key] then
+		table.insert(priceWaiters[key], onPrice)
+		return
+	end
+	priceWaiters[key] = { onPrice }
+	task.spawn(function()
+		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, infoType)
+		local price = ok and type(info) == "table" and info.PriceInRobux or false
+		priceCache[key] = price
+		local waiters = priceWaiters[key]
+		priceWaiters[key] = nil
+		if price then
+			for _, waiter in waiters do
+				task.spawn(waiter, price)
+			end
+		end
+	end)
+end
+
+-- Builders -------------------------------------------------------------------------
+
+-- Creates an instance. Non-button GuiObjects are never Active, so nothing but
+-- real buttons can swallow a tap meant for throwing.
+local function new(className, props, children)
+	local inst = Instance.new(className)
+	if inst:IsA("GuiObject") then
+		inst.BorderSizePixel = 0
+		if not inst:IsA("GuiButton") then
+			inst.Active = false
+		end
+	end
+	local parent = nil
+	if props then
+		for key, value in props do
+			if key == "Parent" then
+				parent = value
+			else
+				(inst :: any)[key] = value
+			end
+		end
+	end
+	if children then
+		for _, child in children do
+			child.Parent = inst
+		end
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+
+local function text(props)
+	local merged = {
+		BackgroundTransparency = 1,
+		Font = FONT_LABEL,
+		TextColor3 = INK,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = "",
+	}
+	for key, value in props do
+		merged[key] = value
+	end
+	return new("TextLabel", merged)
+end
+
+local function setAccent(inst, prop)
+	inst[prop] = accentColor
+	accentTargets[inst] = prop
+	return inst
+end
+
+local function clearAccent(inst)
+	accentTargets[inst] = nil
+end
+
+local function fit(guiObject, multiplier)
+	local s = new("UIScale", { Scale = currentScale * (multiplier or 1), Parent = guiObject })
+	table.insert(scalers, { s, multiplier or 1 })
+	return s
+end
+
+local function effectiveScale(inst)
+	local s = 1
+	local node = inst
+	while node and not node:IsA("LayerCollector") do
+		local scale = node:FindFirstChildOfClass("UIScale")
+		if scale then
+			s *= scale.Scale
+		end
+		node = node.Parent
+	end
+	return s
+end
+
+local function applyCap(entry)
+	local constraint, label, max, min = entry[1], entry[2], entry[3], entry[4]
+	if constraint.Parent == nil then
+		return
+	end
+	constraint.MaxTextSize = math.clamp(math.floor(max * effectiveScale(label) + 0.5), min, 100)
+end
+
+-- TextScaled that stops at the designed size (scaled with the sheet), so text
+-- only ever shrinks to fit and never balloons on big screens.
+local function capText(label, max, min)
+	label.TextScaled = true
+	local constraint = new("UITextSizeConstraint", { MaxTextSize = max, MinTextSize = min or 7, Parent = label })
+	local entry = { constraint, label, max, min or 7 }
+	-- Menus rebuild rows often; drop entries for labels that were destroyed.
+	if #textCaps > 200 then
+		local alive = {}
+		for _, existing in textCaps do
+			if existing[1].Parent ~= nil then
+				table.insert(alive, existing)
+			end
+		end
+		textCaps = alive
+	end
+	table.insert(textCaps, entry)
+	task.defer(applyCap, entry)
+	return label
+end
+
+local function stroke(parent, thickness, color, transparency)
+	return new("UIStroke", {
+		Thickness = thickness or 1,
+		Color = color or INK,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		LineJoinMode = Enum.LineJoinMode.Miter,
+		Parent = parent,
+	})
+end
+
+local function rule(parent, props)
+	local merged = { BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 1) }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	return new("Frame", merged)
+end
+
+-- Registration ticks just outside each corner, like print crop marks.
+local function cropMarks(parent, len, gap, transparency)
+	for _, corner in { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } do
+		local sx, sy = corner[1], corner[2]
+		local dx, dy = sx * 2 - 1, sy * 2 - 1
+		rule(parent, {
+			Name = "Crop",
+			BackgroundTransparency = transparency or 0,
+			AnchorPoint = Vector2.new(1 - sx, 0.5),
+			Position = UDim2.new(sx, dx * gap, sy, 0),
+			Size = UDim2.fromOffset(len, 1),
+		})
+		rule(parent, {
+			Name = "Crop",
+			BackgroundTransparency = transparency or 0,
+			AnchorPoint = Vector2.new(0.5, 1 - sy),
+			Position = UDim2.new(sx, 0, sy, dy * gap),
+			Size = UDim2.fromOffset(1, len),
+		})
+	end
+end
+
+-- L-shaped viewfinder brackets inside each corner.
+local function brackets(parent, len, thickness, transparency)
+	for _, corner in { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } do
+		local anchor = Vector2.new(corner[1], corner[2])
+		local position = UDim2.fromScale(corner[1], corner[2])
+		for _, size in { UDim2.fromOffset(len, thickness), UDim2.fromOffset(thickness, len) } do
+			rule(parent, {
+				Name = "Bracket",
+				BackgroundTransparency = transparency or 0,
+				AnchorPoint = anchor,
+				Position = position,
+				Size = size,
+			})
+		end
+	end
+end
+
+-- A solid triangle filling one corner (cx, cy in {0, 1}): the chamfered/cut-corner mark.
+-- Built from a square with a hard-stepped diagonal gradient, so it needs no image.
+local function notch(parent, size, cx, cy, color)
+	local frame = new("Frame", {
+		Name = "Notch",
+		AnchorPoint = Vector2.new(cx, cy),
+		Position = UDim2.fromScale(cx, cy),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = color or INK,
+		Parent = parent,
+	})
+	if color == nil then
+		setAccent(frame, "BackgroundColor3")
+	end
+	new("UIGradient", {
+		Rotation = math.deg(math.atan2(cy * 2 - 1, cx * 2 - 1)),
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.499, 1),
+			NumberSequenceKeypoint.new(0.501, 0),
+			NumberSequenceKeypoint.new(1, 0),
+		}),
+		Parent = frame,
+	})
+	return frame
+end
+
+-- Diagonal hazard hatching from a striped transparency gradient.
+local function hatch(parent, props, color, transparency, stripes)
+	local frame = new("Frame", props)
+	frame.BackgroundColor3 = color
+	frame.BackgroundTransparency = transparency or 0
+	frame.Parent = parent
+	local keys = {}
+	local count = stripes or 4
+	local e = 0.001
+	for i = 0, count - 1 do
+		local a = i / count
+		local m = a + 0.5 / count
+		table.insert(keys, NumberSequenceKeypoint.new(a, 0))
+		table.insert(keys, NumberSequenceKeypoint.new(m - e, 0))
+		table.insert(keys, NumberSequenceKeypoint.new(m, 1))
+		table.insert(keys, NumberSequenceKeypoint.new((i + 1) / count - e, 1))
+	end
+	table.insert(keys, NumberSequenceKeypoint.new(1, 0))
+	new("UIGradient", { Rotation = 60, Transparency = NumberSequence.new(keys), Parent = frame })
+	return frame
+end
+
+-- The gem mark: an accent diamond with an ink outline.
+local function gemIcon(parent, size, position)
+	local diamond = new("Frame", {
+		Name = "Gem",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.fromOffset(size, size),
+		Rotation = 45,
+		Parent = parent,
+	})
+	setAccent(diamond, "BackgroundColor3")
+	stroke(diamond, 1)
+	return diamond
+end
+
+local function blueprintGrid(parent, columns, rows, transparency)
+	local grid = new("Frame", { Name = "Grid", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = parent })
+	for i = 1, columns - 1 do
+		rule(grid, { BackgroundTransparency = transparency, Position = UDim2.fromScale(i / columns, 0), Size = UDim2.new(0, 1, 1, 0) })
+	end
+	for i = 1, rows - 1 do
+		rule(grid, { BackgroundTransparency = transparency, Position = UDim2.fromScale(0, i / rows), Size = UDim2.new(1, 0, 0, 1) })
+	end
+	return grid
+end
+
+-- A full-bleed frame that also covers the notch / home-bar areas outside the safe insets.
+local function bleed(parent, props)
+	local merged = { Position = UDim2.fromOffset(-200, -200), Size = UDim2.new(1, 400, 1, 400) }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	return new("Frame", merged)
+end
+
+-- Ruler strip: ticks every `spacing` px, taller every `major` ticks.
+local function rulerTicks(parent, width, height, spacing, major, transparency)
+	local count = math.floor(width / spacing)
+	for i = 0, count do
+		local isMajor = i % major == 0
+		rule(parent, {
+			BackgroundTransparency = transparency or 0,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, i * spacing, 1, 0),
+			Size = UDim2.fromOffset(1, if isMajor then height else math.floor(height * 0.45)),
+		})
+	end
+end
+
+local FILLS = {
+	accent = { text = INK },
+	paper = { bg = PAPER, text = INK },
+	ink = { bg = INK, text = PAPER },
+	danger = { bg = DANGER, text = PAPER },
+}
+
+--[[
+	Poster-style button: a face with a 2px ink outline sitting on a solid ink
+	block offset by SHADOW px. It presses down 2px while held.
+	opts: Name, Size, Position, AnchorPoint, LayoutOrder, Fill, Text, TextSize,
+	Align, Index (small label top-left), Sub (small second line), OnClick
+]]
+local function hardButton(parent, opts)
+	local holder = new("Frame", {
+		Name = opts.Name or "Button",
+		BackgroundTransparency = 1,
+		Size = opts.Size,
+		Position = opts.Position or UDim2.new(),
+		AnchorPoint = opts.AnchorPoint or Vector2.zero,
+		LayoutOrder = opts.LayoutOrder or 0,
+		Parent = parent,
+	})
+	local shadow = new("Frame", {
+		Name = "Shadow",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(SHADOW, SHADOW),
+		Size = UDim2.new(1, -SHADOW, 1, -SHADOW),
+		Parent = holder,
+	})
+	local face = new("TextButton", {
+		Name = "Face",
+		AutoButtonColor = false,
+		Text = "",
+		BackgroundColor3 = PAPER,
+		Size = UDim2.new(1, -SHADOW, 1, -SHADOW),
+		Parent = holder,
+	})
+	stroke(face, 2)
+
+	local align = opts.Align or Enum.TextXAlignment.Center
+	local top = if opts.Index then 11 else 0
+	local split = if opts.Sub then 0.6 else 1
+
+	local index = nil
+	if opts.Index then
+		index = text({
+			Name = "Index",
+			Text = opts.Index,
+			TextSize = 8,
+			Position = UDim2.fromOffset(8, 4),
+			Size = UDim2.new(1, -16, 0, 9),
+			Parent = face,
+		})
+	end
+	local label = text({
+		Name = "Label",
+		Font = FONT_NUM,
+		Text = opts.Text or "",
+		TextXAlignment = align,
+		TextYAlignment = if opts.Sub then Enum.TextYAlignment.Bottom else Enum.TextYAlignment.Center,
+		Position = UDim2.new(0, 8, 0, top),
+		Size = UDim2.new(1, -16, split, -top),
+		Parent = face,
+	})
+	capText(label, opts.TextSize or 13, 7)
+	local sub = nil
+	if opts.Sub then
+		sub = text({
+			Name = "Sub",
+			Text = opts.Sub,
+			TextSize = 9,
+			TextXAlignment = align,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Position = UDim2.new(0, 8, split, 1),
+			Size = UDim2.new(1, -16, 1 - split, -2),
+			Parent = face,
+		})
+	end
+
+	local button = { holder = holder, face = face, label = label, sub = sub, index = index, enabled = true }
+
+	function button.setFill(kind)
+		local fill = FILLS[kind] or FILLS.paper
+		if kind == "accent" then
+			setAccent(face, "BackgroundColor3")
+		else
+			clearAccent(face)
+			face.BackgroundColor3 = fill.bg
+		end
+		label.TextColor3 = fill.text
+		if sub then
+			sub.TextColor3 = fill.text
+		end
+		if index then
+			index.TextColor3 = fill.text
+		end
+	end
+
+	function button.setEnabled(enabled)
+		button.enabled = enabled
+		shadow.Visible = enabled
+		face.Position = if enabled then UDim2.new() else UDim2.fromOffset(2, 2)
+		label.TextTransparency = if enabled then 0 else 0.35
+	end
+
+	function button.setText(value)
+		label.Text = value
+	end
+
+	local function release()
+		if button.enabled then
+			tween(face, 0.18, { Position = UDim2.new() }, Enum.EasingStyle.Back)
+		end
+	end
+
+	face.MouseButton1Down:Connect(function()
+		if button.enabled then
+			tween(face, 0.06, { Position = UDim2.fromOffset(2, 2) })
+		end
+	end)
+	face.MouseButton1Up:Connect(release)
+	face.MouseLeave:Connect(release)
+	face.Activated:Connect(function()
+		release()
+		if button.enabled and opts.OnClick then
+			opts.OnClick()
+		end
+	end)
+
+	button.setFill(opts.Fill or "paper")
+	return button
+end
+
+local function sectionHeader(parent, order, index, title)
+	local row = new("Frame", {
+		Name = title,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 20),
+		LayoutOrder = order,
+		Parent = parent,
+	})
+	text({ Text = index .. "  " .. title, TextSize = 10, Size = UDim2.new(0.6, 0, 1, -3), Parent = row })
+	local right = text({
+		Text = "",
+		TextSize = 9,
+		TextColor3 = GREY,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromScale(0.35, 0),
+		Size = UDim2.new(0.65, 0, 1, -3),
+		Parent = row,
+	})
+	rule(row, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1) })
+	local tick = new("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.fromOffset(18, 3),
+		Parent = row,
+	})
+	setAccent(tick, "BackgroundColor3")
+	return row, right
+end
+
+local function list(parent, padding)
+	return new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, padding or 0),
+		Parent = parent,
+	})
+end
+
+local function clearRows(container)
+	for _, child in container:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+end
+
+-- Menu ---------------------------------------------------------------------------------
+
+function UI._buildMenu(self)
+	local m = {}
+	self._menu = m
+
+	local root = new("Frame", { Name = "Menu", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = self.gui })
+	m.root = root
+
+	-- Paper wash on the left so the logotype reads; the corridor stays visible on the right.
+	local wash = bleed(root, { Name = "Wash", BackgroundColor3 = PAPER })
+	new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.05),
+			NumberSequenceKeypoint.new(0.32, 0.2),
+			NumberSequenceKeypoint.new(0.58, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+		Parent = wash,
+	})
+	blueprintGrid(root, 12, 8, 0.93)
+
+	-- Vanishing-point crosshair over the track preview.
+	local cross = new("Frame", {
+		Name = "Crosshair",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(22, 22),
+		Parent = root,
+	})
+	fit(cross)
+	rule(cross, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), BackgroundTransparency = 0.3 })
+	rule(cross, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.new(0, 1, 1, 0), BackgroundTransparency = 0.3 })
+	text({ Text = "VP / 0 M", TextSize = 8, Position = UDim2.fromOffset(14, 13), Size = UDim2.fromOffset(60, 10), TextTransparency = 0.3, Parent = cross })
+
+	self:_buildMenuLeft(root)
+	self:_buildMenuPanel(root)
+end
+
+function UI._buildMenuLeft(self, root)
+	local m = self._menu
+	local left = new("Frame", {
+		Name = "Left",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, EDGE + 4, 0.5, 0),
+		Size = UDim2.fromOffset(256, 300),
+		Parent = root,
+	})
+	fit(left)
+	m.left = left
+
+	-- Index line
+	local chip = new("Frame", { Position = UDim2.fromOffset(0, 3), Size = UDim2.fromOffset(6, 6), Parent = left })
+	setAccent(chip, "BackgroundColor3")
+	text({ Text = "SR-01 / GLASS LAB / FIELD TEST", TextSize = 8, Position = UDim2.fromOffset(12, 0), Size = UDim2.fromOffset(244, 12), Parent = left })
+
+	-- Logotype: SHATTER is split along a crack, the right shard knocked out of
+	-- register, with an accent misprint behind it. RUN sits in a solid ink block.
+	local logo = new("Frame", { Name = "Logo", BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 16), Size = UDim2.fromOffset(256, 50), Parent = left })
+	local function word(parent, props)
+		local merged = { Text = "SHATTER", Font = FONT_NUM, TextYAlignment = Enum.TextYAlignment.Center }
+		for key, value in props do
+			merged[key] = value
+		end
+		merged.Parent = parent
+		return capText(text(merged), 46, 20)
+	end
+	local ghost = word(logo, { Position = UDim2.fromOffset(3, 3), Size = UDim2.fromScale(1, 1) })
+	setAccent(ghost, "TextColor3")
+	local SPLIT = 0.57
+	local leftShard = new("Frame", { BackgroundTransparency = 1, ClipsDescendants = true, Size = UDim2.fromScale(SPLIT, 1), Parent = logo })
+	word(leftShard, { Size = UDim2.fromScale(1 / SPLIT, 1) })
+	local rightShard = new("Frame", {
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Position = UDim2.new(SPLIT, 2, 0, 3),
+		Size = UDim2.fromScale(1 - SPLIT, 1),
+		Parent = logo,
+	})
+	word(rightShard, { Position = UDim2.fromScale(-SPLIT / (1 - SPLIT), 0), Size = UDim2.fromScale(1 / (1 - SPLIT), 1) })
+	new("Frame", {
+		Name = "Crack",
+		BackgroundColor3 = PAPER,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(SPLIT, 1, 0.5, 0),
+		Size = UDim2.fromOffset(3, 62),
+		Rotation = 16,
+		Parent = logo,
+	})
+	rule(logo, {
+		Name = "CrackLine",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(SPLIT, 5, 0.5, 6),
+		Size = UDim2.fromOffset(1, 78),
+		Rotation = 16,
+	})
+
+	local runBlock = new("Frame", { Name = "Run", BackgroundColor3 = INK, Position = UDim2.fromOffset(0, 70), Size = UDim2.fromOffset(112, 40), Parent = left })
+	capText(text({ Text = "RUN", Font = FONT_NUM, TextColor3 = PAPER, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = runBlock }), 28, 12)
+	notch(runBlock, 10, 1, 0)
+	text({
+		Text = "GLIDE.\nTHROW.\nSHATTER.",
+		TextSize = 9,
+		LineHeight = 1.05,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Position = UDim2.fromOffset(122, 70),
+		Size = UDim2.fromOffset(134, 40),
+		Parent = left,
+	})
+
+	-- Stats strip
+	local stats = new("Frame", { Name = "Stats", BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 120), Size = UDim2.fromOffset(256, 46), Parent = left })
+	rule(stats, {})
+	rule(stats, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1) })
+	rule(stats, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 1, 1, -16) })
+	text({ Text = "BEST / M", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(0, 5), Size = UDim2.fromOffset(120, 10), Parent = stats })
+	m.best = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(0, 17), Size = UDim2.fromOffset(120, 22), Parent = stats }), 16, 8)
+	gemIcon(stats, 7, UDim2.fromOffset(140, 10))
+	text({ Text = "GEMS", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(150, 5), Size = UDim2.fromOffset(100, 10), Parent = stats })
+	m.gems = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(136, 17), Size = UDim2.fromOffset(120, 22), Parent = stats }), 16, 8)
+
+	-- PLAY
+	local play = hardButton(left, {
+		Name = "Play",
+		Fill = "accent",
+		Text = "PLAY",
+		TextSize = 26,
+		Align = Enum.TextXAlignment.Left,
+		Index = "A / START RUN / 0 M",
+		Position = UDim2.fromOffset(0, 178),
+		Size = UDim2.fromOffset(256, 66),
+		OnClick = function()
+			self:_fire("onPlay", 0)
+		end,
+	})
+	hatch(play.face, { Name = "Hatch", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 46, 1, -16) }, INK, 0, 4)
+	m.play = play
+
+	-- DAILY
+	local daily = hardButton(left, {
+		Name = "Daily",
+		Fill = "paper",
+		Text = "--:--:--",
+		TextSize = 13,
+		Align = Enum.TextXAlignment.Left,
+		Index = "B / DAILY",
+		Position = UDim2.fromOffset(0, 252),
+		Size = UDim2.fromOffset(256, 48),
+		OnClick = function()
+			self:_claimDaily()
+		end,
+	})
+	m.daily = daily
+end
+
+function UI._buildMenuPanel(self, root)
+	local m = self._menu
+	local panel = new("Frame", {
+		Name = "Panel",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.03,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -(EDGE + 4), 0.5, 0),
+		Size = UDim2.fromOffset(290, 300),
+		Parent = root,
+	})
+	fit(panel)
+	stroke(panel, 1.5)
+	cropMarks(panel, 8, 4)
+	notch(panel, 14, 1, 1)
+	m.panel = panel
+
+	-- Tabs
+	m.tabs = {}
+	local names = { "PLAY", "ZONES", "SHOP" }
+	for i, name in names do
+		local button = new("TextButton", {
+			Name = "Tab" .. name,
+			AutoButtonColor = false,
+			Text = "",
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 1,
+			Position = UDim2.new((i - 1) / 3, 0, 0, 0),
+			Size = UDim2.new(1 / 3, 0, 0, TAB_H),
+			Parent = panel,
+		})
+		local index = text({ Text = twoDigits(i), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(7, 5), Size = UDim2.fromOffset(30, 9), Parent = button })
+		local label = capText(text({
+			Text = name,
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(4, 16),
+			Size = UDim2.new(1, -8, 0, 20),
+			Parent = button,
+		}), 11, 7)
+		local bar = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 3), Visible = false, Parent = button })
+		setAccent(bar, "BackgroundColor3")
+		if i > 1 then
+			rule(button, { Size = UDim2.new(0, 1, 1, 0), BackgroundTransparency = 0.6 })
+		end
+		local page = new("ScrollingFrame", {
+			Name = name .. "Page",
+			Active = true,
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(0, TAB_H + 1),
+			Size = UDim2.new(1, 0, 1, -(TAB_H + 1 + FOOTER_H)),
+			CanvasSize = UDim2.new(),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+			ScrollBarThickness = 3,
+			ScrollBarImageColor3 = INK,
+			VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+			Visible = false,
+			Parent = panel,
+		})
+		new("UIPadding", {
+			PaddingLeft = UDim.new(0, 9),
+			PaddingRight = UDim.new(0, 6),
+			PaddingTop = UDim.new(0, 8),
+			PaddingBottom = UDim.new(0, 10),
+			Parent = page,
+		})
+		list(page, 6)
+		button.Activated:Connect(function()
+			self:_selectTab(i)
+		end)
+		m.tabs[i] = { button = button, index = index, label = label, bar = bar, page = page, name = name }
+	end
+	rule(panel, { Position = UDim2.fromOffset(0, TAB_H) })
+
+	-- Footer
+	local footer = new("Frame", { Name = "Footer", BackgroundTransparency = 1, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, FOOTER_H), Parent = panel })
+	rule(footer, { BackgroundTransparency = 0.5 })
+	m.footer = text({ Text = "SHEET 01 / 03", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(9, 1), Size = UDim2.new(0.5, -9, 1, -1), Parent = footer })
+	text({
+		Text = "SHATTER RUN / SPEC",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(0.5, 0, 0, 1),
+		Size = UDim2.new(0.5, -22, 1, -1),
+		Parent = footer,
+	})
+
+	-- 01 PLAY: global top runs + upgrades
+	local playPage = m.tabs[1].page
+	local _, runsRight = sectionHeader(playPage, 1, "01.1", "TOP RUNS")
+	runsRight.Text = "GLOBAL / TOP 10"
+	m.runs = new("Frame", { Name = "Runs", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, Parent = playPage })
+	list(m.runs, 0)
+	m.passHeader = sectionHeader(playPage, 3, "01.2", "UPGRADES")
+	m.passes = new("Frame", { Name = "Passes", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 4, Parent = playPage })
+	list(m.passes, 8)
+
+	-- 02 ZONES
+	local zonesPage = m.tabs[2].page
+	local _, zonesRight = sectionHeader(zonesPage, 1, "02.1", "ZONES")
+	m.zonesRight = zonesRight
+	m.zones = new("Frame", { Name = "Zones", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, Parent = zonesPage })
+	list(m.zones, 0)
+
+	-- 03 SHOP
+	local shopPage = m.tabs[3].page
+	local _, gemsRight = sectionHeader(shopPage, 1, "03.1", "GEMS")
+	m.shopGems = gemsRight
+	if Config.Products.GemPack.Id ~= 0 then
+		self:_buildGemPack(shopPage, 2)
+	end
+	local _, skinsRight = sectionHeader(shopPage, 3, "03.2", "BALL SKINS")
+	m.skinsRight = skinsRight
+	local grid = new("Frame", { Name = "Skins", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 4, Parent = shopPage })
+	new("UIGridLayout", {
+		CellSize = UDim2.new(0.5, -4, 0, 160),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+	m.skinCards = {}
+	for order, skin in Config.Skins do
+		m.skinCards[skin.Id] = self:_buildSkinCard(grid, skin, order)
+	end
+end
+
+function UI._buildGemPack(self, parent, order)
+	local product = Config.Products.GemPack
+	local card = new("Frame", { Name = "GemPack", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = parent })
+	stroke(card, 1, INK, 0.5)
+	notch(card, 10, 0, 0)
+	gemIcon(card, 20, UDim2.fromOffset(28, 30))
+	capText(text({
+		Text = "+" .. commas(product.Gems) .. " GEMS",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(52, 12),
+		Size = UDim2.new(1, -140, 0, 20),
+		Parent = card,
+	}), 14, 8)
+	text({ Text = "GEM PACK / INSTANT", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(52, 34), Size = UDim2.new(1, -140, 0, 10), Parent = card })
+	local buy = hardButton(card, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 12,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 0),
+		Size = UDim2.fromOffset(78, 50),
+		OnClick = function()
+			self:_fire("onBuyProduct", "GemPack")
+		end,
+	})
+	withPrice(product.Id, Enum.InfoType.Product, function(price)
+		buy.sub.Text = "R$ " .. commas(price)
+	end)
+end
+
+function UI._buildSkinCard(self, parent, skin, order)
+	local card = new("Frame", { Name = skin.Id, BackgroundTransparency = 1, LayoutOrder = order, Parent = parent })
+	local outline = stroke(card, 1, INK, 0.5)
+
+	local swatch = new("Frame", { Name = "Swatch", BackgroundColor3 = skin.Color, Position = UDim2.fromOffset(6, 6), Size = UDim2.new(1, -12, 0, 58), Parent = card })
+	stroke(swatch, 1)
+	if skin.Rainbow then
+		local keys = {}
+		for i = 0, 6 do
+			table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6, 0.75, 1)))
+		end
+		new("UIGradient", { Color = ColorSequence.new(keys), Rotation = 20, Parent = swatch })
+	end
+	if skin.Trail then
+		new("Frame", { Name = "Trail", BackgroundColor3 = skin.Trail, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 6), Parent = swatch })
+	end
+	-- Sample crosshair
+	local dark = (skin.Color.R + skin.Color.G + skin.Color.B) < 1.2
+	local markColor = if dark then PAPER else INK
+	rule(swatch, { BackgroundColor3 = markColor, BackgroundTransparency = 0.55, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(14, 1) })
+	rule(swatch, { BackgroundColor3 = markColor, BackgroundTransparency = 0.55, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(1, 14) })
+	text({ Text = "S-" .. twoDigits(order), TextSize = 8, TextColor3 = markColor, Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(40, 10), Parent = swatch })
+	text({
+		Text = string.upper(skin.Material.Name),
+		TextSize = 8,
+		TextColor3 = markColor,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(1, -64, 0, 2),
+		Size = UDim2.fromOffset(60, 10),
+		Parent = swatch,
+	})
+
+	capText(text({ Text = string.upper(skin.Name), Font = FONT_NUM, Position = UDim2.fromOffset(6, 70), Size = UDim2.new(1, -12, 0, 16), Parent = card }), 12, 7)
+	local price = text({
+		Text = if skin.Price > 0 then commas(skin.Price) .. " GEMS" else "STANDARD ISSUE",
+		TextSize = 9,
+		TextColor3 = GREY,
+		Position = UDim2.fromOffset(6, 88),
+		Size = UDim2.new(1, -12, 0, 12),
+		Parent = card,
+	})
+
+	local entry = { skin = skin, outline = outline, price = price, busy = false }
+	entry.button = hardButton(card, {
+		Name = "Action",
+		Fill = "ink",
+		Text = "BUY",
+		TextSize = 11,
+		Position = UDim2.fromOffset(6, 106),
+		Size = UDim2.new(1, -12, 0, 48),
+		OnClick = function()
+			self:_skinAction(entry)
+		end,
+	})
+	return entry
+end
+
+function UI._selectTab(self, index)
+	local m = self._menu
+	m.tab = index
+	for i, tab in m.tabs do
+		local active = i == index
+		tab.button.BackgroundTransparency = if active then 0 else 1
+		tab.label.TextColor3 = if active then PAPER else INK
+		if active then
+			setAccent(tab.index, "TextColor3")
+		else
+			clearAccent(tab.index)
+			tab.index.TextColor3 = GREY
+		end
+		tab.bar.Visible = active
+		tab.page.Visible = active
+		if active then
+			tab.page.CanvasPosition = Vector2.zero
+			tab.page.Position = UDim2.fromOffset(14, TAB_H + 1)
+			tween(tab.page, 0.22, { Position = UDim2.fromOffset(0, TAB_H + 1) })
+			m.footer.Text = "SHEET " .. twoDigits(i) .. " / 03 / " .. tab.name
+		end
+	end
+end
+
+-- Menu data ---------------------------------------------------------------------------------
+
+function UI._refreshStats(self)
+	local m = self._menu
+	m.best.Text = commas(player:GetAttribute("Best") or 0)
+	local gems = commas(player:GetAttribute("Gems") or 0)
+	m.gems.Text = gems
+	m.shopGems.Text = "BALANCE " .. gems
+	self:_refreshSkins()
+end
+
+function UI._refreshDaily(self)
+	local daily = self._menu.daily
+	if self._dailyBusy then
+		return
+	end
+	local nextDaily = player:GetAttribute("NextDaily")
+	local now = os.time()
+	local ready = type(nextDaily) == "number" and now >= nextDaily
+	if ready ~= self._dailyReady then
+		self._dailyReady = ready
+		daily.setFill(if ready then "accent" else "paper")
+		daily.setEnabled(ready)
+		daily.index.Text = if ready then "B / DAILY / READY" else "B / DAILY / NEXT IN"
+	end
+	if ready then
+		daily.setText("CLAIM +" .. commas(Config.DAILY_REWARD_GEMS))
+	elseif type(nextDaily) == "number" then
+		daily.setText(clock(nextDaily - now))
+	else
+		daily.setText("--:--:--")
+	end
+end
+
+function UI._claimDaily(self)
+	if self._dailyBusy or not self._dailyReady then
+		return
+	end
+	self._dailyBusy = true
+	local daily = self._menu.daily
+	daily.setEnabled(false)
+	daily.setText("CLAIMING")
+	task.spawn(function()
+		local ok, message = self:_ask("onClaimDaily")
+		self._dailyBusy = false
+		self._dailyReady = nil
+		if ok then
+			self:toast("+" .. commas(Config.DAILY_REWARD_GEMS) .. " GEMS", "reward")
+		else
+			self:toast(message or "COULD NOT CLAIM", "error")
+		end
+		self:_refreshDaily()
+	end)
+end
+
+function UI._rebuildTopRuns(self)
+	local container = self._menu.runs
+	clearRows(container)
+
+	local raw = ReplicatedStorage:GetAttribute("TopRuns")
+	local runs = nil
+	if type(raw) == "string" then
+		local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+		if ok and type(decoded) == "table" then
+			runs = decoded
+		end
+	end
+
+	if runs == nil or #runs == 0 then
+		text({
+			Text = if runs == nil then "LOADING" else "NO RUNS YET / BE THE FIRST",
+			TextSize = 9,
+			TextColor3 = GREY,
+			Size = UDim2.new(1, 0, 0, 28),
+			Parent = container,
+		})
+		return
+	end
+
+	for i, run in runs do
+		if i > 10 then
+			break
+		end
+		local name = string.upper(tostring(run.name or "???"))
+		local isMe = run.name == player.Name
+		local row = new("Frame", {
+			Name = "Run" .. i,
+			BackgroundColor3 = INK,
+			BackgroundTransparency = if isMe then 0 else 1,
+			Size = UDim2.new(1, 0, 0, 24),
+			LayoutOrder = i,
+			Parent = container,
+		})
+		local ink = if isMe then PAPER else INK
+		if (tonumber(run.rank) or i) == 1 then
+			local bar = new("Frame", { Size = UDim2.new(0, 3, 1, 0), Parent = row })
+			setAccent(bar, "BackgroundColor3")
+		end
+		local rank = text({ Text = twoDigits(run.rank or i), TextSize = 9, TextColor3 = if isMe then PAPER else GREY, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(0, 22, 1, 0), Parent = row })
+		if isMe then
+			setAccent(rank, "TextColor3")
+		end
+		text({
+			Text = name,
+			TextSize = 10,
+			TextColor3 = ink,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Position = UDim2.fromOffset(34, 0),
+			Size = UDim2.new(1, -124, 1, 0),
+			Parent = row,
+		})
+		capText(text({
+			Text = commas(run.meters or 0) .. " M",
+			Font = FONT_NUM,
+			TextColor3 = ink,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 0),
+			Size = UDim2.new(0, 86, 1, 0),
+			Parent = row,
+		}), 10, 7)
+		if not isMe then
+			rule(row, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), BackgroundTransparency = 0.85 })
+		end
+	end
+end
+
+function UI._rebuildPasses(self)
+	local m = self._menu
+	clearRows(m.passes)
+	local shown = 0
+	for order, key in PASS_ORDER do
+		local pass = Config.GamePasses[key]
+		if pass and pass.Id ~= 0 and not hasPass(key) then
+			shown += 1
+			local info = PASS_INFO[key]
+			local card = new("Frame", { Name = key, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = m.passes })
+			stroke(card, 1, INK, 0.5)
+			local code = new("Frame", { BackgroundColor3 = INK, Position = UDim2.fromOffset(6, 8), Size = UDim2.fromOffset(44, 44), Parent = card })
+			capText(setAccent(text({
+				Text = info.code,
+				Font = FONT_NUM,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Size = UDim2.fromScale(1, 1),
+				Parent = code,
+			}), "TextColor3"), 12, 7)
+			capText(text({ Text = info.title, Font = FONT_NUM, Position = UDim2.fromOffset(58, 8), Size = UDim2.new(1, -146, 0, 16), Parent = card }), 11, 7)
+			text({
+				Text = info.copy,
+				TextSize = 8,
+				TextColor3 = GREY,
+				TextWrapped = true,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				Position = UDim2.fromOffset(58, 26),
+				Size = UDim2.new(1, -146, 0, 28),
+				Parent = card,
+			})
+			local buy = hardButton(card, {
+				Name = "Buy",
+				Fill = "accent",
+				Text = "GET",
+				TextSize = 12,
+				Sub = "",
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -6, 0.5, 0),
+				Size = UDim2.fromOffset(78, 50),
+				OnClick = function()
+					self:_fire("onBuyPass", key)
+				end,
+			})
+			withPrice(pass.Id, Enum.InfoType.GamePass, function(price)
+				if buy.sub.Parent then
+					buy.sub.Text = "R$ " .. commas(price)
+				end
+			end)
+		end
+	end
+	m.passHeader.Visible = shown > 0
+	m.passes.Visible = shown > 0
+end
+
+function UI._rebuildZones(self)
+	local m = self._menu
+	clearRows(m.zones)
+	local reached = math.max(0, math.floor(tonumber(player:GetAttribute("Checkpoint")) or 0))
+	local unlocked = hasPass("Checkpoints")
+	m.zonesRight.Text = "REACHED " .. twoDigits(reached)
+
+	local passId = Config.GamePasses.Checkpoints.Id
+	if not unlocked and reached > 0 and passId ~= 0 then
+		local holder = new("Frame", { Name = "Unlock", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), LayoutOrder = 0, Parent = m.zones })
+		local unlock = hardButton(holder, {
+			Name = "UnlockAll",
+			Fill = "accent",
+			Text = "UNLOCK ALL ZONES",
+			TextSize = 12,
+			Sub = "",
+			Position = UDim2.fromOffset(0, 6),
+			Size = UDim2.new(1, 0, 0, 50),
+			OnClick = function()
+				self:_fire("onBuyPass", "Checkpoints")
+			end,
+		})
+		withPrice(passId, Enum.InfoType.GamePass, function(price)
+			if unlock.sub.Parent then
+				unlock.sub.Text = "R$ " .. commas(price)
+			end
+		end)
+	end
+
+	local function zoneRow(i, locked, uncharted)
+		local theme = themeFor(i)
+		local row = new("Frame", { Name = "Zone" .. i, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 56), LayoutOrder = i + 1, Parent = m.zones })
+		rule(row, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), BackgroundTransparency = 0.8 })
+
+		-- Two-tone chip: zone accent over its wall color.
+		local chip = new("Frame", {
+			BackgroundColor3 = theme.Accent,
+			BackgroundTransparency = if uncharted then 0.7 else 0,
+			Position = UDim2.fromOffset(0, 10),
+			Size = UDim2.fromOffset(36, 36),
+			Parent = row,
+		})
+		stroke(chip, 1.5, INK, if uncharted then 0.6 else 0)
+		new("Frame", {
+			BackgroundColor3 = theme.Wall,
+			BackgroundTransparency = if uncharted then 0.7 else 0,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.fromScale(0, 1),
+			Size = UDim2.new(1, 0, 0, 11),
+			Parent = chip,
+		})
+
+		local title = if i == 0 then "START" else "ZONE " .. twoDigits(i)
+		capText(text({
+			Text = title,
+			Font = FONT_NUM,
+			TextTransparency = if uncharted then 0.55 else 0,
+			Position = UDim2.fromOffset(46, 12),
+			Size = UDim2.new(1, -130, 0, 18),
+			Parent = row,
+		}), 13, 7)
+		text({
+			Text = (if uncharted then "UNCHARTED / " else "FROM ") .. commas(math.floor(Config.checkpointMeters(i) + 0.5)) .. " M",
+			TextSize = 9,
+			TextColor3 = GREY,
+			Position = UDim2.fromOffset(46, 32),
+			Size = UDim2.new(1, -130, 0, 12),
+			Parent = row,
+		})
+
+		if uncharted then
+			return
+		elseif locked then
+			local tag = new("Frame", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -4, 0.5, 0), Size = UDim2.fromOffset(70, 24), Parent = row })
+			stroke(tag, 1, INK, 0.3)
+			text({ Text = "LOCKED", TextSize = 9, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = tag })
+		else
+			hardButton(row, {
+				Name = "Go",
+				Fill = if i == 0 then "paper" else "accent",
+				Text = "GO",
+				TextSize = 12,
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				Size = UDim2.fromOffset(74, 48),
+				OnClick = function()
+					self:_fire("onPlay", i)
+				end,
+			})
+		end
+	end
+
+	for i = 0, reached do
+		zoneRow(i, i > 0 and not unlocked, false)
+	end
+	zoneRow(reached + 1, true, true)
+end
+
+function UI._refreshSkins(self)
+	local m = self._menu
+	if not m or not m.skinCards then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local gems = tonumber(player:GetAttribute("Gems")) or 0
+	local ownedCount = 0
+	for _, skin in Config.Skins do
+		if owned[skin.Id] then
+			ownedCount += 1
+		end
+		local card = m.skinCards[skin.Id]
+		if card and not card.busy then
+			local button = card.button
+			if equipped == skin.Id then
+				card.state = "equipped"
+				button.setFill("accent")
+				button.setText("EQUIPPED")
+				button.setEnabled(false)
+				card.outline.Thickness = 2
+				card.outline.Transparency = 0
+			elseif owned[skin.Id] then
+				card.state = "owned"
+				button.setFill("paper")
+				button.setText("EQUIP")
+				button.setEnabled(true)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
+			else
+				card.state = "buy"
+				button.setFill("ink")
+				button.setText("BUY")
+				button.setEnabled(true)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
+			end
+			if skin.Price > 0 then
+				local short = skin.Price - gems
+				card.price.Text = commas(skin.Price)
+					.. " GEMS"
+					.. (if card.state == "buy" and short > 0 then " / -" .. commas(short) else "")
+			end
+		end
+	end
+	m.skinsRight.Text = ownedCount .. " / " .. #Config.Skins .. " OWNED"
+end
+
+function UI._skinAction(self, card)
+	if card.busy or card.state == "equipped" then
+		return
+	end
+	local buying = card.state == "buy"
+	card.busy = true
+	card.button.setEnabled(false)
+	card.button.setText(if buying then "BUYING" else "EQUIPPING")
+	task.spawn(function()
+		local ok, message = self:_ask(if buying then "onBuySkin" else "onEquipSkin", card.skin.Id)
+		card.busy = false
+		if ok and buying then
+			self:toast(string.upper(card.skin.Name) .. " UNLOCKED", "reward")
+		elseif not ok then
+			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+		end
+		self:_refreshSkins()
+	end)
+end
+
+-- HUD -----------------------------------------------------------------------------
+
+function UI._buildHud(self)
+	local h = { cells = {}, pips = {} }
+	self._hud = h
+
+	local layer = new("Frame", { Name = "Hud", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = self.gui })
+	h.layer = layer
+	-- Everything that shakes lives in `root`; the layer itself never moves.
+	local root = new("Frame", { Name = "Shake", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = layer })
+	h.root = root
+
+	-- Balls odometer -------------------------------------------------------
+	local plate = new("Frame", {
+		Name = "Balls",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, EDGE - 4),
+		Size = UDim2.fromOffset(176, 92),
+		Parent = root,
+	})
+	fit(plate, HUD_SCALE)
+	h.plateStroke = stroke(plate, 1.5)
+	h.alarm = new("Frame", { Name = "Alarm", BackgroundColor3 = DANGER, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = plate })
+	cropMarks(plate, 6, 3)
+	local chip = new("Frame", { Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(5, 5), Parent = plate })
+	setAccent(chip, "BackgroundColor3")
+	text({ Text = "BALLS", TextSize = 9, Position = UDim2.fromOffset(17, 2), Size = UDim2.fromOffset(80, 12), Parent = plate })
+	text({ Text = "01", TextSize = 8, TextColor3 = GREY, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -48, 0, 2), Size = UDim2.fromOffset(40, 12), Parent = plate })
+
+	local digits = new("Frame", { Name = "Digits", BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 16), Size = UDim2.fromOffset(160, 44), Parent = plate })
+	h.bump = new("UIScale", { Parent = digits })
+	for i = 1, 4 do
+		local cell = new("Frame", {
+			Name = "Cell" .. i,
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			Position = UDim2.fromOffset((i - 1) * 40, 0),
+			Size = UDim2.fromOffset(40, 44),
+			Parent = digits,
+		})
+		if i > 1 then
+			rule(cell, { Size = UDim2.new(0, 1, 1, -8), Position = UDim2.fromOffset(0, 4), BackgroundTransparency = 0.82 })
+		end
+		local label = capText(text({
+			Text = "0",
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextTransparency = 0.82,
+			Size = UDim2.fromScale(1, 1),
+			Parent = cell,
+		}), 34, 10)
+		h.cells[i] = { label = label, char = "0" }
+	end
+	rule(plate, { Position = UDim2.fromOffset(8, 62), Size = UDim2.new(1, -16, 0, 1), BackgroundTransparency = 0.6 })
+
+	-- Multiball pips + streak bar
+	text({ Text = "MULTI", TextSize = 9, Position = UDim2.fromOffset(8, 65), Size = UDim2.fromOffset(44, 16), Parent = plate })
+	for i = 1, Config.MAX_MULTIBALL do
+		local pip = new("Frame", {
+			Name = "Pip" .. i,
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(60 + (i - 1) * 16, 73),
+			Size = UDim2.fromOffset(11, 11),
+			Parent = plate,
+		})
+		setAccent(pip, "BackgroundColor3")
+		stroke(pip, 1)
+		h.pips[i] = pip
+	end
+	h.level = capText(text({
+		Text = "x1",
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 65),
+		Size = UDim2.fromOffset(36, 16),
+		Parent = plate,
+	}), 12, 7)
+	local track = new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.82, Position = UDim2.fromOffset(8, 84), Size = UDim2.new(1, -16, 0, 3), Parent = plate })
+	h.streak = new("Frame", { Size = UDim2.fromScale(0, 1), Parent = track })
+	setAccent(h.streak, "BackgroundColor3")
+
+	-- Zone (top-left) -------------------------------------------------------
+	local zone = new("Frame", { Name = "Zone", BackgroundColor3 = PAPER, BackgroundTransparency = 0.1, Position = UDim2.fromOffset(EDGE, EDGE - 4), Size = UDim2.fromOffset(88, 46), Parent = root })
+	fit(zone, HUD_SCALE)
+	stroke(zone, 1.5)
+	local zoneBar = new("Frame", { Size = UDim2.new(0, 4, 1, 0), Parent = zone })
+	setAccent(zoneBar, "BackgroundColor3")
+	notch(zone, 9, 1, 0, INK)
+	text({ Text = "03 / ZONE", TextSize = 8, Position = UDim2.fromOffset(12, 3), Size = UDim2.fromOffset(70, 10), Parent = zone })
+	h.zone = capText(text({ Text = "00", Font = FONT_NUM, Position = UDim2.fromOffset(12, 14), Size = UDim2.fromOffset(70, 28), Parent = zone }), 22, 9)
+
+	-- Distance + ruler (top-right) -----------------------------------------
+	local dist = new("Frame", {
+		Name = "Distance",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -EDGE, 0, EDGE - 4),
+		Size = UDim2.fromOffset(150, 62),
+		Parent = root,
+	})
+	fit(dist, HUD_SCALE)
+	stroke(dist, 1.5)
+	text({ Text = "02 / DISTANCE", TextSize = 8, Position = UDim2.fromOffset(8, 3), Size = UDim2.fromOffset(120, 10), Parent = dist })
+	h.meters = capText(text({
+		Text = "0",
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromOffset(8, 13),
+		Size = UDim2.fromOffset(116, 26),
+		Parent = dist,
+	}), 22, 9)
+	text({ Text = "M", TextSize = 11, TextYAlignment = Enum.TextYAlignment.Bottom, Position = UDim2.fromOffset(128, 13), Size = UDim2.fromOffset(14, 22), Parent = dist })
+	local ruler = new("Frame", { Name = "Ruler", BackgroundTransparency = 1, ClipsDescendants = true, Position = UDim2.fromOffset(8, 43), Size = UDim2.fromOffset(134, 14), Parent = dist })
+	h.tickPx, h.tickPeriod = 6, 30
+	h.ticks = new("Frame", { Name = "Ticks", BackgroundTransparency = 1, Size = UDim2.fromOffset(134 + 36, 14), Parent = ruler })
+	rulerTicks(h.ticks, 134 + 36, 12, h.tickPx, 5, 0)
+	rule(ruler, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1) })
+	local marker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.new(0, 2, 1, 0), Parent = ruler })
+	setAccent(marker, "BackgroundColor3")
+
+	-- Ball pack (bottom-right) ---------------------------------------------
+	local pack = Config.Products.BallPack
+	if pack.Id ~= 0 then
+		local buy = hardButton(root, {
+			Name = "BallPack",
+			Fill = "accent",
+			Text = "+" .. pack.Balls .. " BALLS",
+			TextSize = 12,
+			Sub = "",
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -EDGE, 1, -EDGE),
+			Size = UDim2.fromOffset(122, 52),
+			OnClick = function()
+				self:_fire("onBuyProduct", "BallPack")
+			end,
+		})
+		fit(buy.holder)
+		withPrice(pack.Id, Enum.InfoType.Product, function(price)
+			buy.sub.Text = "R$ " .. commas(price)
+		end)
+	end
+end
+
+function UI._setDigits(self, balls, rising)
+	local h = self._hud
+	local s = string.format("%04d", math.clamp(balls, 0, 9999))
+	local firstSignificant = 4
+	for i = 1, 4 do
+		if string.sub(s, i, i) ~= "0" then
+			firstSignificant = i
+			break
+		end
+	end
+	for i, cell in h.cells do
+		local char = string.sub(s, i, i)
+		if char ~= cell.char then
+			cell.char = char
+			cell.label.Text = char
+			cell.label.Position = UDim2.fromOffset(0, if rising then 16 else -16)
+			tween(cell.label, 0.18, { Position = UDim2.new() })
+		end
+		cell.label.TextTransparency = if i < firstSignificant then 0.82 else 0
+	end
+end
+
+function UI._setLow(self, low)
+	local h = self._hud
+	if h.pulse then
+		h.pulse:Cancel()
+		h.pulse = nil
+	end
+	for _, cell in h.cells do
+		cell.label.TextColor3 = if low then DANGER else INK
+	end
+	h.plateStroke.Color = if low then DANGER else INK
+	h.alarm.BackgroundTransparency = 1
+	if low then
+		h.pulse = TweenService:Create(
+			h.alarm,
+			TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ BackgroundTransparency = 0.78 }
+		)
+		h.pulse:Play()
+	end
+end
+
+-- Game over ---------------------------------------------------------------------------
+
+function UI._buildGameOver(self)
+	local g = {}
+	self._over = g
+
+	local root = new("Frame", { Name = "GameOver", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = self.gui })
+	g.root = root
+	g.wash = bleed(root, { Name = "Wash", BackgroundColor3 = PAPER, BackgroundTransparency = 0.35 })
+	blueprintGrid(root, 12, 8, 0.9)
+
+	local sheet = new("Frame", {
+		Name = "Sheet",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.02,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0.05, 0, 0.5, 0),
+		Size = UDim2.fromOffset(540, 236),
+		Parent = root,
+	})
+	fit(sheet)
+	stroke(sheet, 1.5)
+	cropMarks(sheet, 10, 5)
+	notch(sheet, 16, 1, 1, INK)
+	g.sheet = sheet
+
+	local header = new("Frame", { Name = "Header", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 24), Parent = sheet })
+	text({ Text = "04 / RUN REPORT", TextSize = 9, TextColor3 = PAPER, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(0.5, 0, 1, 0), Parent = header })
+	setAccent(text({
+		Text = "SHATTER RUN / GLASS LAB",
+		TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(0.5, 0, 0, 0),
+		Size = UDim2.new(0.5, -10, 1, 0),
+		Parent = header,
+	}), "TextColor3")
+
+	-- Left: the measurement
+	text({ Text = "DISTANCE / METERS", TextSize = 9, TextColor3 = GREY, Position = UDim2.fromOffset(12, 32), Size = UDim2.fromOffset(200, 12), Parent = sheet })
+	local numberRow = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 44), Size = UDim2.fromOffset(300, 60), Parent = sheet })
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = numberRow,
+	})
+	g.distance = text({
+		Text = "0",
+		Font = FONT_NUM,
+		TextSize = 48,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 60),
+		LayoutOrder = 1,
+		Parent = numberRow,
+	})
+	text({ Text = "M", TextSize = 16, TextYAlignment = Enum.TextYAlignment.Bottom, Size = UDim2.fromOffset(16, 46), LayoutOrder = 2, Parent = numberRow })
+
+	-- Ruler: scale from 0 to a bit past max(run, best) with markers for both.
+	local ruler = new("Frame", { Name = "Ruler", BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 118), Size = UDim2.fromOffset(300, 30), Parent = sheet })
+	local tickBand = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 8), Size = UDim2.fromOffset(300, 12), Parent = ruler })
+	rulerTicks(tickBand, 300, 12, 15, 5, 0.2)
+	rule(tickBand, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1) })
+	g.scaleLabels = {}
+	for i = 0, 4 do
+		g.scaleLabels[i] = text({
+			Text = "0",
+			TextSize = 7,
+			TextColor3 = GREY,
+			TextXAlignment = if i == 4 then Enum.TextXAlignment.Right elseif i == 0 then Enum.TextXAlignment.Left else Enum.TextXAlignment.Center,
+			AnchorPoint = Vector2.new(if i == 4 then 1 elseif i == 0 then 0 else 0.5, 0),
+			Position = UDim2.new(i / 4, 0, 0, 21),
+			Size = UDim2.fromOffset(50, 9),
+			Parent = ruler,
+		})
+	end
+	g.bestMarker = new("Frame", { BackgroundColor3 = INK, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(1, 20), Parent = ruler })
+	text({ Text = "BEST", TextSize = 7, AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(3, -2), Size = UDim2.fromOffset(30, 8), Parent = g.bestMarker })
+	g.runMarker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(3, 20), Parent = ruler })
+	setAccent(g.runMarker, "BackgroundColor3")
+
+	-- Data table
+	local function dataRow(y, label, withGem)
+		rule(sheet, { Position = UDim2.fromOffset(12, y), Size = UDim2.fromOffset(300, 1), BackgroundTransparency = 0.6 })
+		local x = 12
+		if withGem then
+			gemIcon(sheet, 7, UDim2.fromOffset(17, y + 14))
+			x = 26
+		end
+		text({ Text = label, TextSize = 9, Position = UDim2.fromOffset(x, y + 1), Size = UDim2.fromOffset(150, 26), Parent = sheet })
+		return capText(text({
+			Text = "0",
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Position = UDim2.fromOffset(162, y + 4),
+			Size = UDim2.fromOffset(150, 20),
+			Parent = sheet,
+		}), 13, 8)
+	end
+	g.best = dataRow(162, "BEST")
+	g.gems = dataRow(190, "GEMS EARNED", true)
+	rule(sheet, { Position = UDim2.fromOffset(12, 218), Size = UDim2.fromOffset(300, 1), BackgroundTransparency = 0.6 })
+
+	-- NEW BEST rubber stamp
+	local stamp = new("Frame", {
+		Name = "NewBest",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(262, 52),
+		Size = UDim2.fromOffset(112, 32),
+		Rotation = -9,
+		Visible = false,
+		Parent = sheet,
+	})
+	setAccent(stamp, "BackgroundColor3")
+	stroke(stamp, 2)
+	rule(stamp, { Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, 1) })
+	rule(stamp, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 4, 1, -4), Size = UDim2.new(1, -8, 0, 1) })
+	capText(text({ Text = "NEW BEST", Font = FONT_NUM, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = stamp }), 13, 8)
+	g.stamp = stamp
+	g.stampScale = new("UIScale", { Parent = stamp })
+
+	-- Divider + right column: actions
+	rule(sheet, { Position = UDim2.fromOffset(328, 34), Size = UDim2.new(0, 1, 1, -44), BackgroundTransparency = 0.4 })
+	text({ Text = "05 / NEXT", TextSize = 9, TextColor3 = GREY, Position = UDim2.fromOffset(340, 32), Size = UDim2.fromOffset(188, 12), Parent = sheet })
+	local actions = new("Frame", { Name = "Actions", BackgroundTransparency = 1, Position = UDim2.fromOffset(340, 48), Size = UDim2.fromOffset(188, 180), Parent = sheet })
+	list(actions, 6)
+
+	local revive = Config.Products.Revive
+	local reviveGroup = new("Frame", { Name = "Revive", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 64), LayoutOrder = 1, Visible = false, Parent = actions })
+	g.reviveButton = hardButton(reviveGroup, {
+		Name = "ReviveButton",
+		Fill = "danger",
+		Text = "REVIVE +" .. revive.Balls .. " BALLS",
+		TextSize = 11,
+		Sub = "",
+		Size = UDim2.new(1, 0, 0, 52),
+		OnClick = function()
+			local now = os.clock()
+			if now - (g.lastRevive or 0) > 0.6 then
+				g.lastRevive = now
+				self:_fire("onRevive")
+			end
+		end,
+	})
+	hatch(g.reviveButton.face, { AnchorPoint = Vector2.new(1, 0), Size = UDim2.new(0, 14, 1, 0), Position = UDim2.fromScale(1, 0) }, PAPER, 0.55, 3)
+	local reviveTrack = new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.82, Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, -SHADOW, 0, 5), Parent = reviveGroup })
+	g.reviveBar = new("Frame", { BackgroundColor3 = DANGER, Size = UDim2.fromScale(1, 1), Parent = reviveTrack })
+	g.reviveGroup = reviveGroup
+	withPrice(revive.Id, Enum.InfoType.Product, function(price)
+		g.reviveButton.sub.Text = "R$ " .. commas(price)
+	end)
+
+	hardButton(actions, {
+		Name = "PlayAgain",
+		Fill = "accent",
+		Text = "PLAY AGAIN",
+		TextSize = 14,
+		Size = UDim2.new(1, 0, 0, 54),
+		LayoutOrder = 2,
+		OnClick = function()
+			self:_fire("onPlayAgain")
+		end,
+	})
+	hardButton(actions, {
+		Name = "Menu",
+		Fill = "paper",
+		Text = "MENU",
+		TextSize = 12,
+		Size = UDim2.new(1, 0, 0, 48),
+		LayoutOrder = 3,
+		OnClick = function()
+			self:_fire("onMenu")
+		end,
+	})
+end
+
+-- Toasts and zone card ------------------------------------------------------------------
+
+function UI._buildToasts(self)
+	local layer = new("Frame", { Name = "Toasts", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = self.gui })
+
+	local stack = new("Frame", { Name = "Stack", BackgroundTransparency = 1, Position = UDim2.fromScale(0, 0.32), Size = UDim2.fromOffset(270, 160), Parent = layer })
+	fit(stack, HUD_SCALE)
+	list(stack, 6)
+	self._toastStack = stack
+
+	-- Checkpoint title card
+	local card = new("CanvasGroup", {
+		Name = "ZoneCard",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.24),
+		Size = UDim2.fromOffset(360, 92),
+		GroupTransparency = 1,
+		Visible = false,
+		Parent = layer,
+	})
+	fit(card, HUD_SCALE)
+	local label = text({ Text = "CHECKPOINT", TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromOffset(110, 14), Parent = card })
+	label.BackgroundTransparency = 0.1
+	label.BackgroundColor3 = PAPER
+	local ruleLeft = rule(card, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(0.5, -60, 0, 7), Size = UDim2.fromOffset(0, 1) })
+	local ruleRight = rule(card, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0.5, 60, 0, 7), Size = UDim2.fromOffset(0, 1) })
+	local slab = new("Frame", { BackgroundColor3 = PAPER, BackgroundTransparency = 0.08, Position = UDim2.fromOffset(2, 18), Size = UDim2.new(1, -4, 0, 58), Parent = card })
+	stroke(slab, 1.5)
+	brackets(slab, 8, 2)
+	local title = capText(text({
+		Text = "",
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(12, 4),
+		Size = UDim2.new(1, -24, 1, -8),
+		Parent = slab,
+	}), 40, 12)
+	local bar = new("Frame", { Position = UDim2.fromOffset(0, 80), Size = UDim2.new(0, 0, 0, 5), Parent = card })
+	setAccent(bar, "BackgroundColor3")
+	self._zoneCard = { card = card, title = title, ruleLeft = ruleLeft, ruleRight = ruleRight, bar = bar }
+end
+
+function UI._showZoneCard(self, value)
+	local z = self._zoneCard
+	local token = {}
+	z.token = token
+	z.title.Text = string.upper(value)
+	z.card.Visible = true
+	z.card.GroupTransparency = 1
+	z.card.Position = UDim2.new(0.5, 0, 0.24, 12)
+	z.ruleLeft.Size = UDim2.fromOffset(0, 1)
+	z.ruleRight.Size = UDim2.fromOffset(0, 1)
+	z.bar.Size = UDim2.new(0, 0, 0, 5)
+	tween(z.card, 0.3, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, 0.24) })
+	tween(z.ruleLeft, 0.35, { Size = UDim2.fromOffset(120, 1) })
+	tween(z.ruleRight, 0.35, { Size = UDim2.fromOffset(120, 1) })
+	tween(z.bar, ZONE_CARD_TIME, { Size = UDim2.new(1, 0, 0, 5) }, Enum.EasingStyle.Linear)
+	task.delay(ZONE_CARD_TIME, function()
+		if z.token ~= token then
+			return
+		end
+		tween(z.card, 0.25, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, 0.24, -10) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		task.delay(0.26, function()
+			if z.token == token then
+				z.card.Visible = false
+			end
+		end)
+	end)
+end
+
+function UI._dismissToast(self, toast)
+	if toast.gone then
+		return
+	end
+	toast.gone = true
+	local index = table.find(self._toasts, toast)
+	if index then
+		table.remove(self._toasts, index)
+	end
+	tween(toast.card, 0.2, { Position = UDim2.new(-1, 0, 0, 0), GroupTransparency = 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+	task.delay(0.21, function()
+		toast.holder:Destroy()
+	end)
+end
+
+-- Damage vignette ---------------------------------------------------------------------
+
+function UI._buildFx(self)
+	local layer = new("Frame", { Name = "Fx", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = self.gui })
+	self._vignette = {}
+	local fade = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.35, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	-- { size, position, gradient rotation (0 = opaque end first), bleed size, bleed position }
+	local edges = {
+		{ UDim2.new(1, 0, 0.22, 0), UDim2.new(), 90, UDim2.new(1, 400, 0, 200), UDim2.fromOffset(-200, -200) },
+		{ UDim2.new(1, 0, 0.22, 0), UDim2.fromScale(0, 0.78), -90, UDim2.new(1, 400, 0, 200), UDim2.new(0, -200, 1, 0) },
+		{ UDim2.new(0.14, 0, 1, 0), UDim2.new(), 0, UDim2.new(0, 200, 1, 0), UDim2.fromOffset(-200, 0) },
+		{ UDim2.new(0.14, 0, 1, 0), UDim2.fromScale(0.86, 0), 180, UDim2.new(0, 200, 1, 0), UDim2.new(1, 0, 0, 0) },
+	}
+	for _, edge in edges do
+		local frame = new("Frame", { BackgroundColor3 = DANGER, BackgroundTransparency = 1, Size = edge[1], Position = edge[2], Parent = layer })
+		new("UIGradient", { Rotation = edge[3], Transparency = fade, Parent = frame })
+		table.insert(self._vignette, frame)
+		local outside = new("Frame", { BackgroundColor3 = DANGER, BackgroundTransparency = 1, Size = edge[4], Position = edge[5], Parent = layer })
+		table.insert(self._vignette, outside)
+	end
+end
+
+function UI._shake(self, target, strength)
+	local token = {}
+	self._shakeToken = token
+	task.spawn(function()
+		for step = 1, 6 do
+			if self._shakeToken ~= token then
+				return
+			end
+			local magnitude = strength * (7 - step) / 6
+			tween(target, 0.035, {
+				Position = UDim2.fromOffset(rng:NextNumber(-magnitude, magnitude), rng:NextNumber(-magnitude, magnitude)),
+			}, Enum.EasingStyle.Sine)
+			task.wait(0.035)
+		end
+		if self._shakeToken == token then
+			tween(target, 0.08, { Position = UDim2.new() }, Enum.EasingStyle.Sine)
+		end
+	end)
+end
+
+-- Callback plumbing ------------------------------------------------------------------
+
+-- Fire-and-forget callbacks run in their own thread so errors keep their stack trace.
+function UI._fire(self, name, ...)
+	local callback = self._callbacks[name]
+	if type(callback) == "function" then
+		task.spawn(callback, ...)
+	end
+end
+
+-- Yielding callbacks that answer (ok, message). Errors count as a failure.
+function UI._ask(self, name, ...)
+	local callback = self._callbacks[name]
+	if type(callback) ~= "function" then
+		return false, nil
+	end
+	local results = table.pack(pcall(callback, ...))
+	if not results[1] then
+		warn("[UI] " .. name .. " failed:", results[2])
+		return false, nil
+	end
+	local message = results[3]
+	return results[2] == true, if type(message) == "string" then message else nil
+end
+
+function UI._refreshAll(self)
+	self:_refreshStats()
+	self:_refreshDaily()
+	self:_rebuildTopRuns()
+	self:_rebuildPasses()
+	self:_rebuildZones()
+	self:_refreshSkins()
+end
+
+-- Public API ---------------------------------------------------------------------------
+
+function UI.new(callbacks)
+	local self = setmetatable({}, UI)
+	self._callbacks = callbacks or {}
+	self._alive = true
+	self._toasts = {}
+	self._toastSerial = 0
+	self._connections = {}
+
+	local playerGui = player:WaitForChild("PlayerGui")
+	local old = playerGui:FindFirstChild("ShatterRunUI")
+	if old then
+		old:Destroy()
+	end
+
+	self.gui = new("ScreenGui", {
+		Name = "ShatterRunUI",
+		ResetOnSpawn = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
+		DisplayOrder = 10,
+	})
+
+	-- Back to front.
+	self:_buildMenu()
+	self:_buildHud()
+	self:_buildGameOver()
+	self:_buildToasts()
+	self:_buildFx()
+	self:_selectTab(1)
+
+	self.gui.Parent = playerGui
+
+	local function refit()
+		local size = self.gui.AbsoluteSize
+		if size.X < 1 or size.Y < 1 then
+			return
+		end
+		currentScale = math.clamp(math.min(size.X / REF_W, size.Y / REF_H), SCALE_MIN, SCALE_MAX)
+		for _, entry in scalers do
+			entry[1].Scale = currentScale * entry[2]
+		end
+		local live = {}
+		for _, entry in textCaps do
+			if entry[1].Parent then
+				applyCap(entry)
+				table.insert(live, entry)
+			end
+		end
+		textCaps = live
+	end
+	refit()
+
+	local function connect(signal, handler)
+		table.insert(self._connections, signal:Connect(handler))
+	end
+	connect(self.gui:GetPropertyChangedSignal("AbsoluteSize"), refit)
+
+	-- Live data. Attributes can arrive after the UI exists; every reader handles nil.
+	local function onAttribute(name, handler)
+		connect(player:GetAttributeChangedSignal(name), handler)
+	end
+	onAttribute("Best", function()
+		self:_refreshStats()
+	end)
+	onAttribute("Gems", function()
+		self:_refreshStats()
+	end)
+	onAttribute("Checkpoint", function()
+		self:_rebuildZones()
+	end)
+	onAttribute("EquippedSkin", function()
+		self:_refreshSkins()
+	end)
+	onAttribute("OwnedSkins", function()
+		self:_refreshSkins()
+	end)
+	onAttribute("NextDaily", function()
+		self:_refreshDaily()
+	end)
+	for _, key in PASS_ORDER do
+		onAttribute("Pass_" .. key, function()
+			self:_rebuildPasses()
+			if key == "Checkpoints" then
+				self:_rebuildZones()
+			end
+		end)
+	end
+	connect(ReplicatedStorage:GetAttributeChangedSignal("TopRuns"), function()
+		self:_rebuildTopRuns()
+	end)
+
+	connect(self.gui.Destroying, function()
+		self._alive = false
+		for _, connection in self._connections do
+			connection:Disconnect()
+		end
+	end)
+
+	-- Daily countdown ticks once a second while the menu is open.
+	task.spawn(function()
+		while self._alive do
+			if self._menu.root.Visible then
+				self:_refreshDaily()
+			end
+			task.wait(1)
+		end
+	end)
+
+	self:_refreshAll()
+	return self
+end
+
+function UI:showMenu()
+	self:hideRevive()
+	self._hud.layer.Visible = false
+	self._over.root.Visible = false
+
+	local m = self._menu
+	m.root.Visible = true
+	self:_refreshAll()
+
+	m.left.Position = UDim2.new(0, EDGE - 16, 0.5, 0)
+	tween(m.left, 0.35, { Position = UDim2.new(0, EDGE + 4, 0.5, 0) })
+	m.panel.Position = UDim2.new(1, -(EDGE - 20), 0.5, 0)
+	tween(m.panel, 0.35, { Position = UDim2.new(1, -(EDGE + 4), 0.5, 0) })
+	local play = m.play.face
+	play.Position = UDim2.fromOffset(2, 2)
+	tween(play, 0.3, { Position = UDim2.new() }, Enum.EasingStyle.Back)
+end
+
+function UI:showHud()
+	self:hideRevive()
+	self._menu.root.Visible = false
+	self._over.root.Visible = false
+	self._hud.layer.Visible = true
+end
+
+function UI:setHud(state)
+	local h = self._hud
+	if type(state) ~= "table" then
+		return
+	end
+
+	local balls = math.max(0, math.floor(tonumber(state.balls) or 0))
+	if balls ~= h.balls then
+		local previous = h.balls
+		h.balls = balls
+		self:_setDigits(balls, previous == nil or balls > previous)
+		if previous ~= nil and balls > previous then
+			h.bump.Scale = 1.16
+			tween(h.bump, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+		local low = balls <= LOW_BALLS
+		if low ~= h.low then
+			h.low = low
+			self:_setLow(low)
+		end
+	end
+
+	local level = math.clamp(math.floor(tonumber(state.multiball) or 1), 1, #h.pips)
+	if level ~= h.levelValue then
+		local previous = h.levelValue
+		h.levelValue = level
+		h.level.Text = "x" .. level
+		for i, pip in h.pips do
+			pip.BackgroundTransparency = if i <= level then 0 else 1
+		end
+		if previous and level > previous then
+			local pip = h.pips[level]
+			pip.Size = UDim2.fromOffset(17, 17)
+			tween(pip, 0.25, { Size = UDim2.fromOffset(11, 11) }, Enum.EasingStyle.Back)
+		end
+	end
+
+	local streak = math.floor(math.clamp(tonumber(state.streak) or 0, 0, 1) * 100 + 0.5) / 100
+	if streak ~= h.streakValue then
+		h.streakValue = streak
+		tween(h.streak, 0.15, { Size = UDim2.fromScale(streak, 1) })
+	end
+
+	local meters = math.max(0, tonumber(state.meters) or 0)
+	local whole = math.floor(meters)
+	if whole ~= h.metersValue then
+		h.metersValue = whole
+		h.meters.Text = commas(whole)
+	end
+	local offset = -math.floor((meters * h.tickPx) % h.tickPeriod + 0.5)
+	if offset ~= h.tickOffset then
+		h.tickOffset = offset
+		h.ticks.Position = UDim2.fromOffset(offset, 0)
+	end
+
+	local zone = math.floor(tonumber(state.zone) or 0)
+	if zone ~= h.zoneValue then
+		h.zoneValue = zone
+		h.zone.Text = twoDigits(zone)
+	end
+end
+
+function UI:showGameOver(info)
+	info = info or {}
+	local g = self._over
+	self._hud.layer.Visible = false
+	self._menu.root.Visible = false
+	g.root.Visible = true
+
+	local meters = math.max(0, math.floor(tonumber(info.meters) or 0))
+	local best = math.max(meters, math.floor(tonumber(info.best) or 0))
+
+	g.wash.BackgroundTransparency = 1
+	tween(g.wash, 0.3, { BackgroundTransparency = 0.35 })
+	g.sheet.Position = UDim2.new(0.05, -24, 0.5, 0)
+	tween(g.sheet, 0.35, { Position = UDim2.new(0.05, 0, 0.5, 0) })
+
+	-- Count the distance up and slide the run marker along the ruler with it.
+	local span = math.max(best, 1) * 1.15
+	for i, label in g.scaleLabels do
+		label.Text = commas(span * i / 4)
+	end
+	g.bestMarker.Position = UDim2.fromScale(best / span, 0)
+	g.runMarker.Position = UDim2.fromScale(0, 0)
+	tween(g.runMarker, 0.7, { Position = UDim2.fromScale(meters / span, 0) })
+	if g.counter then
+		g.counter:Destroy()
+	end
+	local counter = Instance.new("NumberValue")
+	g.counter = counter
+	counter.Changed:Connect(function(value)
+		g.distance.Text = commas(value)
+	end)
+	g.distance.Text = "0"
+	tween(counter, 0.7, { Value = meters })
+
+	g.best.Text = commas(best) .. " M"
+	g.gems.Text = "+" .. commas(info.gemsEarned or 0)
+
+	g.stamp.Visible = info.isNewBest == true
+	if info.isNewBest then
+		g.stampScale.Scale = 1.8
+		g.stamp.Rotation = -18
+		task.delay(0.5, function()
+			if g.stamp.Visible then
+				tween(g.stampScale, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+				tween(g.stamp, 0.22, { Rotation = -9 }, Enum.EasingStyle.Back)
+			end
+		end)
+	end
+
+	self:hideRevive()
+	if info.canRevive and Config.Products.Revive.Id ~= 0 then
+		g.reviveGroup.Visible = true
+		g.reviveBar.Size = UDim2.fromScale(1, 1)
+		local countdown = TweenService:Create(
+			g.reviveBar,
+			TweenInfo.new(Config.REVIVE_SECONDS, Enum.EasingStyle.Linear),
+			{ Size = UDim2.fromScale(0, 1) }
+		)
+		g.reviveTween = countdown
+		countdown.Completed:Connect(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed and g.reviveTween == countdown then
+				self:hideRevive()
+			end
+		end)
+		countdown:Play()
+	end
+end
+
+function UI:hideRevive()
+	local g = self._over
+	local countdown = g.reviveTween
+	g.reviveTween = nil
+	if countdown then
+		countdown:Cancel()
+	end
+	g.reviveGroup.Visible = false
+end
+
+function UI:toast(value, kind)
+	value = string.upper(tostring(value or ""))
+	kind = kind or "info"
+	if kind == "checkpoint" then
+		self:_showZoneCard(value)
+		return
+	end
+	local style = TOAST_KINDS[kind] or TOAST_KINDS.info
+
+	while #self._toasts >= MAX_TOASTS do
+		self:_dismissToast(self._toasts[1])
+	end
+
+	self._toastSerial += 1
+	local holder = new("Frame", {
+		Name = "Toast",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 44),
+		LayoutOrder = self._toastSerial,
+		Parent = self._toastStack,
+	})
+	local card = new("CanvasGroup", {
+		BackgroundTransparency = 1,
+		Position = UDim2.new(-1, 0, 0, 0),
+		Size = UDim2.new(1, -12, 1, 0),
+		Parent = holder,
+	})
+	new("Frame", { BackgroundColor3 = INK, Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -4, 1, -4), Parent = card })
+	local face = new("Frame", { BackgroundColor3 = PAPER, Position = UDim2.fromOffset(1, 1), Size = UDim2.new(1, -5, 1, -5), Parent = card })
+	stroke(face, 1)
+	if style.hatch then
+		hatch(face, { Size = UDim2.new(0, 6, 1, 0) }, INK, 0, 3)
+	else
+		local bar = new("Frame", { BackgroundColor3 = INK, Size = UDim2.new(0, 5, 1, 0), Parent = face })
+		if style.accent then
+			setAccent(bar, "BackgroundColor3")
+		end
+	end
+	text({ Text = style.tag, TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(14, 3), Size = UDim2.new(1, -20, 0, 10), Parent = face })
+	capText(text({
+		Text = value,
+		Font = FONT_NUM,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(14, 14),
+		Size = UDim2.new(1, -20, 0, 22),
+		Parent = face,
+	}), 13, 7)
+
+	local toast = { holder = holder, card = card }
+	table.insert(self._toasts, toast)
+	card.Position = UDim2.new(-1, 0, 0, 0)
+	tween(card, 0.3, { Position = UDim2.fromOffset(EDGE, 0) })
+	task.delay(TOAST_TIME, function()
+		self:_dismissToast(toast)
+	end)
+end
+
+function UI:flashDamage()
+	for _, frame in self._vignette do
+		frame.BackgroundTransparency = 0.05
+		tween(frame, 0.45, { BackgroundTransparency = 1 })
+	end
+	self:_shake(self._hud.root, 7)
+end
+
+function UI:setTheme(theme)
+	if type(theme) ~= "table" or typeof(theme.Accent) ~= "Color3" then
+		return
+	end
+	accentColor = theme.Accent
+	for inst, prop in accentTargets do
+		if inst.Parent == nil then
+			accentTargets[inst] = nil
+		else
+			tween(inst, 0.35, { [prop] = accentColor })
+		end
+	end
+end
+
+function UI:isMenuOpen()
+	return self._menu.root.Visible
+end
+
+return UI
+]]></string>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="24">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="FilteringEnabled">true</bool>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+    <Item class="Part" referent="25">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <bool name="Anchored">true</bool>
+        <token name="BottomSurface">0</token>
+        <Color3uint8 name="Color3uint8">6512220</Color3uint8>
+        <bool name="Locked">true</bool>
+        <token name="Material">256</token>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>-10</Y>
+          <Z>0</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>512</X>
+          <Y>20</Y>
+          <Z>512</Z>
+        </Vector3>
+        <token name="TopSurface">0</token>
+      </Properties>
+    </Item>
+    <Item class="SpawnLocation" referent="26">
+      <Properties>
+        <string name="Name">SpawnLocation</string>
+        <bool name="Anchored">true</bool>
+        <token name="BottomSurface">0</token>
+        <int name="Duration">0</int>
+        <bool name="Neutral">true</bool>
+        <Vector3 name="Position">
+          <X>0</X>
+          <Y>0.5</Y>
+          <Z>0</Z>
+        </Vector3>
+        <Vector3 name="size">
+          <X>12</X>
+          <Y>1</Y>
+          <Z>12</Z>
+        </Vector3>
+        <token name="TopSurface">0</token>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

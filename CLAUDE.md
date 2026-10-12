@@ -14,6 +14,10 @@ First-person on-rails glass smasher inspired by the *gameplay* of the mobile gam
 - UI style: "glass lab / blueprint" look — paper-white panels, ink hairlines, one zone accent color, sharp corners (no UICorner), Michroma + RobotoMono. Avoid generic rounded dark cards and emoji.
 - All tuning in `src/shared/Config.luau`. IDs left at 0 disable that feature.
 
+## Building
+The owner works from cloud sessions only (no local Rojo/Studio connection). After code changes, rebuild the ready-to-open place file and commit it:
+`rojo build place.project.json -o ShatterRun.rbxlx` (Rojo 7.4.4 binary from github.com/rojo-rbx/rojo releases). `place.project.json` = `default.project.json` + Baseplate/SpawnLocation.
+
 ## Checking code
 No Roblox runtime here. Syntax-check Luau with `luau-compile <file>` (download from github.com/luau-lang/luau releases if missing). Test gameplay in Roblox Studio via `rojo serve`.
 
