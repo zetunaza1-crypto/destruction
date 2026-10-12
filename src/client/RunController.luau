@@ -87,6 +87,14 @@ local bloom
 local colorCorrection
 
 local function setupLighting()
+	-- The Baseplate template ships an Atmosphere (which overrides fog) and its own bloom.
+	-- Removing them here only affects this player's screen.
+	for _, child in Lighting:GetChildren() do
+		if child:IsA("Atmosphere") or child:IsA("BloomEffect") then
+			child:Destroy()
+		end
+	end
+
 	Lighting.FogStart = 60
 	Lighting.FogEnd = Config.ROOM_LENGTH * (Config.ROOMS_AHEAD - 1)
 	Lighting.Brightness = 2
@@ -316,6 +324,12 @@ end
 local function checkCrashes(prevZ, newZ)
 	local position = cameraPosition()
 	for _, hazard in track:hazards() do
+		-- The list was built before the loop, so skip anything an earlier crash already cleared
+		-- (both panels of a door would otherwise each cost a crash).
+		local door = track:doorFor(hazard)
+		if not hazard.Parent or (door and door.open) then
+			continue
+		end
 		local z = hazard.Position.Z
 		if prevZ > z and newZ <= z then
 			local localPoint = hazard.CFrame:PointToObjectSpace(Vector3.new(position.X, position.Y, z))

@@ -262,6 +262,16 @@ local function capText(label, max, min)
 	label.TextScaled = true
 	local constraint = new("UITextSizeConstraint", { MaxTextSize = max, MinTextSize = min or 7, Parent = label })
 	local entry = { constraint, label, max, min or 7 }
+	-- Menus rebuild rows often; drop entries for labels that were destroyed.
+	if #textCaps > 200 then
+		local alive = {}
+		for _, existing in textCaps do
+			if existing[1].Parent ~= nil then
+				table.insert(alive, existing)
+			end
+		end
+		textCaps = alive
+	end
 	table.insert(textCaps, entry)
 	task.defer(applyCap, entry)
 	return label
@@ -1323,7 +1333,7 @@ function UI._refreshSkins(self)
 				local short = skin.Price - gems
 				card.price.Text = commas(skin.Price)
 					.. " GEMS"
-					.. (if card.state == "buy" and short > 0 then " / NEED " .. commas(short) else "")
+					.. (if card.state == "buy" and short > 0 then " / -" .. commas(short) else "")
 			end
 		end
 	end

@@ -219,6 +219,9 @@ function TrackBuilder:buildRoom(roomIndex)
 	local centerZ = startZ - LENGTH / 2
 	local rng = self.rng
 
+	local zone = roomIndex // Config.ROOMS_PER_CHECKPOINT
+	local isZoneStart = roomIndex % Config.ROOMS_PER_CHECKPOINT == 0
+
 	local folder = Instance.new("Folder")
 	folder.Name = "Room" .. roomIndex
 	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
@@ -273,8 +276,6 @@ function TrackBuilder:buildRoom(roomIndex)
 		end
 	end
 
-	local zone = roomIndex // Config.ROOMS_PER_CHECKPOINT
-	local isZoneStart = roomIndex % Config.ROOMS_PER_CHECKPOINT == 0
 	if roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
 		-- Difficulty climbs inside each zone and keeps climbing zone to zone.
 		local inZone = (roomIndex % Config.ROOMS_PER_CHECKPOINT) / Config.ROOMS_PER_CHECKPOINT

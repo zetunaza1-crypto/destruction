@@ -19,8 +19,38 @@ local leaderboardStore = DataStoreService:GetOrderedDataStore("BestDistance_v1")
 local LEADERBOARD_SIZE = 10
 local LEADERBOARD_REFRESH = 60
 
--- player -> { startedAt = number, startMeters = number, metersRewarded = number }
+-- player -> {
+--   startedAt, pausedAt (set while on the game over screen), pausedTotal,
+--   startMeters, metersRewarded
+-- }
 local activeRuns = {}
+
+-- The furthest anyone can legitimately travel in `seconds`, following the same
+-- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
+local function maxStudsIn(seconds)
+	local studs, time, dt = 0, 0, 0.05
+	while time < seconds do
+		local rooms = studs // Config.ROOM_LENGTH
+		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + rooms * Config.SPEED_GAIN_PER_ROOM)
+		studs += speed * dt
+		time += dt
+	end
+	return studs
+end
+
+local function activeSeconds(run)
+	local now = run.pausedAt or os.clock()
+	return now - run.startedAt - run.pausedTotal
+end
+
+-- A revive (or ball pack on the game over screen) continues the run.
+Monetization.onProductGranted = function(player, productKey)
+	local run = activeRuns[player]
+	if run and run.pausedAt and (productKey == "Revive" or productKey == "BallPack") then
+		run.pausedTotal += os.clock() - run.pausedAt
+		run.pausedAt = nil
+	end
+end
 
 local function createLeaderstats(player)
 	local leaderstats = Instance.new("Folder")
@@ -54,8 +84,8 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 game:BindToClose(function()
-	PlayerData.saveAll()
-	task.wait(2)
+	-- Roblox gives us up to 30 seconds to finish saving.
+	PlayerData.releaseAll(25)
 end)
 
 Monetization.init()
@@ -82,6 +112,8 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint)
 	local startMeters = math.floor(Config.checkpointMeters(checkpoint))
 	activeRuns[player] = {
 		startedAt = os.clock(),
+		pausedAt = nil,
+		pausedTotal = 0,
 		startMeters = startMeters,
 		metersRewarded = startMeters, -- no gems for the part you skipped
 	}
@@ -96,10 +128,11 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters)
 		return
 	end
 
-	-- Basic anti-cheat: nobody can go further than max speed allows.
-	local elapsed = os.clock() - run.startedAt
-	local maxMeters = run.startMeters + elapsed * Config.MAX_SPEED / Config.STUDS_PER_METER * 1.2 + 10
+	-- Anti-cheat: nobody can go further than the speed ramp allows in the time
+	-- they actually spent running (time on the game over screen doesn't count).
+	local maxMeters = run.startMeters + maxStudsIn(activeSeconds(run)) / Config.STUDS_PER_METER * 1.1 + 15
 	meters = math.clamp(math.floor(meters), 0, math.floor(maxMeters))
+	run.pausedAt = run.pausedAt or os.clock()
 
 	local newMeters = math.max(0, meters - run.metersRewarded)
 	run.metersRewarded = math.max(run.metersRewarded, meters)
@@ -120,12 +153,20 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters)
 
 	if meters > data.Best then
 		changes.Best = meters
-		task.spawn(function()
-			local ok, err = pcall(leaderboardStore.SetAsync, leaderboardStore, tostring(player.UserId), meters)
-			if not ok then
-				warn("Could not update leaderboard:", err)
-			end
-		end)
+		-- Skip if their data didn't load: their real best is unknown.
+		if PlayerData.canSave(player) then
+			task.spawn(function()
+				local ok, err = pcall(leaderboardStore.UpdateAsync, leaderboardStore, tostring(player.UserId), function(old)
+					if old and old >= meters then
+						return nil -- keep the higher score already stored
+					end
+					return meters
+				end)
+				if not ok then
+					warn("Could not update leaderboard:", err)
+				end
+			end)
+		end
 	end
 	PlayerData.update(player, changes)
 end)
