@@ -100,7 +100,7 @@ Config.MissionPool = {
 -- rewards need Products.SeasonPremium. Bump SEASON_ID to start a new season.
 Config.SEASON_ID = 1
 Config.SEASON_NAME = "SEASON 1: FIRST CRACK"
-Config.SEASON_ENDS = 0 -- os.time() the season ends (0 = no countdown shown)
+Config.SEASON_ENDS = 1797292800 -- 15 Dec 2026 00:00 UTC (shown as a countdown; never end a season early)
 Config.SEASON_TIER_XP = 300
 Config.SeasonTiers = {} -- filled below: SeasonTiers[tier] = { Free = reward?, Premium = reward }
 for tier = 1, 30 do
