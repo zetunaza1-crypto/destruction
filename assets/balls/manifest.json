@@ -1447,12 +1447,7 @@
         "pulse": null,
         "mesh": "Grinny_CuteEyes",
         "triangles": 92,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0,
-          "invert": true
-        }
+        "hidden": true
       },
       "CuteShine": {
         "color": [
@@ -1466,12 +1461,7 @@
         "pulse": null,
         "mesh": "Grinny_CuteShine",
         "triangles": 80,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0,
-          "invert": true
-        }
+        "hidden": true
       },
       "CuteSmile": {
         "color": [
@@ -1485,12 +1475,7 @@
         "pulse": null,
         "mesh": "Grinny_CuteSmile",
         "triangles": 84,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0,
-          "invert": true
-        }
+        "hidden": true
       },
       "Blush": {
         "color": [
@@ -1504,12 +1489,7 @@
         "pulse": null,
         "mesh": "Grinny_Blush",
         "triangles": 76,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0,
-          "invert": true
-        }
+        "hidden": true
       },
       "GrinEyes": {
         "color": [
@@ -1522,12 +1502,7 @@
         "spin": null,
         "pulse": null,
         "mesh": "Grinny_GrinEyes",
-        "triangles": 108,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0
-        }
+        "triangles": 108
       },
       "GrinShine": {
         "color": [
@@ -1540,12 +1515,7 @@
         "spin": null,
         "pulse": null,
         "mesh": "Grinny_GrinShine",
-        "triangles": 44,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0
-        }
+        "triangles": 44
       },
       "Mouth": {
         "color": [
@@ -1558,12 +1528,7 @@
         "spin": null,
         "pulse": null,
         "mesh": "Grinny_Mouth",
-        "triangles": 170,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0
-        }
+        "triangles": 170
       },
       "Teeth": {
         "color": [
@@ -1576,12 +1541,7 @@
         "spin": null,
         "pulse": null,
         "mesh": "Grinny_Teeth",
-        "triangles": 340,
-        "show": {
-          "period": 4.0,
-          "from": 2.9,
-          "to": 4.0
-        }
+        "triangles": 340
       },
       "Ghost": {
         "color": [

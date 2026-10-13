@@ -517,6 +517,9 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 	for index, part in parts do
 		local key = partKey(skinId, part)
 		local partStyle = partStyles[key]
+		if partStyle and partStyle.Hidden then
+			continue -- a part the ball no longer uses (it goes when the model is destroyed below)
+		end
 		if keepStatic and partStyle and partStyle.Spin and not partStyle.Lite then
 			continue
 		end

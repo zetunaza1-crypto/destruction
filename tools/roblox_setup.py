@@ -548,6 +548,7 @@ def ball_styles_luau(manifest, source):
         "\tor only OUTSIDE that window with Invert = true (e.g. Grinny's creepy face / cute face). All parts",
         "\tof one ball share one clock, so their windows line up. Flicker only runs while the part is shown.",
         "\tLite balls don't animate: they keep the Invert parts (always shown) and drop the other Show parts.",
+        "\tHidden = true: a part of the model that is never drawn (e.g. a face the ball no longer uses).",
         "]]",
         "",
         "return {",
@@ -593,6 +594,8 @@ def ball_styles_luau(manifest, source):
                 fields.append(f"Show = {{ Period = {_fmt(period)}, From = {_fmt(start)}, To = {_fmt(stop)}{invert} }}")
             if style.get("lite") is True:
                 fields.append("Lite = true")
+            if style.get("hidden") is True:
+                fields.append("Hidden = true")
             out.append(f"\t\t\t{part} = {{ " + ", ".join(fields) + " },")
         out.append("\t\t},")
         fx = info.get("fx") or {}

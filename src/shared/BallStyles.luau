@@ -14,6 +14,7 @@
 	or only OUTSIDE that window with Invert = true (e.g. Grinny's creepy face / cute face). All parts
 	of one ball share one clock, so their windows line up. Flicker only runs while the part is shown.
 	Lite balls don't animate: they keep the Invert parts (always shown) and drop the other Show parts.
+	Hidden = true: a part of the model that is never drawn (e.g. a face the ball no longer uses).
 ]]
 
 return {
@@ -177,14 +178,14 @@ return {
 			Seams = { Color = Color3.fromRGB(168, 96, 14), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
 			Panels = { Color = Color3.fromRGB(255, 194, 28), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
 			Net = { Color = Color3.fromRGB(250, 250, 244), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
-			CuteEyes = { Color = Color3.fromRGB(22, 16, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
-			CuteShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
-			CuteSmile = { Color = Color3.fromRGB(44, 22, 10), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
-			Blush = { Color = Color3.fromRGB(255, 128, 72), Material = Enum.Material.SmoothPlastic, Transparency = 0.25, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
-			GrinEyes = { Color = Color3.fromRGB(14, 10, 8), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
-			GrinShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
-			Mouth = { Color = Color3.fromRGB(26, 12, 9), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
-			Teeth = { Color = Color3.fromRGB(252, 249, 236), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			CuteEyes = { Color = Color3.fromRGB(22, 16, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0, Hidden = true },
+			CuteShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Hidden = true },
+			CuteSmile = { Color = Color3.fromRGB(44, 22, 10), Material = Enum.Material.SmoothPlastic, Transparency = 0, Hidden = true },
+			Blush = { Color = Color3.fromRGB(255, 128, 72), Material = Enum.Material.SmoothPlastic, Transparency = 0.25, Hidden = true },
+			GrinEyes = { Color = Color3.fromRGB(14, 10, 8), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			GrinShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0 },
+			Mouth = { Color = Color3.fromRGB(26, 12, 9), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Teeth = { Color = Color3.fromRGB(252, 249, 236), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
 			Ghost = { Color = Color3.fromRGB(40, 225, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 20, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.9, To = 3.3 } },
 			GlitchBars = { Color = Color3.fromRGB(215, 250, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 26, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.82, To = 3.08 } },
 		},

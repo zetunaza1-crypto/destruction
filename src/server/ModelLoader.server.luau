@@ -18,6 +18,10 @@ local balls = Instance.new("Folder")
 balls.Name = "Balls"
 balls.Parent = library
 
+-- A model that fails to load is tried again: a freshly uploaded asset can take
+-- a few minutes before Roblox lets the game load it. Waits between tries (seconds).
+local RETRY_WAITS = { 5, 15, 30, 60, 120, 240, 480 }
+
 -- Loads one model asset (in its own thread) and puts it in `folder` as `name`.
 local function load(folder, name, assetId)
 	if assetId == 0 then
@@ -25,6 +29,13 @@ local function load(folder, name, assetId)
 	end
 	task.spawn(function()
 		local ok, container = pcall(InsertService.LoadAsset, InsertService, assetId)
+		for _, waitTime in RETRY_WAITS do
+			if ok then
+				break
+			end
+			task.wait(waitTime)
+			ok, container = pcall(InsertService.LoadAsset, InsertService, assetId)
+		end
 		if not ok then
 			warn("Could not load model", name, assetId, container)
 			return
