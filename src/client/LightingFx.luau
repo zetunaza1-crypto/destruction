@@ -11,6 +11,7 @@
 
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local LightingFx = {}
 
@@ -19,6 +20,9 @@ local FADE = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOu
 local LIGHTS_PER_ROOM = 4
 local SHADOW_LIGHTS_PER_ROOM = 1
 local SHADOW_CASTER_MAX_SIZE = 15 -- the room shell (80 studs long) never casts
+local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) never cast either
+-- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
+local TOUCH_ONLY = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- Per zone style. Colors are Color3, numbers are the Lighting/effect properties.
 local PRESETS = {
@@ -187,6 +191,7 @@ function LightingFx.lightRoom(roomFolder, theme)
 		elseif
 			(kind == "Wall" or kind == "Prop")
 			and math.max(size.X, size.Y, size.Z) < SHADOW_CASTER_MAX_SIZE
+			and size.Magnitude > SHADOW_CASTER_MIN_SIZE
 			and part.Transparency < 0.5
 		then
 			part.CastShadow = true
@@ -216,7 +221,7 @@ function LightingFx.lightRoom(roomFolder, theme)
 			light.Color = entry.part.Color
 			light.Brightness = preset.LightBrightness
 			light.Range = preset.LightRange
-			light.Shadows = #lit < SHADOW_LIGHTS_PER_ROOM
+			light.Shadows = not TOUCH_ONLY and #lit < SHADOW_LIGHTS_PER_ROOM
 			light.Parent = entry.part
 			table.insert(lit, entry.part)
 		end

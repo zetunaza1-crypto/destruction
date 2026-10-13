@@ -8,6 +8,12 @@
 
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
 
+	Shard budget: every shard is a physics part, and phones slow down when too
+	many are flying at once. We count the live ones; above Config.MAX_LIVE_SHARDS
+	new breaks use fewer cracks, only the small pieces around the impact and no
+	glitter. Only those inner pieces bounce off things (CanCollide); the big outer
+	pieces just fall, which is much cheaper for the physics engine.
+
 	Shatter.glass / Shatter.prop take an optional shatter effect (an entry of
 	Config.ShatterFx) that tints the shards. nil or "Classic" = normal glass.
 ]]
@@ -23,6 +29,37 @@ local Shatter = {}
 local rng = Random.new()
 local TAU = math.pi * 2
 local GRAVITY_BOOST = Vector3.new(0, -12, 0) -- shards look heavier with a small downward kick
+local SMALL_PANE_AREA = 20 -- panes smaller than this (square studs) use few cracks
+local FEW_RAYS = 5
+
+-- Shard budget ------------------------------------------------------------------
+
+-- Live shard parts, as batches { expires = os.clock() time, count = parts }.
+local liveBatches = {}
+local liveCount = 0
+
+local function liveShards()
+	local now = os.clock()
+	for i = #liveBatches, 1, -1 do
+		local batch = liveBatches[i]
+		if batch.expires <= now then
+			liveCount -= batch.count
+			table.remove(liveBatches, i)
+		end
+	end
+	return liveCount
+end
+
+local function addLive(count, lifetime)
+	if count > 0 then
+		liveCount += count
+		table.insert(liveBatches, { expires = os.clock() + lifetime, count = count })
+	end
+end
+
+local function overBudget()
+	return liveShards() >= Config.MAX_LIVE_SHARDS
+end
 
 -- Effects -------------------------------------------------------------------
 
@@ -140,7 +177,8 @@ end
 
 -- Builds a flat triangle a-b-c out of two wedge parts welded together.
 -- Returns the root wedge (move/launch that one) or nil for a sliver too thin to draw.
-local function triangle(a, b, c, thickness, template, parent)
+-- collide = false: the piece falls through everything (cheaper physics).
+local function triangle(a, b, c, thickness, template, parent, collide)
 	-- Make b-c the longest edge.
 	local ab, ac, bc = b - a, c - a, c - b
 	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
@@ -164,10 +202,12 @@ local function triangle(a, b, c, thickness, template, parent)
 	end
 
 	local first = makePiece("WedgePart", template)
+	first.CanCollide = collide
 	first.Size = Vector3.new(thickness, height, math.abs(ab:Dot(back)))
 	first.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
 
 	local second = makePiece("WedgePart", template)
+	second.CanCollide = collide
 	second.Size = Vector3.new(thickness, height, math.abs(ac:Dot(back)))
 	second.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
 
@@ -204,9 +244,10 @@ local function angleOf(p, q)
 	return math.atan2(q.Y - p.Y, q.X - p.X) % TAU
 end
 
--- Returns a list of 2D triangles { {a, b, c}, ... } covering the pane,
--- in the pane's local X/Y plane, with the impact point p.
-local function crackPattern(p, hx, hy, rays)
+-- Returns a list of 2D triangles { {a, b, c, inner = bool}, ... } covering the
+-- pane, in the pane's local X/Y plane, with the impact point p.
+-- innerOnly = true: just the small fan around the impact (shard budget).
+local function crackPattern(p, hx, hy, rays, innerOnly)
 	local start = rng:NextNumber(0, TAU)
 	local angles = {}
 	for i = 0, rays - 1 do
@@ -237,7 +278,10 @@ local function crackPattern(p, hx, hy, rays)
 		local span = (a2 - a1) % TAU
 
 		-- Inner fan: the small, fast pieces around the impact.
-		table.insert(triangles, { p, rings[i], rings[j] })
+		table.insert(triangles, { p, rings[i], rings[j], inner = true })
+		if innerOnly then
+			continue
+		end
 
 		-- Outer piece: ring crack -> edge, including any pane corners in between.
 		local boundary = { edges[i] }
@@ -276,24 +320,35 @@ function Shatter.glass(panel, hitPoint, push, parent, fx)
 	local localHit = cf:PointToObjectSpace(hitPoint)
 	local p = Vector2.new(math.clamp(localHit.X, -hx * 0.95, hx * 0.95), math.clamp(localHit.Y, -hy * 0.95, hy * 0.95))
 
-	-- Bigger panes get a few more cracks.
-	local rays = math.clamp(Config.SHARD_RAYS + math.floor((size.X * size.Y) / 120), 5, 12)
+	-- Bigger panes get a few more cracks, small ones (grid tiles) only a few.
+	-- Too many shards already flying: few cracks, inner pieces only, no glitter.
+	local area = size.X * size.Y
+	local busy = overBudget()
+	local rays = math.clamp(Config.SHARD_RAYS + math.floor(area / 120), 5, 12)
+	if busy or area < SMALL_PANE_AREA then
+		rays = FEW_RAYS
+	end
 	local reach = math.max(size.X, size.Y) * 0.6
 	local worldHit = cf * Vector3.new(p.X, p.Y, 0)
 
-	for _, tri in crackPattern(p, hx, hy, rays) do
+	local made = 0
+	for _, tri in crackPattern(p, hx, hy, rays, busy) do
 		local a = cf * Vector3.new(tri[1].X, tri[1].Y, 0)
 		local b = cf * Vector3.new(tri[2].X, tri[2].Y, 0)
 		local c = cf * Vector3.new(tri[3].X, tri[3].Y, 0)
-		local shard = triangle(a, b, c, thickness, styledTemplate(panel, fx), parent)
+		local shard = triangle(a, b, c, thickness, styledTemplate(panel, fx), parent, tri.inner == true)
 		if shard then
 			launch(shard, (a + b + c) / 3, worldHit, push, reach)
 			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
+			made += 2 -- two wedges per triangle
 		end
 	end
+	addLive(made, Config.SHARD_LIFETIME + 0.6)
 
-	local sparkleColor, sparkleAmount = sparkleStyle(panel.Color, 25, fx)
-	sparkle(worldHit, sparkleColor, sparkleAmount, parent)
+	if not busy then
+		local sparkleColor, sparkleAmount = sparkleStyle(panel.Color, 25, fx)
+		sparkle(worldHit, sparkleColor, sparkleAmount, parent)
+	end
 	panel:Destroy()
 end
 
@@ -318,10 +373,12 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 		end
 	end
 
+	local busy = overBudget()
+	local made = 0
 	for _, piece in pieces do
 		local size = piece.Size
 		local volume = size.X * size.Y * size.Z
-		local count = math.clamp(math.floor(volume / 1.5), 3, 10)
+		local count = math.clamp(math.floor(volume / 1.5), 3, if busy then 3 else 10)
 		local reach = math.max(size.X, size.Y, size.Z) * 2
 		for _ = 1, count do
 			local shard = makePiece("WedgePart", styledTemplate(piece, fx))
@@ -343,10 +400,14 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 			shard.Parent = parent
 			launch(shard, shard.Position, hitPoint, push * 0.5, reach)
 			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
+			made += 1
 		end
-		local sparkleColor, sparkleAmount = sparkleStyle(piece.Color, 10, fx)
-		sparkle(piece.Position, sparkleColor, sparkleAmount, parent)
+		if not busy then
+			local sparkleColor, sparkleAmount = sparkleStyle(piece.Color, 10, fx)
+			sparkle(piece.Position, sparkleColor, sparkleAmount, parent)
+		end
 	end
+	addLive(made, Config.SHARD_LIFETIME + 0.6)
 
 	root:Destroy()
 end
