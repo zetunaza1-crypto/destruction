@@ -13,3 +13,6 @@ sourcemap.json
 
 # The ready-to-open build of the game is kept in the repo
 !ShatterRun.rbxlx
+
+# Python cache
+__pycache__/
