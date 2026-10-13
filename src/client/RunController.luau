@@ -87,9 +87,8 @@ local MEGA_STRENGTH = 1.5 -- ...and knock it harder
 local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
 -- Throwing from the hands (Viewmodel.luau)
-local AIM_RANGE = 120 -- studs: you aim at what the screen ray hits within this, else this far along it
-local HAND_MIN_AIM = 8 -- aim points closer than this are thrown from the middle of the view instead
-local HAND_BLEND_TIME = 0.15 -- seconds a mega ball's drawing takes to join its real path from the hand
+local HAND_BLEND_TIME = 0.08 -- seconds a thrown ball's drawing takes to join its real path from the hand
+local MEGA_HAND_BLEND_TIME = 0.15 -- the same for giant balls (slower, so the big ball reads as thrown)
 local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
 
 -- Boosts
@@ -372,12 +371,12 @@ local function skinImpact(position, normal, big)
 	end
 end
 
--- Draws a ball where it is (mega balls thrown from the hand are drawn a little
+-- Draws a ball where it is (balls thrown from the hand are drawn a little
 -- toward the hand for their first moment, see throwAlong).
 local function placeBall(ball)
 	local offset = ball.renderOffset
 	if offset then
-		local left = 1 - ball.age / HAND_BLEND_TIME
+		local left = 1 - ball.age / (if ball.mega then MEGA_HAND_BLEND_TIME else HAND_BLEND_TIME)
 		if left > 0 then
 			ball.part.CFrame = CFrame.new(ball.position + offset * (left * left))
 			return
@@ -640,7 +639,7 @@ end
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
 -- drawFrom (optional): where the ball is drawn at first (the hand); the drawing
--- joins the real path over HAND_BLEND_TIME. Returns the ball.
+-- joins the real path over HAND_BLEND_TIME (MEGA_HAND_BLEND_TIME). Returns the ball.
 local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, drawFrom)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
@@ -666,36 +665,19 @@ local function promptFrozen()
 	return promptFreezeUntil > 0 and os.clock() < promptFreezeUntil
 end
 
--- What the player is aiming at: the first thing the screen ray hits within
--- AIM_RANGE, or that far along the ray.
-local function aimPointFor(ray)
-	local direction = ray.Direction.Unit
-	local hit = workspace:Raycast(ray.Origin, direction * AIM_RANGE, raycastParams)
-	return if hit then hit.Position else ray.Origin + direction * AIM_RANGE
-end
-
 -- Balls are thrown at BALL_SPEED and keep the camera's forward momentum (carry).
 -- This picks the throw so the ball's real path runs exactly along `direction`
--- (a unit vector), i.e. it lands where you aimed even at top speed.
+-- (a unit vector), i.e. it goes where you aimed even at top speed.
 local function velocityAlong(direction, carry)
 	local along = direction:Dot(carry)
 	local speedSquared = Config.BALL_SPEED * Config.BALL_SPEED
 	return direction * (along + math.sqrt(math.max(0, along * along - carry:Dot(carry) + speedSquared)))
 end
 
--- Where a normal ball thrown from a hand starts: the ball in that hand, unless
--- something sits between your eye and the hand (it would be skipped) or the
--- target is right in front of you (a throw from the corner would go sideways).
--- nil = throw from the middle of the view instead, as always.
-local function handLaunchPoint(spot, ray, mega, aimFar)
-	if spot and not mega and aimFar and workspace:Raycast(ray.Origin, spot - ray.Origin, raycastParams) == nil then
-		return spot
-	end
-	return nil
-end
-
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
--- The ball launches from the one in your hand (Viewmodel) toward the aim point.
+-- Every ball really flies straight out from the middle of the view along your
+-- aim, so it goes exactly where you tapped. It's only *drawn* leaving your hand
+-- (Viewmodel) and joins that path within a split second.
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 or promptFrozen() then
@@ -717,15 +699,9 @@ local function throwAlong(ray)
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
 	local aimDirection = ray.Direction.Unit
-	local aimPoint = aimPointFor(ray)
-	local aimFar = (aimPoint - ray.Origin).Magnitude >= HAND_MIN_AIM
 	-- The hand whose turn it is throws; with multiball the other hand throws
 	-- too (if it has a ball). Spots are nil for a hand that isn't showing.
 	local firstSpot, secondSpot, firstSide, bothHands = Viewmodel.launch(multiball >= 2)
-	local firstFrom = handLaunchPoint(firstSpot, ray, mega, aimFar)
-	local secondFrom = handLaunchPoint(secondSpot, ray, mega, aimFar)
-	local firstDirection = if firstFrom then (aimPoint - firstFrom).Unit else aimDirection
-	local secondDirection = if secondFrom then (aimPoint - secondFrom).Unit else aimDirection
 
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
@@ -733,30 +709,22 @@ local function throwAlong(ray)
 	-- Only the middle ball of a multiball fan gets the full premium look (perf).
 	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
-		-- Spread extra balls out in a small fan.
+		-- Spread extra balls out in a small fan around the aim.
 		local offset = i - (multiball + 1) / 2
 		local fan = CFrame.fromAxisAngle(Vector3.yAxis, offset * 0.05)
+		local direction = fan:VectorToWorldSpace(aimDirection)
 		local lite = i ~= hero
-		-- Both hands throwing: the balls fanning right come from the right hand,
-		-- the ones fanning left from the left hand, the middle one from the first.
+		-- Both hands throwing: the balls fanning right are drawn from the right
+		-- hand, the ones fanning left from the left hand, the middle one from the first.
 		local fanSide = if offset < 0 then 1 else -1
 		local useSecond = bothHands and offset ~= 0 and fanSide ~= firstSide
 		local handSpot = if useSecond then secondSpot else firstSpot
-		local fromHand = if useSecond then secondFrom else firstFrom
-		local handDirection = if useSecond then secondDirection else firstDirection
 		if mega then
-			-- Giant balls are still swept from the camera: a sphere cast can't hit
-			-- what it already overlaps at its start, and a giant ball starting at
-			-- the hand would already be touching glass right next to it. Only the
-			-- drawing starts at the hand.
-			local direction = fan:VectorToWorldSpace(aimDirection)
+			-- Giant balls are swept from the camera: a sphere cast can't hit what it
+			-- already overlaps at its start.
 			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot)
-		elseif fromHand then
-			local direction = fan:VectorToWorldSpace(handDirection)
-			spawnBall(fromHand, velocityAlong(direction, carry), false, nil, lite, trailScale)
 		else
-			local direction = fan:VectorToWorldSpace(aimDirection)
-			spawnBall(ray.Origin + direction * startDistance, direction * Config.BALL_SPEED + carry, false, nil, lite, trailScale)
+			spawnBall(ray.Origin + direction * startDistance, velocityAlong(direction, carry), false, nil, lite, trailScale, handSpot)
 		end
 	end
 
