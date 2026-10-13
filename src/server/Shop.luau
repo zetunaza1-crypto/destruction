@@ -1,72 +1,159 @@
 --[[
-	Gem shop (ball skins) and the daily reward.
-	The client asks through the ShopRequest RemoteFunction; every check happens here.
+	Gem shop (ball skins + shatter effects), daily streak, mission and season
+	pass claims. The client asks through the ShopRequest RemoteFunction:
+	ShopRequest:InvokeServer(action, argument) -> (ok, message).
+	Every check happens here; the client is never trusted.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage.Shared.Config)
 local PlayerData = require(script.Parent.PlayerData)
+local Progression = require(script.Parent.Progression)
 
 local Remotes = ReplicatedStorage.Remotes
 
 local Shop = {}
 
-local function findSkin(skinId)
-	for _, skin in Config.Skins do
-		if skin.Id == skinId then
-			return skin
-		end
+local function fireAll(player, events)
+	for _, event in events do
+		Progression.fire(player, event)
 	end
-	return nil
 end
 
-local function owns(data, skinId)
-	return table.find(data.OwnedSkins, skinId) ~= nil
+local function reward(player, text)
+	Progression.fire(player, { type = "Reward", text = text })
+end
+
+-- Items with Price 0 and a Source (level, season, starter pack...) can't be
+-- bought: they're unlocked another way.
+local function checkBuyable(item, owned)
+	if owned then
+		return false, "You already own " .. item.Name
+	end
+	if item.Source and item.Price <= 0 then
+		return false, "Unlocked by " .. item.Source
+	end
+	return true
 end
 
 local actions = {}
 
 function actions.BuySkin(player, data, skinId)
-	local skin = findSkin(skinId)
+	local skin = Progression.findSkin(skinId)
 	if not skin then
 		return false, "That skin doesn't exist"
 	end
-	if owns(data, skinId) then
-		return false, "You already own " .. skin.Name
+	local ok, message = checkBuyable(skin, Progression.ownsSkin(data, skin.Id))
+	if not ok then
+		return false, message
 	end
 	if data.Gems < skin.Price then
 		return false, "Not enough gems"
 	end
 
 	local ownedSkins = table.clone(data.OwnedSkins)
-	table.insert(ownedSkins, skinId)
+	table.insert(ownedSkins, skin.Id)
 	PlayerData.update(player, {
 		Gems = data.Gems - skin.Price,
 		OwnedSkins = ownedSkins,
-		EquippedSkin = skinId,
+		EquippedSkin = skin.Id,
 	})
 	return true, skin.Name .. " unlocked"
 end
 
 function actions.EquipSkin(player, data, skinId)
-	if not findSkin(skinId) or not owns(data, skinId) then
+	local skin = Progression.findSkin(skinId)
+	if not skin or not Progression.ownsSkin(data, skin.Id) then
 		return false, "You don't own that skin"
 	end
-	PlayerData.update(player, { EquippedSkin = skinId })
+	PlayerData.update(player, { EquippedSkin = skin.Id })
+	return true
+end
+
+function actions.BuyFx(player, data, fxId)
+	local fx = Progression.findFx(fxId)
+	if not fx then
+		return false, "That effect doesn't exist"
+	end
+	local ok, message = checkBuyable(fx, Progression.ownsFx(data, fx.Id))
+	if not ok then
+		return false, message
+	end
+	if data.Gems < fx.Price then
+		return false, "Not enough gems"
+	end
+
+	local ownedFx = table.clone(data.OwnedFx)
+	table.insert(ownedFx, fx.Id)
+	PlayerData.update(player, {
+		Gems = data.Gems - fx.Price,
+		OwnedFx = ownedFx,
+		EquippedFx = fx.Id,
+	})
+	return true, fx.Name .. " unlocked"
+end
+
+function actions.EquipFx(player, data, fxId)
+	local fx = Progression.findFx(fxId)
+	if not fx or not Progression.ownsFx(data, fx.Id) then
+		return false, "You don't own that effect"
+	end
+	PlayerData.update(player, { EquippedFx = fx.Id })
 	return true
 end
 
 function actions.ClaimDaily(player, data)
-	local now = os.time()
-	if now < data.NextDaily then
-		return false, "Come back later"
+	local ok, message = Progression.claimDaily(data, os.time())
+	if ok then
+		PlayerData.publish(player, Progression.DAILY_FIELDS)
+		reward(player, message)
 	end
-	PlayerData.update(player, {
-		Gems = data.Gems + Config.DAILY_REWARD_GEMS,
-		NextDaily = now + Config.DAILY_REWARD_COOLDOWN,
-	})
-	return true, "+" .. Config.DAILY_REWARD_GEMS .. " gems"
+	return ok, message
+end
+
+-- New missions might be due (the player kept the game open past midnight).
+local function refreshMissions(player, data)
+	if Progression.refreshMissions(data, os.time()) then
+		PlayerData.publish(player, Progression.MISSION_FIELDS)
+	end
+end
+
+function actions.ClaimMission(player, data, missionId)
+	if type(missionId) ~= "string" then
+		return false, "Mission not found"
+	end
+	refreshMissions(player, data)
+	local ok, message, events = Progression.claimMission(data, missionId)
+	if ok then
+		PlayerData.publish(player, { "Missions" })
+		PlayerData.publish(player, Progression.XP_FIELDS)
+		reward(player, message)
+		fireAll(player, events)
+	end
+	return ok, message
+end
+
+function actions.RerollMission(player, data, missionId)
+	if type(missionId) ~= "string" then
+		return false, "Mission not found"
+	end
+	refreshMissions(player, data)
+	local ok, message = Progression.rerollMission(data, missionId)
+	if ok then
+		PlayerData.publish(player, Progression.MISSION_FIELDS)
+	end
+	return ok, message
+end
+
+-- argument: { track = "Free" | "Premium", tier = number }
+function actions.ClaimSeasonTier(player, data, request)
+	local ok, message = Progression.claimSeasonTier(data, request)
+	if ok then
+		PlayerData.publish(player, { "SeasonClaimed" })
+		PlayerData.publish(player, Progression.REWARD_FIELDS)
+		reward(player, message)
+	end
+	return ok, message
 end
 
 -- One request at a time per player, so spamming can't double-spend.
@@ -74,9 +161,9 @@ local busy = {}
 
 function Shop.init()
 	Remotes.ShopRequest.OnServerInvoke = function(player, action, argument)
-		local handler = actions[action]
+		local handler = type(action) == "string" and actions[action]
 		local data = PlayerData.get(player)
-		if type(action) ~= "string" or not handler or not data then
+		if not handler or not data then
 			return false, "Try again in a moment"
 		end
 		if busy[player] then
@@ -94,7 +181,7 @@ function Shop.init()
 		if success then
 			task.spawn(PlayerData.save, player)
 		end
-		return success, message
+		return success == true, message
 	end
 end
 

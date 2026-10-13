@@ -5,6 +5,9 @@
 	impact to the edges, a ring of cracks crosses them, and every piece in between
 	becomes a real triangle shard. Shards near the impact blast away, the rest
 	drop and tumble, bounce off the floor and sparkle.
+
+	Shatter.glass / Shatter.prop take an optional shatter effect (an entry of
+	Config.ShatterFx) that tints the shards. nil or "Classic" = normal glass.
 ]]
 
 local Debris = game:GetService("Debris")
@@ -67,6 +70,55 @@ local function makePiece(className, template)
 	piece.TopSurface = Enum.SurfaceType.Smooth
 	piece.BottomSurface = Enum.SurfaceType.Smooth
 	return piece
+end
+
+-- Shatter effects -----------------------------------------------------------
+
+local function hasFx(fx)
+	return fx ~= nil and fx.Id ~= "Classic"
+end
+
+-- The look of one shard: a plain table makePiece can read like a Part.
+-- Rainbow effects get a new random hue for every shard.
+local function styledTemplate(template, fx)
+	if not hasFx(fx) then
+		return template
+	end
+	local style = {
+		Material = template.Material,
+		Color = template.Color,
+		Transparency = template.Transparency,
+		Reflectance = template.Reflectance,
+	}
+	if fx.Rainbow then
+		style.Color = Color3.fromHSV(rng:NextNumber(), 0.75, 1)
+	elseif fx.Color then
+		style.Color = fx.Color
+	end
+	if fx.Neon then
+		style.Material = Enum.Material.Neon
+		style.Transparency = math.min(style.Transparency, 0.2)
+	elseif fx.Metal then
+		style.Material = Enum.Material.Foil
+		style.Transparency = 0
+		style.Reflectance = 0.35
+	end
+	return style
+end
+
+-- Color and amount of the glitter burst.
+local function sparkleStyle(baseColor, amount, fx)
+	if not hasFx(fx) then
+		return baseColor, amount
+	end
+	local color = fx.Color or baseColor
+	if fx.Rainbow then
+		color = Color3.fromHSV(rng:NextNumber(), 0.6, 1)
+	end
+	if fx.Sparkle then
+		amount = math.floor(amount * 2.5)
+	end
+	return color, amount
 end
 
 local function launch(part, center, hitPoint, push, reach)
@@ -212,7 +264,7 @@ end
 
 -- Public -------------------------------------------------------------------
 
-function Shatter.glass(panel, hitPoint, push, parent)
+function Shatter.glass(panel, hitPoint, push, parent, fx)
 	local size = panel.Size
 	local cf = panel.CFrame
 	local hx, hy = size.X / 2, size.Y / 2
@@ -231,20 +283,21 @@ function Shatter.glass(panel, hitPoint, push, parent)
 		local a = cf * Vector3.new(tri[1].X, tri[1].Y, 0)
 		local b = cf * Vector3.new(tri[2].X, tri[2].Y, 0)
 		local c = cf * Vector3.new(tri[3].X, tri[3].Y, 0)
-		local shard = triangle(a, b, c, thickness, panel, parent)
+		local shard = triangle(a, b, c, thickness, styledTemplate(panel, fx), parent)
 		if shard then
 			launch(shard, (a + b + c) / 3, worldHit, push, reach)
 			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
 		end
 	end
 
-	sparkle(worldHit, panel.Color, 25, parent)
+	local sparkleColor, sparkleAmount = sparkleStyle(panel.Color, 25, fx)
+	sparkle(worldHit, sparkleColor, sparkleAmount, parent)
 	panel:Destroy()
 end
 
 -- Breakable decorations (vases, bottles, lamps...). Each part bursts into
 -- small random shards. Hitting any part of a breakable Model breaks all of it.
-function Shatter.prop(part, hitPoint, push, parent)
+function Shatter.prop(part, hitPoint, push, parent, fx)
 	-- Walk up to the breakable model this part belongs to (if any).
 	local root = part
 	local ancestor = part.Parent
@@ -269,7 +322,7 @@ function Shatter.prop(part, hitPoint, push, parent)
 		local count = math.clamp(math.floor(volume / 1.5), 3, 10)
 		local reach = math.max(size.X, size.Y, size.Z) * 2
 		for _ = 1, count do
-			local shard = makePiece("WedgePart", piece)
+			local shard = makePiece("WedgePart", styledTemplate(piece, fx))
 			shard.Size = Vector3.new(
 				math.max(0.1, size.X * rng:NextNumber(0.15, 0.4)),
 				math.max(0.1, size.Y * rng:NextNumber(0.15, 0.4)),
@@ -289,7 +342,8 @@ function Shatter.prop(part, hitPoint, push, parent)
 			launch(shard, shard.Position, hitPoint, push * 0.5, reach)
 			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
 		end
-		sparkle(piece.Position, piece.Color, 10, parent)
+		local sparkleColor, sparkleAmount = sparkleStyle(piece.Color, 10, fx)
+		sparkle(piece.Position, sparkleColor, sparkleAmount, parent)
 	end
 
 	root:Destroy()

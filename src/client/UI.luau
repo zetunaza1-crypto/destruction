@@ -43,9 +43,19 @@ local TAB_H = 44
 local FOOTER_H = 18
 
 local ZONE_CARD_TIME = 1.6
+local LEVEL_CARD_TIME = 2.4
 local TOAST_TIME = 2
 local MAX_TOASTS = 3
 
+local TAB_NAMES = { "PLAY", "MISSIONS", "SEASON", "ZONES", "SHOP" }
+local TAB_MISSIONS, TAB_SEASON = 2, 3
+local GEM_PACKS = { "GemPack", "GemPackMedium", "GemPackLarge" }
+-- The starter offer pops up once per session, the first time the menu opens
+-- after a run (never on the very first screen, and never again once closed).
+local OFFER_AFTER_MENU_OPENS = 2
+local SUMMARY_TIMEOUT = 10 -- game over stops saying "TALLYING" after this
+local SEASON_COLUMN_W = 56
+local SEASON_COLUMN_GAP = 4
 local PASS_ORDER = { "VIP", "Multiball", "Checkpoints" }
 local PASS_INFO = {
 	VIP = {
@@ -64,6 +74,7 @@ local PASS_INFO = {
 local TOAST_KINDS = {
 	multiball = { tag = "MULTIBALL", accent = true },
 	reward = { tag = "REWARD", accent = true },
+	level = { tag = "LEVEL UP", accent = true },
 	info = { tag = "NOTE", accent = false },
 	error = { tag = "ERROR", accent = false, hatch = true },
 }
@@ -117,7 +128,7 @@ local function themeFor(zone)
 end
 
 local function ownedSkins()
-	local owned = { Default = true }
+	local owned = { Default = true, Classic = true }
 	local raw = player:GetAttribute("OwnedSkins")
 	if type(raw) == "string" then
 		local ok, list = pcall(HttpService.JSONDecode, HttpService, raw)
@@ -134,6 +145,105 @@ end
 
 local function hasPass(key)
 	return player:GetAttribute("Pass_" .. key) == true
+end
+
+-- Progression data ------------------------------------------------------------------
+-- The server mirrors progress to attributes (some as JSON). Any of them may be
+-- missing before data loads, so every reader falls back to something safe.
+
+local function decodeJson(raw)
+	if type(raw) ~= "string" or raw == "" then
+		return nil
+	end
+	local ok, value = pcall(HttpService.JSONDecode, HttpService, raw)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function attrNumber(name, default)
+	local value = tonumber(player:GetAttribute(name))
+	if value == nil or value ~= value then
+		return default
+	end
+	return value
+end
+
+local function ownedFx()
+	local owned = { Classic = true }
+	local decoded = decodeJson(player:GetAttribute("OwnedFx"))
+	if type(decoded) == "table" then
+		for _, id in decoded do
+			if type(id) == "string" then
+				owned[id] = true
+			end
+		end
+	end
+	return owned
+end
+
+local function levelInfo()
+	local level = math.max(1, math.floor(attrNumber("Level", 1)))
+	local needed = math.max(1, math.floor(attrNumber("XPNeeded", Config.xpForLevel(level))))
+	local xp = math.clamp(math.floor(attrNumber("XP", 0)), 0, needed)
+	return level, xp, needed
+end
+
+local function skinName(id)
+	local skin = Config.getSkin(id)
+	return string.upper(if skin and skin.Id == id then skin.Name else tostring(id))
+end
+
+local function fxName(id)
+	local fx = Config.getFx(id)
+	return string.upper(if fx and fx.Id == id then fx.Name else tostring(id))
+end
+
+-- "+70 GEMS", "NEONITE SKIN", "SHATTERBORN SKIN + SUPERNOVA FX"...
+local function rewardText(reward)
+	if type(reward) ~= "table" then
+		return ""
+	end
+	local parts = {}
+	if reward.Gems then
+		table.insert(parts, "+" .. commas(reward.Gems) .. " GEMS")
+	end
+	if reward.Skin then
+		table.insert(parts, skinName(reward.Skin) .. " SKIN")
+	end
+	if reward.Fx then
+		table.insert(parts, fxName(reward.Fx) .. " FX")
+	end
+	return table.concat(parts, " + ")
+end
+
+-- The first level unlock above `level`, or nil once they are all earned.
+local function nextUnlock(level)
+	local best = nil
+	for unlockLevel, reward in Config.LevelUnlocks do
+		if unlockLevel > level and (best == nil or unlockLevel < best) then
+			best = unlockLevel
+		end
+	end
+	return best, best and Config.LevelUnlocks[best]
+end
+
+-- "3D 04H", or hh:mm:ss under a day.
+local function longClock(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	if seconds >= 86400 then
+		return string.format("%dD %02dH", seconds // 86400, (seconds % 86400) // 3600)
+	end
+	return clock(seconds)
+end
+
+local function rainbowSequence()
+	local keys = {}
+	for i = 0, 6 do
+		table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6, 0.75, 1)))
+	end
+	return ColorSequence.new(keys)
 end
 
 -- Prices are fetched once per id and cached; waiters are called when it lands.
@@ -614,6 +724,164 @@ local function clearRows(container)
 	end
 end
 
+-- Thin measurement bar: faint ink track with an accent fill (0..1).
+local function meter(parent, props, height)
+	local merged = { BackgroundColor3 = INK, BackgroundTransparency = 0.82, Size = UDim2.new(1, 0, 0, height or 4) }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	local track = new("Frame", merged)
+	local fill = new("Frame", { Name = "Fill", Size = UDim2.fromScale(0, 1), Parent = track })
+	setAccent(fill, "BackgroundColor3")
+	return track, fill
+end
+
+-- Rubber stamp: outlined slab with double rules, like NEW BEST on the run report.
+local function stamp(parent, label, props, fill)
+	local merged = { Name = "Stamp", AnchorPoint = Vector2.new(0.5, 0.5), Rotation = -8 }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	local frame = new("Frame", merged)
+	if fill == "accent" then
+		setAccent(frame, "BackgroundColor3")
+	else
+		frame.BackgroundColor3 = PAPER
+		frame.BackgroundTransparency = if fill == "clear" then 1 else 0
+	end
+	stroke(frame, 1.5)
+	rule(frame, { Position = UDim2.fromOffset(3, 3), Size = UDim2.new(1, -6, 0, 1) })
+	rule(frame, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 3, 1, -3), Size = UDim2.new(1, -6, 0, 1) })
+	local textLabel = capText(text({
+		Name = "Label",
+		Text = label,
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(4, 0),
+		Size = UDim2.new(1, -8, 1, 0),
+		Parent = frame,
+	}), 11, 6)
+	return frame, textLabel
+end
+
+-- Small ink tag with paper (or accent) text: "LOCKED", "BEST VALUE"...
+local function tag(parent, label, props, accentText)
+	local merged = { Name = "Tag", BackgroundColor3 = INK }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	local frame = new("Frame", merged)
+	local textLabel = text({
+		Text = label,
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.fromScale(1, 1),
+		Parent = frame,
+	})
+	if accentText then
+		setAccent(textLabel, "TextColor3")
+	end
+	return frame, textLabel
+end
+
+-- One triangular glass shard (hard-stepped diagonal gradient, no image).
+local function shard(parent, x, y, size, rotation, color)
+	local frame = new("Frame", {
+		Name = "Shard",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(x, y),
+		Size = UDim2.fromOffset(size, size),
+		Rotation = rotation,
+		BackgroundColor3 = color,
+		Parent = parent,
+	})
+	new("UIGradient", {
+		Rotation = 45,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.499, 0),
+			NumberSequenceKeypoint.new(0.501, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+		Parent = frame,
+	})
+	return frame
+end
+
+local SHARD_LAYOUT = {
+	{ 0.5, 0.52, 16, 10 },
+	{ 0.3, 0.32, 11, 70 },
+	{ 0.7, 0.3, 10, -40 },
+	{ 0.24, 0.72, 9, 150 },
+	{ 0.76, 0.7, 12, 200 },
+	{ 0.52, 0.16, 7, 120 },
+	{ 0.12, 0.46, 6, 30 },
+	{ 0.88, 0.48, 7, -110 },
+	{ 0.5, 0.88, 7, 260 },
+}
+
+-- Ink sample plate showing shards in an effect's color.
+local function fxSwatch(parent, fx, props, scale)
+	local merged = { Name = "Swatch", BackgroundColor3 = INK }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	local plate = new("Frame", merged)
+	plate.ClipsDescendants = true
+	scale = scale or 1
+	for i, spec in SHARD_LAYOUT do
+		local color = fx.Color or Config.GLASS_COLOR
+		if fx.Rainbow then
+			color = Color3.fromHSV((i - 1) / #SHARD_LAYOUT, 0.7, 1)
+		end
+		shard(plate, spec[1], spec[2], math.floor(spec[3] * scale + 0.5), spec[4], color)
+	end
+	if fx.Sparkle then
+		for _, spot in { { 0.38, 0.5 }, { 0.62, 0.42 }, { 0.42, 0.22 }, { 0.66, 0.8 }, { 0.2, 0.2 } } do
+			new("Frame", {
+				BackgroundColor3 = PAPER,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(spot[1], spot[2]),
+				Size = UDim2.fromOffset(2, 2),
+				Parent = plate,
+			})
+		end
+	end
+	return plate
+end
+
+-- Tiny color sample for a reward (skin color, fx color, or the gem mark).
+local function rewardChip(parent, reward, size, position)
+	if type(reward) ~= "table" then
+		return nil
+	end
+	if reward.Skin or reward.Fx then
+		local item = if reward.Skin then Config.getSkin(reward.Skin) else Config.getFx(reward.Fx)
+		local chip = new("Frame", {
+			Name = "Chip",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = position,
+			Size = UDim2.fromOffset(size, size),
+			BackgroundColor3 = item.Color or Config.GLASS_COLOR,
+			Parent = parent,
+		})
+		stroke(chip, 1)
+		if item.Rainbow then
+			new("UIGradient", { Color = rainbowSequence(), Rotation = 20, Parent = chip })
+		end
+		if reward.Fx and not reward.Skin then
+			chip.Rotation = 45 -- effects read as diamonds, skins as squares
+		end
+		return chip
+	end
+	return gemIcon(parent, math.floor(size * 0.8), position)
+end
+
 -- Menu ---------------------------------------------------------------------------------
 
 function UI._buildMenu(self)
@@ -727,15 +995,34 @@ function UI._buildMenuLeft(self, root)
 	})
 
 	-- Stats strip
+	-- Stats strip: BEST | GEMS | LEVEL badge, with the XP bar along the bottom edge.
 	local stats = new("Frame", { Name = "Stats", BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 120), Size = UDim2.fromOffset(256, 46), Parent = left })
 	rule(stats, {})
 	rule(stats, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1) })
-	rule(stats, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 1, 1, -16) })
-	text({ Text = "BEST / M", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(0, 5), Size = UDim2.fromOffset(120, 10), Parent = stats })
-	m.best = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(0, 17), Size = UDim2.fromOffset(120, 22), Parent = stats }), 16, 8)
-	gemIcon(stats, 7, UDim2.fromOffset(140, 10))
-	text({ Text = "GEMS", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(150, 5), Size = UDim2.fromOffset(100, 10), Parent = stats })
-	m.gems = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(136, 17), Size = UDim2.fromOffset(120, 22), Parent = stats }), 16, 8)
+	rule(stats, { Position = UDim2.fromOffset(92, 8), Size = UDim2.new(0, 1, 1, -18) })
+	rule(stats, { Position = UDim2.fromOffset(176, 8), Size = UDim2.new(0, 1, 1, -18) })
+	text({ Text = "BEST / M", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(0, 5), Size = UDim2.fromOffset(88, 10), Parent = stats })
+	m.best = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(0, 17), Size = UDim2.fromOffset(88, 22), Parent = stats }), 16, 8)
+	gemIcon(stats, 7, UDim2.fromOffset(104, 10))
+	text({ Text = "GEMS", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(114, 5), Size = UDim2.fromOffset(60, 10), Parent = stats })
+	m.gems = capText(text({ Text = "0", Font = FONT_NUM, Position = UDim2.fromOffset(100, 17), Size = UDim2.fromOffset(72, 22), Parent = stats }), 16, 8)
+
+	local badge = new("Frame", { Name = "Level", BackgroundColor3 = INK, Position = UDim2.fromOffset(184, 6), Size = UDim2.fromOffset(72, 32), Parent = stats })
+	notch(badge, 8, 1, 0)
+	text({ Text = "LEVEL", TextSize = 7, TextColor3 = PAPER, TextTransparency = 0.35, Position = UDim2.fromOffset(6, 2), Size = UDim2.fromOffset(50, 9), Parent = badge })
+	m.level = capText(text({ Text = "LV 01", Font = FONT_NUM, TextColor3 = PAPER, Position = UDim2.fromOffset(6, 11), Size = UDim2.fromOffset(62, 18), Parent = badge }), 13, 7)
+	m.levelBump = new("UIScale", { Parent = badge })
+	local _, xpFill = meter(stats, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -1) }, 3)
+	m.xpFill = xpFill
+	m.xpNote = text({
+		Text = "",
+		TextSize = 7,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(0, 167),
+		Size = UDim2.fromOffset(256, 9),
+		Parent = left,
+	})
 
 	-- PLAY
 	local play = hardButton(left, {
@@ -754,7 +1041,7 @@ function UI._buildMenuLeft(self, root)
 	hatch(play.face, { Name = "Hatch", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 46, 1, -16) }, INK, 0, 4)
 	m.play = play
 
-	-- DAILY
+	-- DAILY: opens the 7-day streak sheet. The pips on the right show the streak at a glance.
 	local daily = hardButton(left, {
 		Name = "Daily",
 		Fill = "paper",
@@ -765,9 +1052,34 @@ function UI._buildMenuLeft(self, root)
 		Position = UDim2.fromOffset(0, 252),
 		Size = UDim2.fromOffset(256, 48),
 		OnClick = function()
-			self:_claimDaily()
+			self:_openDaily()
 		end,
 	})
+	daily.label.Size = UDim2.new(1, -104, 1, -11)
+	local pipRow = new("Frame", {
+		Name = "Streak",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 4),
+		Size = UDim2.fromOffset(#Config.DailyStreak * 12 - 2, 12),
+		Parent = daily.face,
+	})
+	m.dailyPips = {}
+	for day = 1, #Config.DailyStreak do
+		local isBig = day == #Config.DailyStreak
+		local pip = new("Frame", {
+			Name = "Day" .. day,
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset((day - 1) * 12 + 5, 6),
+			Size = if isBig then UDim2.fromOffset(9, 9) else UDim2.fromOffset(8, 8),
+			Rotation = if isBig then 45 else 0,
+			Parent = pipRow,
+		})
+		local pipStroke = stroke(pip, 1)
+		m.dailyPips[day] = { frame = pip, stroke = pipStroke }
+	end
 	m.daily = daily
 end
 
@@ -790,7 +1102,7 @@ function UI._buildMenuPanel(self, root)
 
 	-- Tabs
 	m.tabs = {}
-	local names = { "PLAY", "ZONES", "SHOP" }
+	local names = TAB_NAMES
 	for i, name in names do
 		local button = new("TextButton", {
 			Name = "Tab" .. name,
@@ -798,21 +1110,33 @@ function UI._buildMenuPanel(self, root)
 			Text = "",
 			BackgroundColor3 = INK,
 			BackgroundTransparency = 1,
-			Position = UDim2.new((i - 1) / 3, 0, 0, 0),
-			Size = UDim2.new(1 / 3, 0, 0, TAB_H),
+			Position = UDim2.new((i - 1) / #names, 0, 0, 0),
+			Size = UDim2.new(1 / #names, 0, 0, TAB_H),
 			Parent = panel,
 		})
-		local index = text({ Text = twoDigits(i), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(7, 5), Size = UDim2.fromOffset(30, 9), Parent = button })
+		local index = text({ Text = twoDigits(i), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(5, 5), Size = UDim2.fromOffset(30, 9), Parent = button })
 		local label = capText(text({
 			Text = name,
 			Font = FONT_NUM,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			Position = UDim2.fromOffset(4, 16),
-			Size = UDim2.new(1, -8, 0, 20),
+			Position = UDim2.fromOffset(3, 16),
+			Size = UDim2.new(1, -6, 0, 20),
 			Parent = button,
-		}), 11, 7)
+		}), 11, 5)
 		local bar = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 3), Visible = false, Parent = button })
 		setAccent(bar, "BackgroundColor3")
+		-- "Something to claim here" marker.
+		local pip = new("Frame", {
+			Name = "Pip",
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 6),
+			Size = UDim2.fromOffset(7, 7),
+			Rotation = 45,
+			Visible = false,
+			Parent = button,
+		})
+		setAccent(pip, "BackgroundColor3")
+		stroke(pip, 1)
 		if i > 1 then
 			rule(button, { Size = UDim2.new(0, 1, 1, 0), BackgroundTransparency = 0.6 })
 		end
@@ -842,14 +1166,14 @@ function UI._buildMenuPanel(self, root)
 		button.Activated:Connect(function()
 			self:_selectTab(i)
 		end)
-		m.tabs[i] = { button = button, index = index, label = label, bar = bar, page = page, name = name }
+		m.tabs[i] = { button = button, index = index, label = label, bar = bar, pip = pip, page = page, name = name }
 	end
 	rule(panel, { Position = UDim2.fromOffset(0, TAB_H) })
 
 	-- Footer
 	local footer = new("Frame", { Name = "Footer", BackgroundTransparency = 1, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, FOOTER_H), Parent = panel })
 	rule(footer, { BackgroundTransparency = 0.5 })
-	m.footer = text({ Text = "SHEET 01 / 03", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(9, 1), Size = UDim2.new(0.5, -9, 1, -1), Parent = footer })
+	m.footer = text({ Text = "SHEET 01 / " .. twoDigits(#names), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(9, 1), Size = UDim2.new(0.5, -9, 1, -1), Parent = footer })
 	text({
 		Text = "SHATTER RUN / SPEC",
 		TextSize = 8,
@@ -870,23 +1194,37 @@ function UI._buildMenuPanel(self, root)
 	m.passes = new("Frame", { Name = "Passes", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 4, Parent = playPage })
 	list(m.passes, 8)
 
-	-- 02 ZONES
-	local zonesPage = m.tabs[2].page
-	local _, zonesRight = sectionHeader(zonesPage, 1, "02.1", "ZONES")
+	-- 02 MISSIONS
+	self:_buildMissionsPage(m.tabs[TAB_MISSIONS].page)
+
+	-- 03 SEASON
+	self:_buildSeasonPage(m.tabs[TAB_SEASON].page)
+
+	-- 04 ZONES
+	local zonesPage = m.tabs[4].page
+	local _, zonesRight = sectionHeader(zonesPage, 1, "04.1", "ZONES")
 	m.zonesRight = zonesRight
 	m.zones = new("Frame", { Name = "Zones", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, Parent = zonesPage })
 	list(m.zones, 0)
 
-	-- 03 SHOP
-	local shopPage = m.tabs[3].page
-	local _, gemsRight = sectionHeader(shopPage, 1, "03.1", "GEMS")
-	m.shopGems = gemsRight
-	if Config.Products.GemPack.Id ~= 0 then
-		self:_buildGemPack(shopPage, 2)
+	-- 05 SHOP
+	local shopPage = m.tabs[5].page
+	local starter = Config.Products.StarterPack
+	if starter and starter.Id ~= 0 then
+		m.starterHeader = sectionHeader(shopPage, 1, "05.0", "STARTER PACK")
+		m.starterCard = self:_buildStarterCard(shopPage, 2)
 	end
-	local _, skinsRight = sectionHeader(shopPage, 3, "03.2", "BALL SKINS")
+	local _, gemsRight = sectionHeader(shopPage, 3, "05.1", "GEMS")
+	m.shopGems = gemsRight
+	for i, key in GEM_PACKS do
+		local product = Config.Products[key]
+		if product and product.Id ~= 0 then
+			self:_buildGemPack(shopPage, 3 + i, key)
+		end
+	end
+	local _, skinsRight = sectionHeader(shopPage, 10, "05.2", "BALL SKINS")
 	m.skinsRight = skinsRight
-	local grid = new("Frame", { Name = "Skins", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 4, Parent = shopPage })
+	local grid = new("Frame", { Name = "Skins", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 11, Parent = shopPage })
 	new("UIGridLayout", {
 		CellSize = UDim2.new(0.5, -4, 0, 160),
 		CellPadding = UDim2.fromOffset(8, 8),
@@ -897,13 +1235,45 @@ function UI._buildMenuPanel(self, root)
 	for order, skin in Config.Skins do
 		m.skinCards[skin.Id] = self:_buildSkinCard(grid, skin, order)
 	end
+
+	local _, fxRight = sectionHeader(shopPage, 12, "05.3", "SHATTER FX")
+	m.fxRight = fxRight
+	text({
+		Text = "THE COLOR YOUR GLASS SHARDS TURN WHEN YOU BREAK THEM",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextWrapped = true,
+		Size = UDim2.new(1, 0, 0, 12),
+		LayoutOrder = 13,
+		Parent = shopPage,
+	})
+	local fxGrid = new("Frame", { Name = "Fx", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 14, Parent = shopPage })
+	new("UIGridLayout", {
+		CellSize = UDim2.new(0.5, -4, 0, 140),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = fxGrid,
+	})
+	m.fxCards = {}
+	for order, fx in Config.ShatterFx do
+		m.fxCards[fx.Id] = self:_buildFxCard(fxGrid, fx, order)
+	end
 end
 
-function UI._buildGemPack(self, parent, order)
-	local product = Config.Products.GemPack
-	local card = new("Frame", { Name = "GemPack", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = parent })
-	stroke(card, 1, INK, 0.5)
+function UI._buildGemPack(self, parent, order, key)
+	key = key or "GemPack"
+	local product = Config.Products[key]
+	local card = new("Frame", { Name = key, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = parent })
+	stroke(card, 1, INK, if product.Badge then 0 else 0.5)
 	notch(card, 10, 0, 0)
+	if product.Badge then
+		stamp(card, string.upper(product.Badge), {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -92, 0, 1),
+			Size = UDim2.fromOffset(78, 17),
+			Rotation = -4,
+		}, "accent")
+	end
 	gemIcon(card, 20, UDim2.fromOffset(28, 30))
 	capText(text({
 		Text = "+" .. commas(product.Gems) .. " GEMS",
@@ -923,12 +1293,99 @@ function UI._buildGemPack(self, parent, order)
 		Position = UDim2.new(1, -6, 0.5, 0),
 		Size = UDim2.fromOffset(78, 50),
 		OnClick = function()
-			self:_fire("onBuyProduct", "GemPack")
+			self:_fire("onBuyProduct", key)
 		end,
 	})
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
+end
+
+-- What the starter pack contains, as three annotated lines.
+local function starterLines(product)
+	local lines = {}
+	if product.Gems then
+		table.insert(lines, { reward = { Gems = product.Gems }, text = "+" .. commas(product.Gems) .. " GEMS" })
+	end
+	if product.Skin then
+		table.insert(lines, { reward = { Skin = product.Skin }, text = skinName(product.Skin) .. " BALL SKIN" })
+	end
+	if product.Fx then
+		table.insert(lines, { reward = { Fx = product.Fx }, text = fxName(product.Fx) .. " SHATTER FX" })
+	end
+	return lines
+end
+
+-- Shop card for the one-time starter pack. Hidden once bought.
+function UI._buildStarterCard(self, parent, order)
+	local product = Config.Products.StarterPack
+	local card = new("Frame", { Name = "StarterPack", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 92), LayoutOrder = order, Parent = parent })
+	notch(card, 12, 1, 0)
+	setAccent(text({ Text = "ONE-TIME PACK / NEW PLAYERS", TextSize = 8, Position = UDim2.fromOffset(10, 5), Size = UDim2.new(1, -110, 0, 10), Parent = card }), "TextColor3")
+	for i, line in starterLines(product) do
+		local y = 22 + (i - 1) * 22
+		rewardChip(card, line.reward, 10, UDim2.fromOffset(16, y + 8))
+		capText(text({ Text = line.text, Font = FONT_NUM, TextColor3 = PAPER, Position = UDim2.fromOffset(28, y), Size = UDim2.new(1, -124, 0, 16), Parent = card }), 10, 6)
+	end
+	local buy = hardButton(card, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 12,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 4),
+		Size = UDim2.fromOffset(84, 56),
+		OnClick = function()
+			self:_fire("onBuyProduct", "StarterPack")
+		end,
+	})
+	withPrice(product.Id, Enum.InfoType.Product, function(price)
+		if buy.sub.Parent then
+			buy.sub.Text = "R$ " .. commas(price)
+		end
+	end)
+	return card
+end
+
+-- Shop card for a shatter effect: same anatomy as the ball skin cards.
+function UI._buildFxCard(self, parent, fx, order)
+	local card = new("Frame", { Name = fx.Id, BackgroundTransparency = 1, LayoutOrder = order, Parent = parent })
+	local outline = stroke(card, 1, INK, 0.5)
+	local swatch = fxSwatch(card, fx, { Position = UDim2.fromOffset(6, 6), Size = UDim2.new(1, -12, 0, 42) })
+	text({ Text = "FX-" .. twoDigits(order), TextSize = 8, TextColor3 = PAPER, Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(40, 10), Parent = swatch })
+	local finish = if fx.Rainbow then "PRISM" elseif fx.Neon then "NEON" elseif fx.Metal then "METAL" elseif fx.Sparkle then "SPARKLE" else "GLASS"
+	text({
+		Text = finish,
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(1, -64, 0, 2),
+		Size = UDim2.fromOffset(60, 10),
+		Parent = swatch,
+	})
+	capText(text({ Text = string.upper(fx.Name), Font = FONT_NUM, Position = UDim2.fromOffset(6, 53), Size = UDim2.new(1, -12, 0, 16), Parent = card }), 12, 7)
+	local price = text({
+		Text = if fx.Price > 0 then commas(fx.Price) .. " GEMS" else "STANDARD ISSUE",
+		TextSize = 9,
+		TextColor3 = GREY,
+		Position = UDim2.fromOffset(6, 70),
+		Size = UDim2.new(1, -12, 0, 12),
+		Parent = card,
+	})
+	local entry = { fx = fx, outline = outline, price = price, busy = false }
+	entry.button = hardButton(card, {
+		Name = "Action",
+		Fill = "ink",
+		Text = "BUY",
+		TextSize = 11,
+		Position = UDim2.fromOffset(6, 86),
+		Size = UDim2.new(1, -12, 0, 48),
+		OnClick = function()
+			self:_fxAction(entry)
+		end,
+	})
+	return entry
 end
 
 function UI._buildSkinCard(self, parent, skin, order)
@@ -965,7 +1422,7 @@ function UI._buildSkinCard(self, parent, skin, order)
 
 	capText(text({ Text = string.upper(skin.Name), Font = FONT_NUM, Position = UDim2.fromOffset(6, 70), Size = UDim2.new(1, -12, 0, 16), Parent = card }), 12, 7)
 	local price = text({
-		Text = if skin.Price > 0 then commas(skin.Price) .. " GEMS" else "STANDARD ISSUE",
+		Text = if skin.Price > 0 then commas(skin.Price) .. " GEMS" elseif skin.Source then "LOCKED" else "STANDARD ISSUE",
 		TextSize = 9,
 		TextColor3 = GREY,
 		Position = UDim2.fromOffset(6, 88),
@@ -1007,8 +1464,333 @@ function UI._selectTab(self, index)
 			tab.page.CanvasPosition = Vector2.zero
 			tab.page.Position = UDim2.fromOffset(14, TAB_H + 1)
 			tween(tab.page, 0.22, { Position = UDim2.fromOffset(0, TAB_H + 1) })
-			m.footer.Text = "SHEET " .. twoDigits(i) .. " / 03 / " .. tab.name
+			m.footer.Text = "SHEET " .. twoDigits(i) .. " / " .. twoDigits(#m.tabs) .. " / " .. tab.name
 		end
+	end
+	if index == TAB_SEASON then
+		self:_scrollSeasonTrack()
+	end
+end
+
+-- Popovers (daily streak, starter offer) ------------------------------------------------
+
+-- A centered sheet with an ink header, like the run report. Active so taps on it
+-- don't fall through to the wash (which closes the popover).
+local function modalSheet(layer, name, width, height, index, title)
+	local sheet = new("Frame", {
+		Name = name,
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.02,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(width, height),
+		Visible = false,
+		Parent = layer,
+	})
+	sheet.Active = true
+	fit(sheet)
+	stroke(sheet, 1.5)
+	cropMarks(sheet, 10, 5)
+	notch(sheet, 14, 1, 1, INK)
+	local header = new("Frame", { Name = "Header", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 24), Parent = sheet })
+	text({ Text = index .. " / " .. title, TextSize = 9, TextColor3 = PAPER, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(0.6, -10, 1, 0), Parent = header })
+	local right = setAccent(text({
+		Text = "",
+		TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(0.4, 0, 0, 0),
+		Size = UDim2.new(0.6, -10, 1, 0),
+		Parent = header,
+	}), "TextColor3")
+	return sheet, right
+end
+
+function UI._buildModal(self, root)
+	local m = self._menu
+	local layer = new("Frame", { Name = "Modal", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = root })
+	local wash = new("TextButton", {
+		Name = "Wash",
+		AutoButtonColor = false,
+		Text = "",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.25,
+		Position = UDim2.fromOffset(-200, -200),
+		Size = UDim2.new(1, 400, 1, 400),
+		Parent = layer,
+	})
+	wash.Activated:Connect(function()
+		self:_closeModal()
+	end)
+	blueprintGrid(layer, 12, 8, 0.9)
+	m.modal = layer
+	m.modalWash = wash
+	m.sheets = {}
+	self:_buildDailySheet(layer)
+	self:_buildOfferSheet(layer)
+end
+
+function UI._openModal(self, name)
+	local m = self._menu
+	local sheet = m.sheets[name]
+	if not sheet then
+		return
+	end
+	for key, other in m.sheets do
+		other.Visible = key == name
+	end
+	m.modalOpen = name
+	m.modal.Visible = true
+	m.modalWash.BackgroundTransparency = 1
+	tween(m.modalWash, 0.25, { BackgroundTransparency = 0.25 })
+	sheet.Position = UDim2.new(0.5, 0, 0.5, 16)
+	tween(sheet, 0.3, { Position = UDim2.fromScale(0.5, 0.5) })
+end
+
+function UI._closeModal(self)
+	local m = self._menu
+	if not m.modalOpen then
+		return
+	end
+	m.modalOpen = nil
+	m.modal.Visible = false
+end
+
+function UI._openDaily(self)
+	self._menu.dailyKey = nil
+	self:_refreshDaily()
+	self:_openModal("daily")
+end
+
+function UI._buildDailySheet(self, layer)
+	local m = self._menu
+	local days = #Config.DailyStreak
+	local width, height = 400, 216
+	local sheet, right = modalSheet(layer, "Daily", width, height, "06", "DAILY STREAK")
+	m.sheets.daily = sheet
+	local d = { sheet = sheet, right = right, cells = {} }
+	self._dailySheet = d
+
+	local gap = 6
+	local cellW = math.floor((width - 24 - gap * (days - 1)) / days)
+	local startX = math.floor((width - (cellW * days + gap * (days - 1))) / 2)
+	for day = 1, days do
+		local reward = Config.DailyStreak[day] or {}
+		local cell = new("Frame", {
+			Name = "Day" .. day,
+			BackgroundColor3 = PAPER,
+			Position = UDim2.fromOffset(startX + (day - 1) * (cellW + gap), 34),
+			Size = UDim2.fromOffset(cellW, 96),
+			Parent = sheet,
+		})
+		local outline = stroke(cell, 1, INK, 0.5)
+		local bump = new("UIScale", { Parent = cell })
+		local texts = {}
+		table.insert(texts, text({ Text = "DAY " .. day, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(0, 4), Size = UDim2.new(1, 0, 0, 10), Parent = cell }))
+		if reward.Fx then
+			fxSwatch(cell, Config.getFx(reward.Fx), { Position = UDim2.fromOffset(4, 17), Size = UDim2.new(1, -8, 0, 26) }, 0.6)
+		else
+			gemIcon(cell, 12, UDim2.new(0.5, 0, 0, 30))
+		end
+		table.insert(texts, capText(text({
+			Text = "+" .. commas(reward.Gems or 0),
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(2, 46),
+			Size = UDim2.new(1, -4, 0, 16),
+			Parent = cell,
+		}), 11, 6))
+		local extra = if reward.Fx then fxName(reward.Fx) .. " FX" elseif reward.Balls then "+" .. reward.Balls .. " BALLS" else "GEMS"
+		table.insert(texts, text({
+			Text = extra,
+			TextSize = 7,
+			TextColor3 = if reward.Fx or reward.Balls then INK else GREY,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(0, 63),
+			Size = UDim2.new(1, 0, 0, 9),
+			Parent = cell,
+		}))
+		local stateTag, stateLabel = tag(cell, "", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -4), Size = UDim2.new(1, -8, 0, 14) })
+		d.cells[day] = { frame = cell, outline = outline, bump = bump, tag = stateTag, tagLabel = stateLabel, texts = texts }
+	end
+
+	d.note = text({
+		Text = "STREAK RESETS IF YOU MISS A DAY",
+		TextSize = 8,
+		TextColor3 = GREY,
+		Position = UDim2.fromOffset(12, 136),
+		Size = UDim2.new(1, -24, 0, 10),
+		Parent = sheet,
+	})
+	hardButton(sheet, {
+		Name = "Close",
+		Fill = "paper",
+		Text = "CLOSE",
+		TextSize = 11,
+		Position = UDim2.fromOffset(12, 152),
+		Size = UDim2.fromOffset(96, 52),
+		OnClick = function()
+			self:_closeModal()
+		end,
+	})
+	d.claim = hardButton(sheet, {
+		Name = "Claim",
+		Fill = "accent",
+		Text = "CLAIM",
+		TextSize = 13,
+		Align = Enum.TextXAlignment.Left,
+		Index = "CLAIM",
+		Position = UDim2.fromOffset(116, 152),
+		Size = UDim2.new(1, -128, 0, 52),
+		OnClick = function()
+			self:_claimDaily()
+		end,
+	})
+end
+
+-- Day cell states; only runs when the streak day / readiness changes.
+function UI._refreshDailySheet(self, state)
+	local d = self._dailySheet
+	if not d then
+		return
+	end
+	for day, cell in d.cells do
+		local done = day < state.day
+		local today = day == state.day
+		if today then
+			setAccent(cell.frame, "BackgroundColor3")
+		else
+			clearAccent(cell.frame)
+			cell.frame.BackgroundColor3 = PAPER
+		end
+		cell.outline.Thickness = if today then 2 else 1
+		cell.outline.Transparency = if today or done then 0 else 0.5
+		for _, label in cell.texts do
+			label.TextTransparency = if done then 0.55 else 0
+		end
+		cell.tag.Visible = done or today
+		cell.tagLabel.Text = if done then "DONE" elseif state.ready then "TODAY" else "NEXT"
+	end
+	d.right.Text = "DAY " .. state.day .. " OF " .. #Config.DailyStreak
+	d.note.Text = if state.broken
+		then "STREAK RESTARTED AT DAY 1 / CLAIM EVERY DAY TO KEEP IT"
+		else "STREAK RESETS IF YOU MISS A DAY"
+end
+
+-- Claim button / countdown; runs every second while the menu is open.
+function UI._tickDailySheet(self, state)
+	local d = self._dailySheet
+	if not d or self._dailyBusy then
+		return
+	end
+	local reward = Config.DailyStreak[state.day] or {}
+	if state.ready ~= d.ready then
+		d.ready = state.ready
+		d.claim.setFill(if state.ready then "accent" else "paper")
+		d.claim.setEnabled(state.ready)
+	end
+	d.claim.index.Text = if state.ready then "CLAIM / DAY " .. state.day else "NEXT CLAIM IN"
+	if state.ready then
+		d.claim.setText("CLAIM +" .. commas(reward.Gems or 0) .. " GEMS")
+	elseif state.wait then
+		d.claim.setText(clock(state.wait))
+	else
+		d.claim.setText("--:--:--")
+	end
+end
+
+function UI._buildOfferSheet(self, layer)
+	local product = Config.Products.StarterPack
+	if not product or product.Id == 0 then
+		return
+	end
+	local m = self._menu
+	local sheet, right = modalSheet(layer, "Offer", 400, 218, "07", "STARTER PACK")
+	right.Text = "ONE-TIME PACK"
+	m.sheets.offer = sheet
+
+	text({ Text = "A HEAD START FOR NEW PLAYERS / ONCE PER ACCOUNT", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(12, 30), Size = UDim2.fromOffset(240, 10), Parent = sheet })
+	for i, line in starterLines(product) do
+		local row = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 44 + (i - 1) * 30), Size = UDim2.fromOffset(236, 28), Parent = sheet })
+		rule(row, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), BackgroundTransparency = 0.6 })
+		rewardChip(row, line.reward, 14, UDim2.fromOffset(10, 14))
+		capText(text({ Text = line.text, Font = FONT_NUM, Position = UDim2.fromOffset(26, 4), Size = UDim2.new(1, -26, 0, 20), Parent = row }), 12, 7)
+	end
+
+	-- Previews: the skin as a sample plate, the effect as shards.
+	local skin = product.Skin and Config.getSkin(product.Skin)
+	if skin then
+		local plate = new("Frame", { Name = "SkinPreview", BackgroundColor3 = skin.Color, Position = UDim2.fromOffset(260, 34), Size = UDim2.fromOffset(128, 58), Parent = sheet })
+		stroke(plate, 1)
+		if skin.Trail then
+			new("Frame", { BackgroundColor3 = skin.Trail, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 6), Parent = plate })
+		end
+		tag(plate, "SKIN", { Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(34, 12) })
+	end
+	if product.Fx then
+		local swatch = fxSwatch(sheet, Config.getFx(product.Fx), { Position = UDim2.fromOffset(260, 96), Size = UDim2.fromOffset(128, 40) })
+		tag(swatch, "FX", { BackgroundColor3 = PAPER, Size = UDim2.fromOffset(24, 12) }).BackgroundTransparency = 0
+		swatch:FindFirstChild("Tag"):FindFirstChildOfClass("TextLabel").TextColor3 = INK
+	end
+
+	text({ Text = "YOU CAN ALSO FIND THIS IN THE SHOP", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(12, 140), Size = UDim2.new(1, -24, 0, 10), Parent = sheet })
+	hardButton(sheet, {
+		Name = "Close",
+		Fill = "paper",
+		Text = "CLOSE",
+		TextSize = 11,
+		Position = UDim2.fromOffset(12, 156),
+		Size = UDim2.fromOffset(96, 52),
+		OnClick = function()
+			self:_closeModal()
+		end,
+	})
+	local buy = hardButton(sheet, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "BUY PACK",
+		TextSize = 13,
+		Align = Enum.TextXAlignment.Left,
+		Sub = "",
+		Position = UDim2.fromOffset(116, 156),
+		Size = UDim2.new(1, -128, 0, 52),
+		OnClick = function()
+			self:_fire("onBuyProduct", "StarterPack")
+		end,
+	})
+	withPrice(product.Id, Enum.InfoType.Product, function(price)
+		buy.sub.Text = "R$ " .. commas(price)
+	end)
+end
+
+-- Once per session, after the player's first run, if they haven't bought it.
+function UI._maybeShowOffer(self)
+	local m = self._menu
+	if self._offerShown or not m.sheets.offer or m.modalOpen then
+		return
+	end
+	if self._menuOpens < OFFER_AFTER_MENU_OPENS then
+		return
+	end
+	if player:GetAttribute("Gems") == nil then
+		return -- data not loaded yet; we don't know if they own it
+	end
+	if player:GetAttribute("StarterPackBought") == true then
+		self._offerShown = true
+		return
+	end
+	self._offerShown = true
+	self:_openModal("offer")
+end
+
+function UI._refreshStarter(self)
+	local m = self._menu
+	local bought = player:GetAttribute("StarterPackBought") == true
+	if m.starterCard then
+		m.starterCard.Visible = not bought
+		m.starterHeader.Visible = not bought
+	end
+	if bought and m.modalOpen == "offer" then
+		self:_closeModal()
 	end
 end
 
@@ -1020,46 +1802,124 @@ function UI._refreshStats(self)
 	local gems = commas(player:GetAttribute("Gems") or 0)
 	m.gems.Text = gems
 	m.shopGems.Text = "BALANCE " .. gems
+	local bonus = math.max(0, math.floor(attrNumber("BonusBalls", 0)))
+	m.play.index.Text = if bonus > 0 then "A / START RUN / +" .. bonus .. " BONUS BALLS" else "A / START RUN / 0 M"
 	self:_refreshSkins()
+	self:_refreshFx()
+end
+
+-- Level badge, XP bar and the "next unlock" note under the stats strip.
+function UI._refreshLevel(self)
+	local m = self._menu
+	local level, xp, needed = levelInfo()
+	m.level.Text = "LV " .. twoDigits(level)
+	tween(m.xpFill, 0.4, { Size = UDim2.fromScale(xp / needed, 1) })
+	local note = "XP " .. commas(xp) .. " / " .. commas(needed)
+	local unlockLevel, reward = nextUnlock(level)
+	if unlockLevel then
+		note ..= " / NEXT: " .. rewardText(reward) .. " AT LV " .. unlockLevel
+	end
+	m.xpNote.Text = note
+	if m.levelValue and level > m.levelValue and m.root.Visible then
+		m.levelBump.Scale = 1.25
+		tween(m.levelBump, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+	if level ~= m.levelValue then
+		m.levelValue = level
+		self:_rebuildLevelRoad()
+	end
+end
+
+-- Streak state as the UI shows it. Claiming after StreakExpires restarts at day 1.
+local function dailyState()
+	local now = os.time()
+	local nextDaily = tonumber(player:GetAttribute("NextDaily"))
+	local expires = tonumber(player:GetAttribute("StreakExpires"))
+	local day = math.clamp(math.floor(attrNumber("StreakDay", 1)), 1, #Config.DailyStreak)
+	local broken = expires ~= nil and expires > 0 and now > expires
+	if broken then
+		day = 1
+	end
+	return {
+		now = now,
+		day = day,
+		broken = broken,
+		ready = nextDaily ~= nil and now >= nextDaily,
+		wait = if nextDaily then nextDaily - now else nil,
+	}
 end
 
 function UI._refreshDaily(self)
-	local daily = self._menu.daily
-	if self._dailyBusy then
-		return
+	local m = self._menu
+	local daily = m.daily
+	local state = dailyState()
+	local reward = Config.DailyStreak[state.day] or {}
+
+	-- Streak pips: done days ink, today accent, the rest outlined.
+	local key = state.day .. (if state.ready then "R" else "W") .. (if state.broken then "B" else "")
+	if key ~= m.dailyKey then
+		m.dailyKey = key
+		for day, pip in m.dailyPips do
+			local done = day < state.day
+			local today = day == state.day
+			if today then
+				setAccent(pip.frame, "BackgroundColor3")
+				pip.frame.BackgroundTransparency = 0
+			else
+				clearAccent(pip.frame)
+				pip.frame.BackgroundColor3 = INK
+				pip.frame.BackgroundTransparency = if done then 0 else 1
+			end
+			pip.stroke.Transparency = if done or today then 0 else 0.5
+		end
+		self:_refreshDailySheet(state)
 	end
-	local nextDaily = player:GetAttribute("NextDaily")
-	local now = os.time()
-	local ready = type(nextDaily) == "number" and now >= nextDaily
-	if ready ~= self._dailyReady then
-		self._dailyReady = ready
-		daily.setFill(if ready then "accent" else "paper")
-		daily.setEnabled(ready)
-		daily.index.Text = if ready then "B / DAILY / READY" else "B / DAILY / NEXT IN"
+
+	if not self._dailyBusy then
+		if state.ready ~= self._dailyReady then
+			self._dailyReady = state.ready
+			daily.setFill(if state.ready then "accent" else "paper")
+		end
+		daily.index.Text = "B / DAILY / DAY " .. state.day .. " OF " .. #Config.DailyStreak
+		if state.ready then
+			daily.setText("CLAIM +" .. commas(reward.Gems or 0))
+		elseif state.wait then
+			daily.setText(clock(state.wait))
+		else
+			daily.setText("--:--:--")
+		end
 	end
-	if ready then
-		daily.setText("CLAIM +" .. commas(Config.DAILY_REWARD_GEMS))
-	elseif type(nextDaily) == "number" then
-		daily.setText(clock(nextDaily - now))
-	else
-		daily.setText("--:--:--")
-	end
+	self:_tickDailySheet(state)
 end
 
 function UI._claimDaily(self)
-	if self._dailyBusy or not self._dailyReady then
+	if self._dailyBusy or not dailyState().ready then
 		return
 	end
 	self._dailyBusy = true
-	local daily = self._menu.daily
-	daily.setEnabled(false)
-	daily.setText("CLAIMING")
+	local d = self._dailySheet
+	d.claim.setEnabled(false)
+	d.claim.setText("CLAIMING")
+	self._menu.daily.setText("CLAIMING")
+	local claimedDay = dailyState().day
 	task.spawn(function()
-		local ok, message = self:_ask("onClaimDaily")
+		local ok, message
+		if type(self._callbacks.onClaimDaily) == "function" then
+			ok, message = self:_ask("onClaimDaily")
+		else
+			ok, message = self:_ask("onShop", "ClaimDaily")
+		end
 		self._dailyBusy = false
 		self._dailyReady = nil
+		self._menu.dailyKey = nil
+		d.ready = nil
 		if ok then
-			self:toast("+" .. commas(Config.DAILY_REWARD_GEMS) .. " GEMS", "reward")
+			-- The server's Reward event toasts the amount; here the day gets stamped.
+			local cell = d.cells[claimedDay]
+			if cell then
+				cell.bump.Scale = 1.2
+				tween(cell.bump, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+			end
 		else
 			self:toast(message or "COULD NOT CLAIM", "error")
 		end

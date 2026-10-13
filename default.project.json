@@ -17,6 +17,9 @@
         "PurchaseGranted": {
           "$className": "RemoteEvent"
         },
+        "Progress": {
+          "$className": "RemoteEvent"
+        },
         "ShopRequest": {
           "$className": "RemoteFunction"
         }

@@ -1,7 +1,9 @@
 --[[
 	The game itself: moves the camera down the corridor, throws balls,
 	smashes glass, counts crystals and handles game over / revive.
-	Runs entirely on the player's device. The server only gets the final distance.
+	Runs entirely on the player's device. The server only gets the distance and
+	a few run stats (glass smashed, crystals, props, best multiball), and works
+	out gems / XP / missions itself.
 ]]
 
 local Lighting = game:GetService("Lighting")
@@ -47,6 +49,9 @@ local shake = 0
 local activeBalls = {}
 local pendingBalls = 0 -- balls bought while not in a run, added to the next one
 local reportedMeters = 0
+local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
+-- Counted from the start of the run (a revive continues it). Sent with RunEnded.
+local runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = 1 }
 local ui
 
 -- Helpers --------------------------------------------------------------------
@@ -197,16 +202,19 @@ local function collectCrystal(crystal)
 	Shatter.crystal(crystal, shardFolder)
 	balls += Config.CRYSTAL_REWARD
 	streak += 1
+	runStats.crystals += 1
 	if streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL == 0 and multiball < Config.MAX_MULTIBALL then
 		multiball += 1
+		runStats.maxMultiball = math.max(runStats.maxMultiball, multiball)
 		ui:toast("MULTIBALL x" .. multiball, "multiball")
 	end
 	Sounds.play("Crystal", 1 + math.min(streak, 10) * 0.03)
 	updateHud()
 end
 
-local function smashGlass(glass, hitPoint, push)
-	Shatter.glass(glass, hitPoint, push, shardFolder)
+-- fx: the player's shatter effect (only for balls they throw), nil = plain glass.
+local function smashGlass(glass, hitPoint, push, fx)
+	Shatter.glass(glass, hitPoint, push, shardFolder, fx)
 	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
 end
 
@@ -234,12 +242,14 @@ local function stepBall(ball, dt)
 		ball.position = hit.Position
 
 		if kind == "Glass" then
-			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit)
+			runStats.glass += 1
+			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
 			travel = ball.velocity.Unit * remaining * 0.7
 		elseif kind == "Prop" then
 			-- Breakable decoration: just for fun, the ball smashes straight through.
-			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder)
+			runStats.props += 1
+			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder, runFx)
 			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
 			ball.velocity *= 0.85
 			travel = ball.velocity.Unit * remaining * 0.85
@@ -292,14 +302,19 @@ local function gameOver()
 	local distance = meters()
 	local best = player:GetAttribute("Best") or 0
 	local gemMultiplier = if ownsPass("VIP") then Config.GamePasses.VIP.GemMultiplier else 1
+	if player.MembershipType == Enum.MembershipType.Premium then
+		gemMultiplier *= 1 + Config.PREMIUM_GEM_BONUS
+	end
 	local newMeters = math.max(0, distance - reportedMeters)
 	reportedMeters = math.max(reportedMeters, distance)
-	Remotes.RunEnded:FireServer(distance)
+	Remotes.RunEnded:FireServer(distance, table.clone(runStats))
 
+	-- Personal best only counts runs started from the beginning (same as the server).
+	local countsForBest = startCheckpoint == 0
 	ui:showGameOver({
 		meters = distance,
-		best = math.max(best, distance),
-		isNewBest = distance > best,
+		best = if countsForBest then math.max(best, distance) else best,
+		isNewBest = countsForBest and distance > best,
 		gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * gemMultiplier),
 		canRevive = Config.Products.Revive.Id ~= 0,
 	})
@@ -391,7 +406,10 @@ local function startRun(checkpoint)
 
 	resetWorld(checkpoint)
 
-	balls = Config.START_BALLS + pendingBalls
+	-- Bonus balls from the daily streak (the server resets them when the run starts).
+	local bonusBalls = math.max(0, math.floor(tonumber(player:GetAttribute("BonusBalls")) or 0))
+
+	balls = Config.START_BALLS + pendingBalls + bonusBalls
 	if ownsPass("VIP") then
 		balls += Config.GamePasses.VIP.ExtraStartBalls
 	end
@@ -400,12 +418,17 @@ local function startRun(checkpoint)
 	streak = 0
 	speed = Config.START_SPEED
 	reportedMeters = math.floor(Config.checkpointMeters(checkpoint))
+	runFx = Config.getFx(player:GetAttribute("EquippedFx"))
+	runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = multiball }
 	state = "Running"
 
 	Remotes.RunStarted:FireServer(checkpoint)
 	ui:showHud()
 	updateHud()
 	Sounds.startMusic()
+	if bonusBalls > 0 then
+		ui:toast("+" .. bonusBalls .. " BONUS BALLS", "reward")
+	end
 end
 
 local function revive(extraBalls)
@@ -501,6 +524,15 @@ end
 
 local function promptProduct(productKey)
 	local product = Config.Products[productKey]
+	-- Don't let anyone pay twice for something they already have.
+	if productKey == "StarterPack" and player:GetAttribute("StarterPackBought") == true then
+		ui:toast("ALREADY OWNED", "reward")
+		return
+	end
+	if productKey == "SeasonPremium" and player:GetAttribute("SeasonPremium") == true then
+		ui:toast("ALREADY UNLOCKED", "reward")
+		return
+	end
 	if product and product.Id ~= 0 then
 		MarketplaceService:PromptProductPurchase(player, product.Id)
 	end
@@ -515,7 +547,8 @@ end
 
 local function onPurchaseGranted(productKey)
 	local product = Config.Products[productKey]
-	if productKey == "GemPack" then
+	-- Starter pack / season pass are announced by the server's Progress "Reward" event.
+	if product and product.Gems and productKey ~= "StarterPack" then
 		ui:toast("+" .. product.Gems .. " GEMS", "reward")
 		return
 	end
@@ -579,6 +612,8 @@ function RunController.start()
 		onClaimDaily = function()
 			return shopRequest("ClaimDaily")
 		end,
+		-- Generic: onShop("BuyFx", id), onShop("ClaimMission", id), onShop("ClaimSeasonTier", { track, tier })...
+		onShop = shopRequest,
 	})
 
 	setupLighting()
@@ -586,6 +621,16 @@ function RunController.start()
 	task.spawn(disableCharacterControls)
 
 	Remotes.PurchaseGranted.OnClientEvent:Connect(onPurchaseGranted)
+
+	-- Level ups, missions done, season tiers, run summaries, rewards.
+	task.spawn(function()
+		local progress = Remotes:WaitForChild("Progress")
+		progress.OnClientEvent:Connect(function(event)
+			if type(event) == "table" and ui.showProgress then
+				ui:showProgress(event)
+			end
+		end)
+	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then

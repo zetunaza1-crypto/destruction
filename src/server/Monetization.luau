@@ -9,19 +9,51 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local PlayerData = require(script.Parent.PlayerData)
+local Progression = require(script.Parent.Progression)
 
 local Remotes = ReplicatedStorage.Remotes
 
+local Monetization = {}
+
 -- Products the server delivers itself. Everything else (balls) is delivered
 -- to the player's device, because runs happen there.
+-- These must not yield: they run inside ProcessReceipt.
 local serverRewards = {
-	GemPack = function(player)
-		local data = PlayerData.get(player)
-		data.Gems += Config.Products.GemPack.Gems
-		PlayerData.update(player, { Gems = data.Gems })
-		return true
+	-- One-time offer. If it's somehow bought twice, the gems are still given
+	-- (the skin and effect are already owned), so a purchase is never wasted.
+	StarterPack = function(player, data)
+		local product = Config.Products.StarterPack
+		local text = Progression.grantReward(data, { Gems = product.Gems, Skin = product.Skin, Fx = product.Fx })
+		data.StarterPackBought = true
+		PlayerData.publish(player, Progression.REWARD_FIELDS)
+		PlayerData.publish(player, { "StarterPackBought" })
+		Progression.fire(player, { type = "Reward", text = "Starter pack: " .. text })
+	end,
+
+	-- Unlocks the premium track of the current season (tiers already reached
+	-- become claimable right away).
+	SeasonPremium = function(player, data)
+		Progression.ensureSeason(data)
+		data.SeasonPremium = true
+		PlayerData.publish(player, { "SeasonId", "SeasonTier", "SeasonXP", "SeasonClaimed", "SeasonPremium" })
+		Progression.fire(player, { type = "Reward", text = "Premium season pass unlocked" })
 	end,
 }
+
+-- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
+-- Gems that has no special handler above.
+local function rewardFor(productKey, product)
+	if serverRewards[productKey] then
+		return serverRewards[productKey]
+	end
+	if product.Gems then
+		return function(player, data)
+			data.Gems += product.Gems
+			PlayerData.publish(player, { "Gems" })
+		end
+	end
+	return nil
+end
 
 function Monetization.ownsPass(player, passKey)
 	return player:GetAttribute("Pass_" .. passKey) == true
@@ -59,9 +91,9 @@ local function processReceipt(receipt)
 
 	for productKey, product in Config.Products do
 		if product.Id ~= 0 and product.Id == receipt.ProductId then
-			local reward = serverRewards[productKey]
+			local reward = rewardFor(productKey, product)
 			if reward then
-				reward(player)
+				reward(player, PlayerData.get(player))
 			end
 			PlayerData.addReceipt(player, receipt.PurchaseId)
 
