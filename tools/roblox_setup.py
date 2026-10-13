@@ -66,26 +66,26 @@ SOUNDS = {
 GAME_PASSES = {
     "VIP": ("VIP", "Start every run with 15 extra balls and earn 2x gems.", 149, "pass_vip.png"),
     "Multiball": ("Multiball", "Your multiball never drops below x2.", 99, "pass_multiball.png"),
-    "Checkpoints": ("Checkpoints", "Start from any checkpoint you have reached.", 199, "pass_checkpoints.png"),
+    "Checkpoints": ("Checkpoints", "Start a run from any zone you have already reached. Checkpoint runs do not count for your best distance.", 199, "pass_checkpoints.png"),
 }
 
 # Config.Products key -> (name, description, price in Robux, image or None)
 PRODUCTS = {
-    "Revive": ("Revive", "Keep your run going with 25 more balls.", 25, "product_revive.png"),
-    "BallPack": ("Ball Pack", "Get 50 more balls right now.", 15, "product_ballpack.png"),
+    "Revive": ("Revive", "Keep your run going with 25 more balls. If your run already ended, you get them at the start of your next run.", 25, "product_revive.png"),
+    "BallPack": ("Ball Pack", "Get 50 more balls. If you are not in a run, you get them at the start of your next run.", 15, "product_ballpack.png"),
     "GemPack": ("Gem Pack", "500 gems for skins and boosts.", 49, "product_gempack.png"),
     "GemPackMedium": ("Big Gem Pack", "1,200 gems (+20% bonus).", 99, "product_gempack.png"),
     "GemPackLarge": ("Huge Gem Pack", "3,200 gems - best value!", 199, "product_gempack.png"),
-    "StarterPack": ("Starter Pack", "1,000 gems, the Starter ball and the Frost shatter effect. One time only!", 49, "product_gempack.png"),
-    "SeasonPremium": ("Season Pass Premium", "Unlock the premium rewards of this season.", 199, None),
-    "BoostShield": ("Shield Boost", "Your next crash is free.", 10, None),
-    "BoostMagnet": ("Magnet Boost", "Crystals fly to you.", 10, None),
+    "StarterPack": ("Starter Pack", "1,000 gems, the Starter ball and the Frost shatter effect. One time offer: if you already own the items, you still get the gems.", 49, "product_gempack.png"),
+    "SeasonPremium": ("Season Pass Premium", "Unlock the premium rewards of Season 1 (ends 15 Dec 2026). Already premium? You get 3,200 gems instead.", 199, None),
+    "BoostShield": ("Shield Boost", "Your next crash is free. Not used this run? It goes back to your boosts.", 10, None),
+    "BoostMagnet": ("Magnet Boost", "Crystals fly to you for 20 seconds.", 10, None),
     "BoostDoubleGems": ("2x Gems Boost", "Double gems for one run.", 15, None),
-    "BoostMegaBall": ("Mega Ball Boost", "Your next 10 throws are giant.", 15, None),
+    "BoostMegaBall": ("Mega Ball Boost", "Your next 10 throws are giant. If you use none of them this run, it goes back to your boosts.", 15, None),
     "BoostSlowMo": ("Slow-Mo Boost", "Slow down time for 8 seconds.", 10, None),
     "GemTopUp": ("Gem Top-Up", "150 gems.", 15, "product_gempack.png"),
     "ExtraReroll": ("Extra Reroll", "Swap one daily mission for a new one.", 5, None),
-    "StreakSaver": ("Streak Saver", "Keep your daily streak going.", 15, None),
+    "StreakSaver": ("Streak Saver", "Keeps your daily streak going after you missed a day. If your streak is not broken, you get 150 gems instead.", 15, None),
 }
 
 EXPERIENCE_NAME = "Shatter Run"
