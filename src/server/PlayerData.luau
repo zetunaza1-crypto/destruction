@@ -65,6 +65,8 @@ local DEFAULT_DATA = {
 	BonusBalls = 0, -- added to the next run
 	Boosts = {}, -- { [boostId] = count }: welcome gift, level ups, streak, season, shop
 	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
+	TutorialDone = false, -- finished or skipped the first-run tutorial
+	Hints = {}, -- first-time tips already shown (keys of Config.Hints)
 }
 
 -- player -> { data = {...}, canSave = bool }
@@ -150,6 +152,9 @@ local publishers = {
 	Boosts = function(player, data)
 		setJson(player, "Boosts", data.Boosts)
 	end,
+	Hints = function(player, data)
+		setJson(player, "Hints", data.Hints)
+	end,
 	SeasonClaimed = function(player, data)
 		setJson(player, "SeasonClaimed", data.SeasonClaimed)
 	end,
@@ -195,6 +200,10 @@ function PlayerData.load(player)
 
 	local data = if ok then merge(DEFAULT_DATA, saved) else defaultData()
 	Progression.normalize(data, os.time())
+	-- Players from before the tutorial existed already know how to play.
+	if type(saved) == "table" and saved.TutorialDone == nil and data.Stats.runs > 0 then
+		data.TutorialDone = true
+	end
 
 	-- If loading failed we never save, so we can't wipe their real data.
 	profiles[player] = { data = data, canSave = ok }

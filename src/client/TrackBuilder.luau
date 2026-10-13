@@ -64,8 +64,11 @@ function TrackBuilder.roomStartZ(roomIndex)
 	return ORIGIN.Z - roomIndex * LENGTH
 end
 
-function TrackBuilder.new(parent, firstRoom)
+-- tutorial = true builds the scripted first-run rooms (see buildTutorialRoom).
+function TrackBuilder.new(parent, firstRoom, tutorial)
 	local self = setmetatable({}, TrackBuilder)
+	self.tutorial = tutorial == true
+	self.tutorialTargets = {} -- step number -> part the player must break/collect
 	self.folder = Instance.new("Folder")
 	self.folder.Name = "Track"
 	self.folder.Parent = parent
@@ -256,7 +259,38 @@ end
 function TrackBuilder:addObstacle(room, z, zone)
 	local patterns = patternsForZone(zone)
 	local name = patterns[self.rng:NextInteger(1, #patterns)]
+	local glassBefore, doorsBefore = #room.glass, #room.doors
 	Patterns[name](self, room, z)
+
+	-- Label what was just built so first-time tips know what they're looking at.
+	for i = glassBefore + 1, #room.glass do
+		room.glass[i]:SetAttribute("Pattern", name)
+	end
+	for i = doorsBefore + 1, #room.doors do
+		for _, panel in room.doors[i].panels do
+			panel:SetAttribute("Pattern", name)
+		end
+	end
+end
+
+-- The first-run tutorial: one simple lesson per room. Each lesson's target is
+-- remembered so the Tutorial module can slow time and point at it.
+function TrackBuilder:buildTutorialRoom(room, roomIndex, startZ)
+	local step = table.find(Config.TUTORIAL_ROOMS, roomIndex)
+	if step == 1 then
+		-- Lesson 1: a single pane right in front of you.
+		self.tutorialTargets[1] = self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, startZ - 40), Vector3.new(8, 8, 0.4))
+	elseif step == 2 then
+		-- Lesson 2: a crystal, then an easy pane.
+		self:addCrystal(room, Vector3.new(ORIGIN.X + 2, EYE_Y + 1, startZ - 30))
+		self.tutorialTargets[2] = room.crystals[#room.crystals]
+		self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, startZ - 62), Vector3.new(8, 8, 0.4))
+	elseif step == 3 then
+		-- Lesson 3: a full wall you must break or crash into.
+		self.tutorialTargets[3] =
+			self:addGlass(room, Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT / 2, startZ - 40), Vector3.new(WIDTH, HEIGHT, 0.4))
+		self:addCrystal(room, Vector3.new(ORIGIN.X - 4, EYE_Y - 1, startZ - 55))
+	end
 end
 
 function TrackBuilder:buildRoom(roomIndex)
@@ -337,7 +371,9 @@ function TrackBuilder:buildRoom(roomIndex)
 		rng = rng,
 	})
 
-	if roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
+	if self.tutorial and table.find(Config.TUTORIAL_ROOMS, roomIndex) then
+		self:buildTutorialRoom(room, roomIndex, startZ)
+	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
 		-- Difficulty climbs inside each zone and keeps climbing zone to zone.
 		local inZone = (roomIndex % Config.ROOMS_PER_CHECKPOINT) / Config.ROOMS_PER_CHECKPOINT
 		local difficulty = math.min(inZone * 0.6 + zone * 0.15, 1)

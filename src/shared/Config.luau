@@ -249,6 +249,20 @@ Config.Sounds = {
 	Music = 0,
 }
 
+-- Tutorial & first-time tips ----------------------------------------------------
+-- The first run teaches the basics in rooms 1-3 (time slows until you do it).
+-- After that, each tip shows once, the first time that thing appears.
+Config.TUTORIAL_ROOMS = { 1, 2, 3 }
+Config.Hints = {
+	Door = "HIT THE RED BUTTON TO OPEN THE DOOR",
+	Moving = "THIS GLASS MOVES - TIME YOUR THROW",
+	Spinner = "SPINNING GLASS! AIM FOR THE MIDDLE",
+	Grid = "SMALL PANES - THROW A FEW BALLS",
+	Double = "TWO PANES IN A ROW - THROW TWICE",
+	Multiball = "MULTIBALL! EVERY TAP NOW THROWS MORE BALLS",
+	Props = "BREAK DECORATIONS FOR MISSIONS AND XP",
+}
+
 -- 3D models ------------------------------------------------------------------
 -- Blender models from assets/models/, uploaded to Roblox as Model assets.
 -- Paste each asset ID here. 0 = use the built-in block version instead.

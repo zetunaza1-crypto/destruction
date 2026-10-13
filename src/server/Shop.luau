@@ -167,6 +167,27 @@ function actions.RerollMission(player, data, missionId)
 end
 
 -- argument: { track = "Free" | "Premium", tier = number }
+function actions.FinishTutorial(player, data)
+	if data.TutorialDone then
+		return true
+	end
+	PlayerData.update(player, { TutorialDone = true })
+	return true
+end
+
+function actions.SeenHint(player, data, hintId)
+	if type(hintId) ~= "string" or not Config.Hints[hintId] then
+		return false, "Unknown tip"
+	end
+	if table.find(data.Hints, hintId) then
+		return true
+	end
+	local hints = table.clone(data.Hints)
+	table.insert(hints, hintId)
+	PlayerData.update(player, { Hints = hints })
+	return true
+end
+
 function actions.ClaimSeasonTier(player, data, request)
 	local ok, message = Progression.claimSeasonTier(data, request)
 	if ok then

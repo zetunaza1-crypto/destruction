@@ -29,6 +29,7 @@ local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
 local LightingFx = require(script.Parent.LightingFx)
+local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -237,6 +238,7 @@ local function collectCrystal(crystal)
 		multiball += 1
 		runStats.maxMultiball = math.max(runStats.maxMultiball, multiball)
 		ui:toast("MULTIBALL x" .. multiball, "multiball")
+		Tutorial.tip("Multiball")
 	end
 	Sounds.play("Crystal", 1 + math.min(streak, 10) * 0.03)
 	updateHud()
@@ -285,6 +287,7 @@ local function stepMegaBall(ball, travel)
 			travel = direction * remaining
 		elseif kind == "Prop" then
 			runStats.props += 1
+			Tutorial.tip("Props")
 			Shatter.prop(part, hit.Position, direction * MEGA_PUSH, shardFolder, runFx)
 			Sounds.play("Shatter", 0.8 + math.random() * 0.2)
 			travel = direction * remaining
@@ -343,6 +346,7 @@ local function stepBall(ball, dt)
 		elseif kind == "Prop" then
 			-- Breakable decoration: just for fun, the ball smashes straight through.
 			runStats.props += 1
+			Tutorial.tip("Props")
 			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder, runFx)
 			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
 			ball.velocity *= 0.85
@@ -578,6 +582,13 @@ local function crash(hazard)
 		smashGlass(hazard, cameraPosition(), FORWARD)
 	end
 
+	-- Crashing while learning is free.
+	if Tutorial.crashIsFree() then
+		shake = 0.2
+		Sounds.play("Crash")
+		return
+	end
+
 	-- Shield boost: this crash is free (no balls lost, multiball kept).
 	if boost.shield then
 		boost.shield = false
@@ -627,7 +638,7 @@ local function checkCrashes(prevZ, newZ)
 end
 
 -- Throws away the old track and builds a fresh one starting at a checkpoint.
-local function resetWorld(checkpoint)
+local function resetWorld(checkpoint, tutorial)
 	if world then
 		world:Destroy()
 	end
@@ -643,7 +654,7 @@ local function resetWorld(checkpoint)
 	shardFolder.Parent = world
 
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
-	track = TrackBuilder.new(world, firstRoom)
+	track = TrackBuilder.new(world, firstRoom, tutorial)
 	cameraZ = TrackBuilder.roomStartZ(firstRoom) + 4
 	track:update(cameraZ, 0)
 
@@ -665,7 +676,13 @@ local function startRun(checkpoint, boostIds)
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
 	startCheckpoint = checkpoint
 
-	resetWorld(checkpoint)
+	-- Brand-new players get the guided first run.
+	local tutorialRun = checkpoint == 0 and Tutorial.isNeeded()
+	Tutorial.reset()
+	resetWorld(checkpoint, tutorialRun)
+	if tutorialRun then
+		Tutorial.start(track)
+	end
 
 	-- Bonus balls from the daily streak (the server resets them when the run starts).
 	local bonusBalls = math.max(0, math.floor(tonumber(player:GetAttribute("BonusBalls")) or 0))
@@ -732,6 +749,7 @@ local function showMenu()
 		gameOver()
 	end
 	state = "Menu"
+	Tutorial.reset()
 	resetWorld(0)
 	ui:showMenu()
 end
@@ -754,7 +772,9 @@ local function step(dt)
 	local worldDt = dt
 	if state == "Running" then
 		tickBoosts(dt)
-		worldDt = dt * timeScale
+		-- The tutorial slows time while it waits for the player to act.
+		worldDt = dt * timeScale * Tutorial.update(dt, cameraZ)
+		Tutorial.scanForTips(dt, cameraZ, track)
 
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
 		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
