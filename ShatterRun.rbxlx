@@ -9578,6 +9578,9 @@ local FORWARD = Vector3.new(0, 0, -1)
 local CRASH_MARGIN = 0.25 -- small allowance only: if it looks like you missed the glass, you missed it
 local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
 local BALL_STEPS = 3 -- collision checks per ball per frame
+-- Normal balls lose most of their power breaking glass (only Mega Balls plough on):
+local GLASS_KEEP_SPEED = 0.4 -- share of its speed a ball keeps after breaking a pane
+local GLASS_BREAK_SPEED = 90 -- studs/s: slower than this, a ball just bounces off glass
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
 local BALL_HIT_RADIUS = Config.BALL_RADIUS * 1.1 -- a normal ball's hitbox (a touch bigger than it looks)
 local TUTORIAL_MIN_BALL_SPEED = 0.5 -- balls still fly at least half speed while the tutorial slows time
@@ -10069,7 +10072,12 @@ local function stepBall(ball, dt)
 		-- is the touching point on the surface, used for the effects).
 		ball.position += travel / distance * hit.Distance
 
-		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
+		if kind == "Glass" and ball.velocity.Magnitude < GLASS_BREAK_SPEED then
+			-- Out of power (it already broke a pane): it just bounces off this one.
+			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
+			skinImpact(hit.Position, hit.Normal, false)
+			travel = bounce(ball, hit, remaining)
+		elseif kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
 			-- Armored glass: the first hit only cracks it and the ball bounces off.
 			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
 			skinImpact(hit.Position, hit.Normal, false)
@@ -10080,8 +10088,9 @@ local function stepBall(ball, dt)
 			runStats.glass += 1
 			local big = smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
 			skinImpact(hit.Position, hit.Normal, big)
-			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
-			travel = ball.velocity.Unit * remaining * 0.7
+			-- The ball keeps going, but much slower, so it can't break the next pane too.
+			ball.velocity *= GLASS_KEEP_SPEED
+			travel = ball.velocity.Unit * remaining * GLASS_KEEP_SPEED
 		elseif kind == "Prop" then
 			-- Breakable decoration: just for fun, the ball smashes straight through.
 			runStats.props += 1
