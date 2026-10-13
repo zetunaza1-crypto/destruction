@@ -1,4 +1,5 @@
 {
+  "BallModels": {},
   "Done": {
     "settings": false
   },
@@ -19,6 +20,7 @@
     "GlassUrn": 139403879238182,
     "GlassVase": 95736141645894,
     "HangingVine": 83778887860086,
+    "IceCluster": 135974111689068,
     "LabBench": 139713171667919,
     "NeonTube": 86431343269497,
     "Pillar": 90753795746389,
