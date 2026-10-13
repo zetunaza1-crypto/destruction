@@ -9,6 +9,7 @@ local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Decor = require(script.Parent.Decor)
 local Models = require(script.Parent.Models)
+local LightingFx = require(script.Parent.LightingFx)
 
 local WIDTH = Config.CORRIDOR_WIDTH
 local HEIGHT = Config.CORRIDOR_HEIGHT
@@ -35,6 +36,15 @@ local function newPart(parent, kind, props)
 	part.Parent = parent
 	return part
 end
+
+-- Shell materials per zone style (floor gets its own material and a darker tint).
+local SURFACES = {
+	Lab = { Wall = Enum.Material.SmoothPlastic, Ceiling = Enum.Material.SmoothPlastic, Floor = Enum.Material.Marble, FloorTint = Color3.fromRGB(120, 125, 135), FloorTintAmount = 0.25 },
+	Neon = { Wall = Enum.Material.DiamondPlate, Ceiling = Enum.Material.Metal, Floor = Enum.Material.Slate, FloorTint = Color3.fromRGB(10, 10, 18), FloorTintAmount = 0.5 },
+	Temple = { Wall = Enum.Material.Sandstone, Ceiling = Enum.Material.Sandstone, Floor = Enum.Material.Limestone, FloorTint = Color3.fromRGB(150, 110, 70), FloorTintAmount = 0.3 },
+	Greenhouse = { Wall = Enum.Material.Concrete, Ceiling = Enum.Material.Glass, Floor = Enum.Material.WoodPlanks, FloorTint = Color3.fromRGB(120, 80, 45), FloorTintAmount = 0.6 },
+	Void = { Wall = Enum.Material.Basalt, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.Slate, FloorTint = Color3.fromRGB(10, 5, 20), FloorTintAmount = 0.4 },
+}
 
 -- Shared with Decor.luau.
 TrackBuilder.newPart = newPart
@@ -263,15 +273,20 @@ function TrackBuilder:buildRoom(roomIndex)
 	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
-	local wallProps = { Color = theme.Wall, Material = Enum.Material.SmoothPlastic, CanCollide = true }
-	local function wall(size, position)
+	-- Real surface materials per zone instead of flat plastic.
+	local surfaces = SURFACES[theme.Style] or SURFACES.Lab
+	local wallProps = { Color = theme.Wall, Material = surfaces.Wall, CanCollide = true }
+	local function wall(size, position, material, color)
 		local props = table.clone(wallProps)
 		props.Size = size
 		props.CFrame = CFrame.new(position)
+		props.Material = material or props.Material
+		props.Color = color or props.Color
 		newPart(folder, "Wall", props)
 	end
-	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y - 0.5, centerZ))
-	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT + 0.5, centerZ))
+	local floorColor = theme.Wall:Lerp(surfaces.FloorTint, surfaces.FloorTintAmount)
+	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y - 0.5, centerZ), surfaces.Floor, floorColor)
+	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT + 0.5, centerZ), surfaces.Ceiling)
 	wall(Vector3.new(1, HEIGHT, LENGTH), Vector3.new(ORIGIN.X - WIDTH / 2 - 0.5, ORIGIN.Y + HEIGHT / 2, centerZ))
 	wall(Vector3.new(1, HEIGHT, LENGTH), Vector3.new(ORIGIN.X + WIDTH / 2 + 0.5, ORIGIN.Y + HEIGHT / 2, centerZ))
 
@@ -347,6 +362,9 @@ function TrackBuilder:buildRoom(roomIndex)
 			self:addCrystal(room, position)
 		end
 	end
+
+	-- Real lights from the room's glowing parts, shadows from decorations.
+	LightingFx.lightRoom(folder, theme)
 
 	folder.Parent = self.folder
 	self.rooms[roomIndex] = room

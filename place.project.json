@@ -89,7 +89,12 @@
     },
     "Lighting": {
       "$properties": {
-        "ClockTime": 14
+        "Technology": "Future",
+        "ClockTime": 14,
+        "GlobalShadows": true,
+        "EnvironmentDiffuseScale": 1,
+        "EnvironmentSpecularScale": 1,
+        "Brightness": 2
       }
     }
   }
