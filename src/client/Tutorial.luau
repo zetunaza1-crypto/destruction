@@ -505,13 +505,19 @@ local function seenHints()
 end
 
 -- Shows a first-time tip if this player has never seen it.
+-- Returns true once there's nothing left to do (shown now, or seen before), false
+-- if it couldn't show yet (lesson or another tip on screen, save not loaded).
 function Tutorial.tip(hintId)
 	local text = Config.Hints[hintId]
-	if not text or active or seenThisSession[hintId] or tipCooldown > 0 then
-		return
+	if not text or seenThisSession[hintId] then
+		return true
 	end
-	if player:GetAttribute("Hints") == nil or table.find(seenHints(), hintId) then
-		return
+	if active or tipCooldown > 0 or player:GetAttribute("Hints") == nil then
+		return false
+	end
+	if table.find(seenHints(), hintId) then
+		seenThisSession[hintId] = true
+		return true
 	end
 	if not gui then
 		buildUi()
@@ -522,6 +528,7 @@ function Tutorial.tip(hintId)
 
 	showCard("NEW!", text, ACCENT)
 	hideLater(TIP_SECONDS)
+	return true
 end
 
 -- Looks ahead for obstacle types the player hasn't been told about yet.

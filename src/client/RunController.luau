@@ -7,13 +7,17 @@
 
 	Boosts (Config.Boosts): picked in the menu or bought mid-run. The server
 	confirms which ones really started (Progress "BoostsActivated", or the
-	"UseBoostNow" answer for a Robux boost bought mid-run) and only those are
-	switched on here.
+	"UseBoostNow" answer for a Robux boost bought mid-run) and only those count.
 	  Shield     - the next crash costs no balls (buying more stacks: one per crash)
 	  Magnet     - crystals near the camera fly to you for a few seconds
 	  MegaBall   - the next few throws are giant balls that smash through everything
 	  SlowMo     - the world (camera, balls) runs slower for a few seconds
 	  DoubleGems - handled by the server, only shown here
+	Picked Shield and 2x Gems work by themselves from the start. Picked Magnet,
+	Slow-Mo and Mega Ball (Config.BOOST_BAR) wait "ready" in the HUD boost bar
+	until the player taps them (or D-pad Left / Up / Right, or keys 1 / 2 / 3);
+	any never tapped go back to the inventory when the run really ends. A boost
+	bought with Robux mid-run is switched on straight away.
 
 	Game feel (section "Feel" below): hit-stop (a split-second freeze) on big
 	smashes, a field-of-view punch on every smash, a kick + shake on crashes, a
@@ -37,6 +41,7 @@
 	PerfOverlay (Config.SHOW_PERF) shows FPS / worst frame / part counts.
 ]]
 
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
@@ -100,6 +105,13 @@ local MAGNET_PICKUP = 1.5 -- this close to the camera = collected
 local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
 local WHITE = Color3.new(1, 1, 1)
 local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- Boost bar: picked boosts that wait until tapped, and the controller / keyboard
+-- keys that use them (same order as Config.BOOST_BAR: Magnet, Slow-Mo, Mega Ball).
+local BOOST_BAR = Config.BOOST_BAR
+local BOOST_PAD_KEYS = { Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadUp, Enum.KeyCode.DPadRight }
+local BOOST_NUMBER_KEYS = { Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three }
+local BOOST_KEYS_ACTION = "ShatterRunBoostKeys" -- ContextActionService name (bound only during a run)
+local BOOST_TIP_RETRY = 0.5 -- seconds between tries at the one-time boost bar tip
 local BASE_SATURATION = 0 -- zone grading already sets saturation; this layer stays neutral
 
 -- Feel
@@ -165,6 +177,15 @@ local ui
 -- shield = crashes it still absorbs, magnet / slowmo = seconds left,
 -- megaball = giant throws left.
 local boost = { shield = 0, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+-- Boost-bar boosts the server confirmed but the player hasn't tapped yet:
+-- { [boostId] = count } for every id in Config.BOOST_BAR. The UI reads this table.
+local ready = {}
+for _, boostId in BOOST_BAR do
+	ready[boostId] = 0
+end
+local boostKeysBound = false
+local boostTipDone = false -- the "tap a boost" tip was shown (or seen in an earlier session)
+local boostTipWait = 0
 local timeScale = 1 -- 1 = normal speed, lower while SlowMo is on
 local slowLook = 0 -- how much of the slow-mo color effect is showing (0..1)
 local magnetized = {} -- crystals currently flying to the camera
@@ -855,6 +876,9 @@ local function resetBoosts()
 	boost.slowmo = 0
 	boost.megaball = 0
 	boost.doubleGems = false
+	for boostId in ready do
+		ready[boostId] = 0
+	end
 	timeScale = 1
 	setSlowLook(0)
 	table.clear(magnetized)
@@ -926,8 +950,8 @@ local function shieldBreak()
 end
 
 -- What the HUD shows for boosts (sent every frame; the UI only redraws changes).
--- One table reused every frame (the UI only reads it).
-local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+-- One table reused every frame (the UI only reads it). ready = boost-bar counts.
+local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false, ready = ready }
 
 local function updateBoostHud()
 	if ui.setBoosts then
@@ -937,6 +961,87 @@ local function updateBoostHud()
 		boostState.megaball = boost.megaball
 		boostState.doubleGems = boost.doubleGems
 		ui:setBoosts(boostState)
+	end
+end
+
+local function anyReady()
+	for _, count in ready do
+		if count > 0 then
+			return true
+		end
+	end
+	return false
+end
+
+-- The player tapped a ready boost in the boost bar (or pressed its D-pad / number
+-- key): switch it on now. The server already took it from the inventory at the
+-- start of the run, so nothing is sent. Returns true if it switched on.
+local function useReadyBoost(boostId)
+	if state ~= "Running" or promptFrozen() or (ready[boostId] or 0) <= 0 then
+		return false
+	end
+	ready[boostId] -= 1
+	activateBoost(boostId)
+	-- A quick pop: chime, buzz and a small camera punch (the UI pops the button).
+	Sounds.play("Checkpoint", 1.3)
+	Haptics.play("boost")
+	punchFov(FOV_PUNCH_SHATTER)
+	updateBoostHud()
+	return true
+end
+
+-- First run with a boost waiting in the bar: a one-time tip. Tutorial.tip can
+-- be busy (another tip showing, save not loaded yet), so it's retried now and then.
+local function updateBoostTip(dt)
+	if boostTipDone or not anyReady() then
+		return
+	end
+	boostTipWait -= dt
+	if boostTipWait > 0 then
+		return
+	end
+	boostTipWait = BOOST_TIP_RETRY
+	boostTipDone = Tutorial.tip("BoostBar") == true
+end
+
+-- D-pad Left / Up / Right and keys 1 / 2 / 3 use the boost-bar boosts. Bound only
+-- while a run is going (high priority, so nothing else in the run takes them);
+-- the game over screen and menus get the D-pad back for moving between buttons.
+local function onBoostKey(_, inputState, input)
+	-- The Roblox menu, a Robux prompt or a UI selection is using the controller.
+	if GuiService.MenuIsOpen or promptFrozen() or GuiService.SelectedObject ~= nil then
+		return Enum.ContextActionResult.Pass
+	end
+	if inputState == Enum.UserInputState.Begin then
+		local slot = table.find(BOOST_PAD_KEYS, input.KeyCode) or table.find(BOOST_NUMBER_KEYS, input.KeyCode)
+		local boostId = slot and BOOST_BAR[slot]
+		if boostId then
+			useReadyBoost(boostId)
+		end
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function syncBoostKeys()
+	local wanted = state == "Running"
+	if wanted == boostKeysBound then
+		return
+	end
+	boostKeysBound = wanted
+	if wanted then
+		local keys = table.clone(BOOST_PAD_KEYS)
+		for _, keyCode in BOOST_NUMBER_KEYS do
+			table.insert(keys, keyCode)
+		end
+		ContextActionService:BindActionAtPriority(
+			BOOST_KEYS_ACTION,
+			onBoostKey,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			table.unpack(keys)
+		)
+	else
+		ContextActionService:UnbindAction(BOOST_KEYS_ACTION)
 	end
 end
 
@@ -963,6 +1068,9 @@ local function gameOver()
 	-- Unused boosts: the server gives them back if the player leaves from here.
 	report.unusedShield = boost.shield
 	report.unusedMegaThrows = boost.megaball
+	for boostId, count in ready do
+		report["ready" .. boostId] = count -- never tapped (e.g. readyMagnet)
+	end
 	Remotes.RunEnded:FireServer(distance, report)
 	Tutorial.setPaused(true)
 
@@ -1095,7 +1203,8 @@ end
 local shopRequest -- defined in the Purchases section below
 
 -- The run is really over (PLAY AGAIN or MENU from the game over screen, without
--- a revive): unused Shields and Mega Ball throws go back to the inventory.
+-- a revive): unused Shields and Mega Ball throws, and boost-bar boosts never
+-- tapped, go back to the inventory.
 -- Sent once per run; the server checks it against what the run really turned on.
 local function returnUnusedBoosts()
 	if state ~= "GameOver" or unusedBoostsSent then
@@ -1103,12 +1212,16 @@ local function returnUnusedBoosts()
 	end
 	unusedBoostsSent = true
 	local shield, throws = boost.shield, boost.megaball
-	if shield <= 0 and throws < MEGA.Throws then
+	if shield <= 0 and throws < MEGA.Throws and not anyReady() then
 		return -- nothing that could be given back
+	end
+	local unused = { shield = shield, megaballThrows = throws }
+	for boostId, count in ready do
+		unused["ready" .. boostId] = count -- e.g. readyMagnet
 	end
 	-- Sent now (before RunStarted / resetWorld), answered in the background.
 	task.spawn(function()
-		local ok, message = shopRequest("ReturnUnusedBoosts", { shield = shield, megaballThrows = throws })
+		local ok, message = shopRequest("ReturnUnusedBoosts", unused)
 		if ok and type(message) == "string" then
 			ui:toast(message, "reward")
 		end
@@ -1163,7 +1276,9 @@ local function startRun(checkpoint, boostIds)
 	runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = multiball }
 	state = "Running"
 
-	local picked = pickBoosts(boostIds)
+	-- The guided first run teaches the basics without boosts: anything picked
+	-- stays in the inventory for the next run.
+	local picked = if tutorialRun then {} else pickBoosts(boostIds)
 	runSerial += 1
 	if #picked > 0 then
 		Remotes.RunStarted:FireServer(checkpoint, picked)
@@ -1291,6 +1406,7 @@ local function step(dt)
 
 	if state == "Running" then
 		updateMagnet(worldDt)
+		updateBoostTip(dt)
 		if balls <= 0 and #activeBalls == 0 then
 			gameOver()
 		end
@@ -1330,6 +1446,7 @@ local function step(dt)
 	Viewmodel.update(dt, viewState)
 
 	updateBoostHud()
+	syncBoostKeys()
 	GamepadAim.update(dt, state == "Running")
 end
 
@@ -1533,9 +1650,14 @@ local function onBoostsActivated(event)
 	if event.run ~= nil and event.run ~= runSerial then
 		return
 	end
-	-- The UI shows the "... ON" toast for BoostsActivated itself.
+	-- The UI shows the "... ON" / "... READY" toast for BoostsActivated itself.
+	-- Boost-bar boosts wait in the bar until tapped; the rest switch on now.
 	for _, boostId in ipairs(event.boosts) do
-		activateBoost(boostId)
+		if ready[boostId] then
+			ready[boostId] += 1
+		else
+			activateBoost(boostId)
+		end
 	end
 end
 
@@ -1624,6 +1746,8 @@ function RunController.start()
 		-- Generic: onShop("BuyFx", id), onShop("BuyBoost", id), onShop("ClaimMission", id),
 		-- onShop("ClaimSeasonTier", { track, tier })...
 		onShop = shopRequest,
+		-- A ready boost tapped in the HUD boost bar.
+		onUseBoost = useReadyBoost,
 	})
 
 	setupLighting()

@@ -25,6 +25,8 @@ local DEFAULT_VOLUME = 0.6
 local VOLUMES = {
 	Gift = 1.4,
 	Music = 0.6,
+	Swing = 0.45, -- plays on every throw, so a bit softer
+	Reload = 0.3, -- quiet: it's a background detail
 }
 local MUSIC_SOUNDS = { Music = true }
 local CLEANUP_AFTER = 20 -- seconds: safety net for copies whose Ended never fires (failed to load)

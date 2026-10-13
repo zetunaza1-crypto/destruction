@@ -290,6 +290,11 @@ Config.Boosts = {
 	SlowMo = { Name = "SLOW-MO", Text = "SLOW TIME FOR 8 SECONDS", Gems = 100, Duration = 8, TimeScale = 0.5, Color = Color3.fromRGB(150, 110, 255) },
 }
 Config.BOOST_ORDER = { "Shield", "Magnet", "DoubleGems", "MegaBall", "SlowMo" }
+-- Picked boosts that wait in the HUD boost bar until the player taps them (or
+-- presses D-pad Left / Up / Right, or keys 1 / 2 / 3, in this order). The others
+-- (Shield, 2x Gems) work by themselves from the start of the run. A boost still
+-- untapped when the run really ends goes back to the inventory.
+Config.BOOST_BAR = { "Magnet", "SlowMo", "MegaBall" }
 Config.WELCOME_BOOSTS = { Shield = 1, Magnet = 1, DoubleGems = 1, MegaBall = 1, SlowMo = 1 }
 Config.MAX_BOOSTS_PER_RUN = 3
 Config.LOW_BALLS_OFFER = 8 -- show the mid-run Shield quick-buy at or below this many balls
@@ -314,6 +319,8 @@ Config.Sounds = {
 	Checkpoint = 119584218311262,
 	Gift = 109446253768240, -- assets/sounds/gift_*.mp3
 	Music = 108496618537935,
+	Swing = 75847376684855, -- arm throw whoosh (assets/sounds/swing_*.mp3)
+	Reload = 109753819262777, -- pocket reload (assets/sounds/reload_*.mp3)
 }
 
 -- Player settings (saved per account; see src/client/Settings.luau) ------------------
@@ -360,6 +367,7 @@ Config.Hints = {
 	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
 	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
 	RingSpinner = "RING! SMASH THE ORANGE PANE - IT TURNS INTO YOUR PATH",
+	BoostBar = "TAP A BOOST TO USE IT WHEN YOU NEED IT", -- first run with a boost waiting in the bar
 }
 
 -- 3D models ------------------------------------------------------------------

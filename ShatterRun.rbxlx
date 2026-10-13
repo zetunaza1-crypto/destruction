@@ -475,6 +475,11 @@ Config.Boosts = {
 	SlowMo = { Name = "SLOW-MO", Text = "SLOW TIME FOR 8 SECONDS", Gems = 100, Duration = 8, TimeScale = 0.5, Color = Color3.fromRGB(150, 110, 255) },
 }
 Config.BOOST_ORDER = { "Shield", "Magnet", "DoubleGems", "MegaBall", "SlowMo" }
+-- Picked boosts that wait in the HUD boost bar until the player taps them (or
+-- presses D-pad Left / Up / Right, or keys 1 / 2 / 3, in this order). The others
+-- (Shield, 2x Gems) work by themselves from the start of the run. A boost still
+-- untapped when the run really ends goes back to the inventory.
+Config.BOOST_BAR = { "Magnet", "SlowMo", "MegaBall" }
 Config.WELCOME_BOOSTS = { Shield = 1, Magnet = 1, DoubleGems = 1, MegaBall = 1, SlowMo = 1 }
 Config.MAX_BOOSTS_PER_RUN = 3
 Config.LOW_BALLS_OFFER = 8 -- show the mid-run Shield quick-buy at or below this many balls
@@ -499,6 +504,8 @@ Config.Sounds = {
 	Checkpoint = 119584218311262,
 	Gift = 109446253768240, -- assets/sounds/gift_*.mp3
 	Music = 108496618537935,
+	Swing = 75847376684855, -- arm throw whoosh (assets/sounds/swing_*.mp3)
+	Reload = 109753819262777, -- pocket reload (assets/sounds/reload_*.mp3)
 }
 
 -- Player settings (saved per account; see src/client/Settings.luau) ------------------
@@ -545,6 +552,7 @@ Config.Hints = {
 	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
 	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
 	RingSpinner = "RING! SMASH THE ORANGE PANE - IT TURNS INTO YOUR PATH",
+	BoostBar = "TAP A BOOST TO USE IT WHEN YOU NEED IT", -- first run with a boost waiting in the bar
 }
 
 -- 3D models ------------------------------------------------------------------
@@ -1083,17 +1091,153 @@ return {
 ]]></string>
         </Properties>
       </Item>
+      <Item class="ModuleScript" referent="13">
+        <Properties>
+          <string name="Name">ViewmodelRig</string>
+          <string name="Source"><![CDATA[--[[
+	The arms you see in first person (shared by the server and the client).
+
+	Server (Server/ViewmodelRigs.server.luau): builds one arms model per player
+	from a cleaned-up copy of their avatar and puts it in
+	ReplicatedStorage.ViewmodelRigs, named by their UserId.
+	Client (Client/Viewmodel.luau): clones it for the run and moves the arms with
+	the camera.
+
+	A rig is a Model with exactly:
+	  "Left Arm", "Right Arm"  plain R6 arm blocks (anchored, no collisions)
+	  Humanoid                 needed for the classic Shirt to show on the arms
+	  Shirt                    (optional) the player's classic shirt
+	  Body Colors              (optional) the player's skin colours
+	Anything else is removed by ViewmodelRig.strip, on the server AND again on
+	the client, so a strange avatar can never put anything else on screen.
+
+	ViewmodelRig.strip(model) -> boolean   true when both arms are there
+	ViewmodelRig.buildDefault(name) -> Model   plain arms in a neutral skin tone
+]]
+
+local ViewmodelRig = {}
+
+ViewmodelRig.FOLDER_NAME = "ViewmodelRigs" -- in ReplicatedStorage
+ViewmodelRig.ARM_NAMES = { "Left Arm", "Right Arm" }
+ViewmodelRig.ARM_SIZE = Vector3.new(1, 2, 1) -- a standard blocky R6 arm
+ViewmodelRig.DEFAULT_COLOR = Color3.fromRGB(234, 184, 146) -- neutral skin tone (default rig)
+
+local function isArm(child)
+	return child:IsA("BasePart") and (child.Name == "Left Arm" or child.Name == "Right Arm")
+end
+
+-- No collisions, no raycasts / touches, no shadows; moved by script only.
+function ViewmodelRig.quietPart(part)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Massless = true
+end
+
+-- A Humanoid that only draws clothing: no name tag, health bar, physics or animations.
+local function quietHumanoid(humanoid)
+	humanoid:ClearAllChildren() -- Animator, HumanoidDescription...
+	pcall(function()
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end)
+	pcall(function()
+		humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	end)
+	pcall(function()
+		humanoid.RequiresNeck = false
+	end)
+	pcall(function()
+		humanoid.BreakJointsOnDeath = false
+	end)
+	pcall(function()
+		humanoid.AutomaticScalingEnabled = false
+	end)
+	pcall(function()
+		humanoid.EvaluateStateMachine = false
+	end)
+end
+
+-- Keeps only the two arms, one Humanoid, one Shirt and one Body Colors.
+-- Everything else (head, torso, legs, accessories, meshes, scripts, pants...)
+-- is destroyed. Returns true when both arms are there.
+function ViewmodelRig.strip(model)
+	local kept = {}
+	for _, child in model:GetChildren() do
+		local kind = nil
+		if isArm(child) then
+			kind = child.Name
+		elseif child:IsA("Humanoid") then
+			kind = "Humanoid"
+		elseif child:IsA("Shirt") then
+			kind = "Shirt"
+		elseif child:IsA("BodyColors") then
+			kind = "BodyColors"
+		end
+		if kind and not kept[kind] then
+			kept[kind] = child
+		else
+			child:Destroy()
+		end
+	end
+
+	for _, armName in ViewmodelRig.ARM_NAMES do
+		local arm = kept[armName]
+		if arm then
+			arm:ClearAllChildren() -- attachments, special meshes, decals
+			ViewmodelRig.quietPart(arm)
+			arm.Transparency = 0
+		end
+	end
+	if kept.Humanoid then
+		quietHumanoid(kept.Humanoid)
+	end
+	local right = kept["Right Arm"]
+	if right then
+		model.PrimaryPart = right
+	end
+	return kept["Left Arm"] ~= nil and right ~= nil
+end
+
+-- Plain arms in a neutral skin tone, used when the avatar can't be loaded.
+function ViewmodelRig.buildDefault(name)
+	local model = Instance.new("Model")
+	model.Name = name
+	for _, armName in ViewmodelRig.ARM_NAMES do
+		local arm = Instance.new("Part")
+		arm.Name = armName
+		arm.Size = ViewmodelRig.ARM_SIZE
+		arm.Color = ViewmodelRig.DEFAULT_COLOR
+		arm.Material = Enum.Material.SmoothPlastic
+		arm.TopSurface = Enum.SurfaceType.Smooth
+		arm.BottomSurface = Enum.SurfaceType.Smooth
+		ViewmodelRig.quietPart(arm)
+		arm.Parent = model
+	end
+	local humanoid = Instance.new("Humanoid")
+	quietHumanoid(humanoid)
+	humanoid.Parent = model
+	model.PrimaryPart = model:FindFirstChild("Right Arm")
+	model:SetAttribute("Default", true)
+	return model
+end
+
+return ViewmodelRig
+]]></string>
+        </Properties>
+      </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="13">
+  <Item class="ServerScriptService" referent="14">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="14">
+    <Item class="Folder" referent="15">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="Script" referent="15">
+      <Item class="Script" referent="16">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -1158,9 +1302,11 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 --   meterGems (gems paid for distance on this run, for 2x Gems back pay),
 --   midRunBoosts ({ [boostId] = count } turned on by UseBoostNow, for ReturnBoost),
 --   shieldsOn / megaBallsOn (Shields / Mega Balls turned on this run, the most
---   ReturnUnusedBoosts can give back), unusedReturned (already given back),
---   lastUnused ({ shield, megaballThrows } the device reported with its last
---   RunEnded, given back if they leave from the game over screen),
+--   ReturnUnusedBoosts can give back), readyOn ({ [boostId] = count } of the
+--   Config.BOOST_BAR boosts RunStarted put in the boost bar, the most that can
+--   come back untapped), unusedReturned (already given back),
+--   lastUnused ({ shield, megaballThrows, readyMagnet, ... } the device reported
+--   with its last RunEnded, given back if they leave from the game over screen),
 --   lastRoom (last room index accepted from RoomReached), roomClock (active
 --   seconds the next room is measured from), pausedMaxStuds (cached time cap
 --   while paused), lastEndedAt (os.clock() of the last RunEnded we handled)
@@ -1280,11 +1426,13 @@ local function createLeaderstats(player)
 end
 
 -- Unused boosts ------------------------------------------------------------------
--- A Shield or Mega Ball still unused when the run really ends (PLAY AGAIN / MENU
--- from the game over screen without a revive, or leaving the game) goes back to
--- the inventory: "your next crash is free" shouldn't vanish because the run
--- ended by running out of balls. Capped at what this run actually turned on,
--- and only once per run.
+-- When the run really ends (PLAY AGAIN / MENU from the game over screen without a
+-- revive, or leaving the game from there), these go back to the inventory:
+--  * a Shield that never absorbed a crash, and a Mega Ball with all its throws left
+--    ("your next crash is free" shouldn't vanish because you ran out of balls),
+--  * a boost-bar boost (Config.BOOST_BAR: Magnet, Slow-Mo, Mega Ball) the player
+--    never tapped.
+-- Capped at what this run actually took from the inventory, and only once per run.
 
 -- Reads a whole, non-negative count from a client table (anything else = 0).
 local function readCount(source, name)
@@ -1295,27 +1443,59 @@ local function readCount(source, name)
 	return math.max(0, math.floor(value))
 end
 
--- Returns how many Shields and Mega Balls went back to the inventory.
-local function refundUnusedBoosts(player, data, run, shieldCount, megaThrows)
+-- The order refunds are listed in ("Unused boosts saved: 1 SHIELD + 1 MAGNET").
+local REFUND_ORDER = { "Shield", "Magnet", "SlowMo", "MegaBall" }
+
+-- A fresh { [boostId] = 0 } for every boost-bar boost.
+local function emptyBarCounts()
+	local counts = {}
+	for _, boostId in Config.BOOST_BAR do
+		counts[boostId] = 0
+	end
+	return counts
+end
+
+-- unused = what the device reported (any of these may be missing or junk = 0):
+--   shield         - Shields that never absorbed a crash
+--   megaballThrows - giant throws left on Mega Balls that were tapped
+--   readyMagnet / readySlowMo / readyMegaBall - boost-bar boosts never tapped
+-- Gives them back (capped, once per run) and returns { [boostId] = count given back }.
+local function refundUnusedBoosts(player, data, run, unused)
+	local refunded = {}
 	if run.unusedReturned then
-		return 0, 0
+		return refunded
 	end
 	run.unusedReturned = true
-	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
-	local shields = math.min(shieldCount, run.shieldsOn)
-	local megaBalls = math.min(megaThrows // throwsPerMega, run.megaBallsOn)
+
+	-- Never tapped: no more than RunStarted put in the bar.
+	for _, boostId in Config.BOOST_BAR do
+		local count = math.min(readCount(unused, "ready" .. boostId), run.readyOn[boostId] or 0)
+		run.readyOn[boostId] = (run.readyOn[boostId] or 0) - count
+		refunded[boostId] = count
+	end
+
+	local shields = math.min(readCount(unused, "shield"), run.shieldsOn)
 	run.shieldsOn -= shields
+	refunded.Shield = shields
+
+	-- Mega Balls: whole ones with every throw left, plus the untapped ones counted
+	-- above, but never more than this run turned on in total.
+	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
+	local megaBalls = math.min(readCount(unused, "megaballThrows") // throwsPerMega + (refunded.MegaBall or 0), run.megaBallsOn)
 	run.megaBallsOn -= megaBalls
-	if shields > 0 then
-		Progression.addBoost(data, "Shield", shields)
+	refunded.MegaBall = megaBalls
+
+	local any = false
+	for boostId, count in refunded do
+		if count > 0 then
+			Progression.addBoost(data, boostId, count)
+			any = true
+		end
 	end
-	if megaBalls > 0 then
-		Progression.addBoost(data, "MegaBall", megaBalls)
-	end
-	if shields > 0 or megaBalls > 0 then
+	if any then
 		PlayerData.publish(player, { "Boosts" })
 	end
-	return shields, megaBalls
+	return refunded
 end
 
 local function onPlayerAdded(player)
@@ -1335,7 +1515,7 @@ Players.PlayerRemoving:Connect(function(player)
 	local run = activeRuns[player]
 	local data = PlayerData.get(player)
 	if run and data and run.pausedAt and run.lastUnused then
-		refundUnusedBoosts(player, data, run, run.lastUnused.shield, run.lastUnused.megaballThrows)
+		refundUnusedBoosts(player, data, run, run.lastUnused)
 	end
 	activeRuns[player] = nil
 	runCounts[player] = nil
@@ -1423,10 +1603,11 @@ Shop.addAction("ReturnBoost", function(player, data, boostId)
 	return true
 end)
 
--- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t }): the
--- device sends this once when a run really ends (PLAY AGAIN or MENU from the
--- game over screen, no revive). Only while the run is stopped at game over, and
--- only once per run (see refundUnusedBoosts for the caps).
+-- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t, readyMagnet = n,
+-- readySlowMo = n, readyMegaBall = n }): the device sends this once when a run
+-- really ends (PLAY AGAIN or MENU from the game over screen, no revive). Only
+-- while the run is stopped at game over, and only once per run (see
+-- refundUnusedBoosts for what each field means and the caps).
 Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
 	if type(unused) ~= "table" then
 		return false, "Bad request"
@@ -1438,14 +1619,13 @@ Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
 	if run.unusedReturned then
 		return true -- already done for this run
 	end
-	local shields, megaBalls =
-		refundUnusedBoosts(player, data, run, readCount(unused, "shield"), readCount(unused, "megaballThrows"))
+	local refunded = refundUnusedBoosts(player, data, run, unused)
 	local parts = {}
-	if shields > 0 then
-		table.insert(parts, shields .. " " .. Config.Boosts.Shield.Name)
-	end
-	if megaBalls > 0 then
-		table.insert(parts, megaBalls .. " " .. Config.Boosts.MegaBall.Name)
+	for _, boostId in REFUND_ORDER do
+		local count = refunded[boostId] or 0
+		if count > 0 then
+			table.insert(parts, count .. " " .. Config.Boosts[boostId].Name)
+		end
 	end
 	if #parts > 0 then
 		return true, "Unused boosts saved: " .. table.concat(parts, " + ")
@@ -1556,6 +1736,7 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 		midRunBoosts = {},
 		shieldsOn = 0,
 		megaBallsOn = 0,
+		readyOn = emptyBarCounts(),
 		unusedReturned = false,
 		lastUnused = nil,
 		lastRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT, -- the room the run starts in
@@ -1572,7 +1753,9 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 	end
 
 	-- Boosts: use up one of each, then tell the client which ones really started
-	-- (it only turns on what we confirm here).
+	-- (it only turns on what we confirm here). Shield and 2x Gems work by
+	-- themselves; boost-bar boosts (Config.BOOST_BAR) wait until the player taps
+	-- them, and come back with ReturnUnusedBoosts if they never do.
 	local used = {}
 	for _, boostId in chooseBoosts(data, boostIds) do
 		if Progression.takeBoost(data, boostId) then
@@ -1584,6 +1767,9 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 				run.shieldsOn += 1
 			elseif boostId == "MegaBall" then
 				run.megaBallsOn += 1
+			end
+			if run.readyOn[boostId] then
+				run.readyOn[boostId] += 1
 			end
 		end
 	end
@@ -1667,12 +1853,17 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if type(runStats) ~= "table" then
 		runStats = {}
 	end
-	-- Shields / Mega Ball throws still unused at this game over (given back if
-	-- they leave from the game over screen; see PlayerRemoving).
-	run.lastUnused = {
+	-- Shields / Mega Ball throws still unused and boost-bar boosts never tapped at
+	-- this game over (given back if they leave from the game over screen; see
+	-- PlayerRemoving). Same fields as a ReturnUnusedBoosts request.
+	local lastUnused = {
 		shield = readCount(runStats, "unusedShield"),
 		megaballThrows = readCount(runStats, "unusedMegaThrows"),
 	}
+	for _, boostId in Config.BOOST_BAR do
+		lastUnused["ready" .. boostId] = readCount(runStats, "ready" .. boostId)
+	end
+	run.lastUnused = lastUnused
 
 	-- Anti-cheat: the distance is the smallest of
 	--  * what the device says,
@@ -1852,7 +2043,7 @@ end)
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="16">
+      <Item class="Script" referent="17">
         <Properties>
           <string name="Name">ModelLoader</string>
           <token name="RunContext">0</token>
@@ -1916,7 +2107,7 @@ end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">Monetization</string>
           <string name="Source"><![CDATA[--[[
@@ -2237,7 +2428,7 @@ return Monetization
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">PlayerData</string>
           <string name="Source"><![CDATA[--[[
@@ -2643,7 +2834,7 @@ return PlayerData
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">Progression</string>
           <string name="Source"><![CDATA[--[[
@@ -3324,7 +3515,7 @@ return Progression
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">Shop</string>
           <string name="Source"><![CDATA[--[[
@@ -3600,21 +3791,242 @@ return Shop
 ]]></string>
         </Properties>
       </Item>
+      <Item class="Script" referent="22">
+        <Properties>
+          <string name="Name">ViewmodelRigs</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[--[[
+	Builds each player's first-person arms from their avatar, made safe.
+
+	Marketplace avatars can be huge, tiny, spiky or covered in accessories, so
+	the arms are NOT a copy of the avatar. Instead a brand-new, empty
+	HumanoidDescription gets only what we allow (a whitelist):
+	  KEPT     the six body colours, the classic Shirt (and Pants, harmless:
+	           the legs are removed anyway)
+	  RESET    body parts (Head, Torso, arms, legs) = 0 -> standard blocky parts
+	           scales: Height / Width / Depth / Head = 1, BodyType = 0, Proportion = 0
+	           every accessory, hair, hat, face accessory, layered clothing = none
+	           Face = 0, T-shirt = 0, every animation = 0
+	From that, Roblox builds a plain R6 model, which is then cut down to just
+	the two arms + Humanoid + Shirt + Body Colors (Shared/ViewmodelRig.strip),
+	with the arms forced to the standard 1 x 2 x 1 size.
+
+	The result goes into ReplicatedStorage.ViewmodelRigs as a Model named by the
+	player's UserId (the client clones it, see Client/Viewmodel.luau). It is
+	removed when they leave. If anything fails (avatar service down, Studio test
+	player...), the player gets plain default arms instead.
+
+	Players:GetHumanoidDescriptionFromUserId and
+	Players:CreateHumanoidModelFromDescription only work on the server, which is
+	why this is a server script.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local ViewmodelRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ViewmodelRig"))
+
+local FETCH_ATTEMPTS = 3 -- first try + 2 retries
+local RETRY_DELAY = 2 -- seconds between tries
+
+local BODY_COLORS = { "HeadColor", "TorsoColor", "LeftArmColor", "RightArmColor", "LeftLegColor", "RightLegColor" }
+local BODY_PARTS = { "Head", "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg" }
+local ACCESSORIES = {
+	"HatAccessory",
+	"HairAccessory",
+	"FaceAccessory",
+	"NeckAccessory",
+	"ShouldersAccessory",
+	"FrontAccessory",
+	"BackAccessory",
+	"WaistAccessory",
+}
+local ANIMATIONS = {
+	"ClimbAnimation",
+	"FallAnimation",
+	"IdleAnimation",
+	"JumpAnimation",
+	"MoodAnimation",
+	"RunAnimation",
+	"SwimAnimation",
+	"WalkAnimation",
+}
+local SCALES = {
+	HeightScale = 1,
+	WidthScale = 1,
+	DepthScale = 1,
+	HeadScale = 1,
+	BodyTypeScale = 0,
+	ProportionScale = 0,
+}
+
+local folder = ReplicatedStorage:FindFirstChild(ViewmodelRig.FOLDER_NAME)
+if not folder then
+	folder = Instance.new("Folder")
+	folder.Name = ViewmodelRig.FOLDER_NAME
+	folder.Parent = ReplicatedStorage
+end
+
+-- Sets one property, ignoring properties this Roblox version doesn't have.
+local function trySet(instance, property, value)
+	pcall(function()
+		instance[property] = value
+	end)
+end
+
+local function tryGet(instance, property)
+	local ok, value = pcall(function()
+		return instance[property]
+	end)
+	return if ok then value else nil
+end
+
+-- A clothing asset id we can trust: a whole number >= 0.
+local function clothingId(value)
+	if type(value) ~= "number" or value ~= value or value < 0 or value % 1 ~= 0 then
+		return 0
+	end
+	return value
+end
+
+-- The player's avatar description (nil if Roblox couldn't give it).
+local function fetchDescription(userId)
+	for attempt = 1, FETCH_ATTEMPTS do
+		local ok, description = pcall(Players.GetHumanoidDescriptionFromUserId, Players, userId)
+		if ok and typeof(description) == "Instance" and description:IsA("HumanoidDescription") then
+			return description
+		end
+		warn("[ViewmodelRigs] avatar for", userId, "not loaded (try " .. attempt .. "):", description)
+		if attempt < FETCH_ATTEMPTS then
+			task.wait(RETRY_DELAY)
+		end
+	end
+	return nil
+end
+
+-- A brand-new description with only the allowed things copied over.
+local function cleanDescription(source)
+	local clean = Instance.new("HumanoidDescription")
+
+	-- Kept: skin colours and classic clothing.
+	for _, property in BODY_COLORS do
+		local color = tryGet(source, property)
+		if typeof(color) == "Color3" then
+			trySet(clean, property, color)
+		end
+	end
+	trySet(clean, "Shirt", clothingId(tryGet(source, "Shirt")))
+	trySet(clean, "Pants", clothingId(tryGet(source, "Pants")))
+
+	-- Reset (already the defaults on a new description, set anyway so it's
+	-- guaranteed whatever Roblox's defaults are).
+	for _, property in BODY_PARTS do
+		trySet(clean, property, 0)
+	end
+	for property, value in SCALES do
+		trySet(clean, property, value)
+	end
+	for _, property in ACCESSORIES do
+		trySet(clean, property, "")
+	end
+	for _, property in ANIMATIONS do
+		trySet(clean, property, 0)
+	end
+	trySet(clean, "Face", 0)
+	trySet(clean, "GraphicTShirt", 0)
+	-- Layered clothing and any other accessories.
+	pcall(function()
+		clean:SetAccessories({}, true)
+	end)
+	return clean
+end
+
+-- Arms from the cleaned avatar, or nil if Roblox couldn't build them.
+local function buildAvatarRig(description, name)
+	local clean = cleanDescription(description)
+	local ok, model = pcall(Players.CreateHumanoidModelFromDescription, Players, clean, Enum.HumanoidRigType.R6)
+	clean:Destroy()
+	if not ok or typeof(model) ~= "Instance" or not model:IsA("Model") then
+		warn("[ViewmodelRigs] could not build arms:", model)
+		return nil
+	end
+	if not ViewmodelRig.strip(model) then
+		model:Destroy()
+		return nil
+	end
+	for _, armName in ViewmodelRig.ARM_NAMES do
+		model[armName].Size = ViewmodelRig.ARM_SIZE
+	end
+	model.Name = name
+	model:SetAttribute("Default", false)
+	return model
+end
+
+local function setup(player)
+	local userId = player.UserId
+	local name = tostring(userId)
+	local rig = nil
+
+	-- Studio test players have UserIds <= 0 and no avatar: they get default arms.
+	if userId > 0 then
+		local description = fetchDescription(userId)
+		if description then
+			local ok, result = pcall(buildAvatarRig, description, name)
+			if ok then
+				rig = result
+			else
+				warn("[ViewmodelRigs] could not build arms:", result)
+			end
+			description:Destroy()
+		end
+	end
+	if not rig then
+		rig = ViewmodelRig.buildDefault(name)
+	end
+
+	-- They may have left while the avatar was loading.
+	if player.Parent ~= Players then
+		rig:Destroy()
+		return
+	end
+	local old = folder:FindFirstChild(name)
+	if old then
+		old:Destroy()
+	end
+	rig.Parent = folder
+end
+
+Players.PlayerAdded:Connect(function(player)
+	task.spawn(setup, player)
+end)
+for _, player in Players:GetPlayers() do
+	task.spawn(setup, player)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	local rig = folder:FindFirstChild(tostring(player.UserId))
+	if rig then
+		rig:Destroy()
+	end
+end)
+]]></string>
+        </Properties>
+      </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="21">
+  <Item class="StarterPlayer" referent="23">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="22">
+    <Item class="StarterPlayerScripts" referent="24">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="23">
+      <Item class="Folder" referent="25">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="24">
+        <Item class="ModuleScript" referent="26">
           <Properties>
             <string name="Name">BallFx</string>
             <string name="Source"><![CDATA[--[[
@@ -3634,15 +4046,27 @@ return Shop
 		radius is the collision radius; premium balls are drawn 2.6x that across
 		so their details read in flight.
 		options = {
-			mega = bool,      -- MegaBall boost ball (plain skins get a trail)
-			lite = bool,      -- cheap version: no rings / particles / light (extra multiball balls)
+			mega = bool,       -- MegaBall boost ball (trail in the boost's color)
+			lite = bool,       -- cheap version: no rings / particles / light (extra multiball balls)
+			priority = bool,   -- the ball just thrown from the hand: always full detail
+			                   -- (if the budget is full, the oldest full ball is toned down instead)
+			trailScale = num,  -- trail lifetime multiplier (RunController: longer at high speed)
 			parent = Instance,
 		}
+		Every ball has a trail in its skin's colors (premium ones longer and brighter).
 	BallFx.destroy(ball)  -- use this instead of ball:Destroy() (frees its budget)
 	BallFx.isPremium(skinId)
 	BallFx.hasMesh(skinId) -- the Blender model has loaded
 	BallFx.preview(skinId, diameter) -> { model, mesh, step(t), destroy() }
 		Anchored copy for the shop's ViewportFrame. step(os.clock()) animates it.
+	BallFx.held(skinId, diameter, particleScale?) -> { root, mesh, skinId, place(cframe, scale, t), destroy() }
+		A ball in one of the player's hands (HeldBall.luau). Same look and animation
+		as a thrown ball, with its particles but no trail / light. All parts are
+		anchored and moved together with one BulkMoveTo per frame (it follows the camera).
+		diameter = how big it's drawn across (studs); place() scales it (pop-in, mega).
+		particleScale (default 1): extra particle-rate multiplier (two hands = two balls).
+	BallFx.impactStyle(skinId) -> { id, color, color2, rainbow, premium }
+		The skin's colors for Shatter.skinBurst (the splash where a ball hits).
 
 	Keeping phones smooth:
 	  - one RenderStepped loop animates every live premium ball (no per-ball connections)
@@ -3650,6 +4074,7 @@ return Shop
 	  - particle rates are shared: the more full balls, the less each one emits
 	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
 	  - balls far from the camera aren't animated
+	  - trails: lifetime capped (TRAIL_MAX_LIFETIME), shorter on Low graphics
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3671,6 +4096,17 @@ local LOW_PARTICLE_SCALE = 0.4 -- Low graphics: fewer particles (and only the fi
 local ANIMATE_RANGE = 120 -- studs; balls further from the camera stop animating
 local TAU = math.pi * 2
 local MEGA_COLOR = Config.Boosts.MegaBall.Color
+
+-- Trails: every ball leaves one in its skin's colors, so a skin reads even as a
+-- far-away dot. Premium trails are longer and brighter.
+local PLAIN_TRAIL_LIFETIME = 0.34 -- seconds (was 0.25, and only some skins had one)
+local PLAIN_TRAIL_WIDTH = 0.8 -- x the ball's radius, above and below its center
+local PREMIUM_TRAIL_LENGTH = 1.5 -- x the lifetime in BallStyles
+local PREMIUM_TRAIL_WIDTH = 0.36 -- x the drawn diameter (was 0.3)
+local TRAIL_BRIGHTNESS = { plain = 1.6, premium = 2.4 }
+local TRAIL_MAX_LIFETIME = 0.8
+local LOW_TRAIL_SCALE = 0.75 -- Low graphics: shorter trails
+local HELD_PARTICLE_SCALE = 0.6 -- the ball in your hand sparkles a bit less than a thrown one
 
 local TEXTURES = {
 	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
@@ -3743,6 +4179,22 @@ local function newPart(name, shape, size, color, material, transparency)
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	quiet(part, false)
 	return part
+end
+
+-- Trail.Brightness makes a trail glow brighter than its color alone. pcall: an
+-- older client without the property just keeps the normal brightness.
+local function setBrightness(trail, brightness)
+	pcall(function()
+		trail.Brightness = brightness
+	end)
+end
+
+local function rainbowColors()
+	local keys = {}
+	for i = 0, 6 do
+		table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6, 0.8, 1)))
+	end
+	return ColorSequence.new(keys)
 end
 
 -- The invisible anchored center every premium ball hangs off.
@@ -3937,7 +4389,7 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 	local trailStyle = fx.Trail
 	local trailColor = if trailStyle then trailStyle.Color else (skin.Trail or skin.Color)
 	local trailColor2 = if trailStyle then (trailStyle.Color2 or trailColor) else trailColor
-	local width = diameter * 0.3 * (if trailStyle then (trailStyle.WidthScale or 1) else 1)
+	local width = diameter * PREMIUM_TRAIL_WIDTH * (if trailStyle then (trailStyle.WidthScale or 1) else 1)
 	local a0 = Instance.new("Attachment")
 	a0.Position = Vector3.new(0, width, 0)
 	a0.Parent = root
@@ -3947,12 +4399,17 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 	local trail = Instance.new("Trail")
 	trail.Attachment0 = a0
 	trail.Attachment1 = a1
-	trail.Lifetime = if trailStyle then (trailStyle.Lifetime or 0.3) else 0.3
+	trail.Lifetime = (if trailStyle then (trailStyle.Lifetime or 0.3) else 0.3) * PREMIUM_TRAIL_LENGTH
 	trail.LightEmission = 1
 	trail.FaceCamera = true
 	trail.Color = ColorSequence.new(trailColor, trailColor2)
-	trail.Transparency = NumberSequence.new(0.15, 1)
-	trail.WidthScale = NumberSequence.new(1, 0.2)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.55, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new(1, 0.25)
+	setBrightness(trail, TRAIL_BRIGHTNESS.premium)
 	trail.Parent = root
 	if lite then
 		return
@@ -4126,8 +4583,9 @@ local function fullCount()
 	return count
 end
 
--- Plain skins: one ball part (the look the game always had).
-local function plainBall(skin, radius, mega)
+-- Plain skins: one ball part (the look the game always had), now always with a
+-- trail in the skin's colors. trail = false: no trail (the shop preview).
+local function plainBall(skin, radius, mega, trail)
 	local part = Instance.new("Part")
 	part.Name = if mega then "MegaBall" else "Ball"
 	part.Shape = Enum.PartType.Ball
@@ -4144,24 +4602,72 @@ local function plainBall(skin, radius, mega)
 		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
 	end
 
-	if skin.Trail or skin.Rainbow or mega then
+	if trail ~= false then
+		local width = radius * PLAIN_TRAIL_WIDTH
 		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, radius * 0.6, 0)
+		a0.Position = Vector3.new(0, width, 0)
 		a0.Parent = part
 		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -radius * 0.6, 0)
+		a1.Position = Vector3.new(0, -width, 0)
 		a1.Parent = part
 
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = a0
-		trail.Attachment1 = a1
-		trail.Lifetime = 0.25
-		trail.LightEmission = 1
-		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA_COLOR else part.Color))
-		trail.Transparency = NumberSequence.new(0.2, 1)
-		trail.Parent = part
+		local streak = Instance.new("Trail")
+		streak.Attachment0 = a0
+		streak.Attachment1 = a1
+		streak.Lifetime = PLAIN_TRAIL_LIFETIME
+		streak.LightEmission = 1
+		streak.FaceCamera = true
+		if mega then
+			streak.Color = ColorSequence.new(MEGA_COLOR)
+		elseif skin.Rainbow then
+			streak.Color = rainbowColors()
+		else
+			-- Skin color into its trail color (dark skins like Void glow in their trail color).
+			streak.Color = ColorSequence.new(skin.Trail or skin.Color, skin.Color:Lerp(skin.Trail or skin.Color, 0.6))
+		end
+		streak.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.05),
+			NumberSequenceKeypoint.new(0.6, 0.55),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		streak.WidthScale = NumberSequence.new(1, 0.3)
+		setBrightness(streak, TRAIL_BRIGHTNESS.plain)
+		streak.Parent = part
 	end
 	return part
+end
+
+-- Over budget: the oldest full-detail ball stops animating and sparkling (it's
+-- far down the corridor by now) so the one just thrown can be full detail.
+local function demoteOldest()
+	for i = 1, #live do
+		local entry = live[i]
+		if entry.root.Parent then
+			table.remove(live, i)
+			entries[entry.root] = nil
+			for _, item in entry.emitters do
+				item.emitter.Enabled = false
+			end
+			if entry.light then
+				entry.light.Enabled = false
+			end
+			return true
+		end
+	end
+	return false
+end
+
+-- Longer trails at high speed (options.trailScale), shorter on Low graphics.
+local function scaleTrail(root, trailScale)
+	local trail = root:FindFirstChildOfClass("Trail")
+	if not trail then
+		return
+	end
+	local scale = trailScale or 1
+	if graphicsLevel() == "Low" then
+		scale *= LOW_TRAIL_SCALE
+	end
+	trail.Lifetime = math.min(trail.Lifetime * scale, TRAIL_MAX_LIFETIME)
 end
 
 function BallFx.create(skinId, radius, options)
@@ -4170,14 +4676,25 @@ function BallFx.create(skinId, radius, options)
 	local root
 	if not skin.Premium then
 		root = plainBall(skin, radius, options.mega)
+		scaleTrail(root, options.trailScale)
 		root.Parent = options.parent
 		return root
 	end
 
-	local lite = options.lite == true or fullCount() >= MAX_FULL[graphicsLevel()]
+	local lite = options.lite == true
+	if not lite then
+		local most = MAX_FULL[graphicsLevel()]
+		while fullCount() >= most do
+			if not (options.priority and demoteOldest()) then
+				lite = true
+				break
+			end
+		end
+	end
 	local proto = prototypeFor(skin, radius, lite)
 	root = proto.root:Clone()
 	root.Name = if options.mega then "MegaBall" else "Ball"
+	scaleTrail(root, options.trailScale)
 	if not lite then
 		local entry = { root = root, anims = {}, emitters = {}, light = nil, phase = math.random() }
 		for _, anim in proto.anims do
@@ -4268,10 +4785,7 @@ function BallFx.preview(skinId, diameter)
 		root.Parent = model
 		model.PrimaryPart = root
 	else
-		local part = plainBall(skin, diameter / 2, false)
-		for _, item in part:GetChildren() do
-			item:Destroy() -- no trail in a viewport
-		end
+		local part = plainBall(skin, diameter / 2, false, false) -- no trail in a viewport
 		part.Parent = model
 		model.PrimaryPart = part
 	end
@@ -4298,6 +4812,139 @@ function BallFx.preview(skinId, diameter)
 	return preview
 end
 
+-- The ball in your hand ----------------------------------------------------------------
+-- Every part is anchored and placed directly each frame (one BulkMoveTo), so it
+-- sticks to the camera exactly, with no physics or weld lag at full speed.
+
+function BallFx.held(skinId, diameter, particleScale)
+	local skin = Config.getSkin(skinId)
+	local held = { skinId = skin.Id, mesh = false }
+	local low = graphicsLevel() == "Low"
+	local parts = {} -- BulkMoveTo list (the root is last)
+	local cframes = {}
+	local items = {} -- one per visible part: { part, rest, baseSize, axis, rps, phase, pulse }
+	local root
+	local plain = nil
+
+	if skin.Premium then
+		local proto = prototypeFor(skin, diameter / VISUAL_SCALE, false)
+		held.mesh = proto.mesh
+		root = proto.root:Clone()
+		local animByName = {}
+		for _, anim in proto.anims do
+			animByName[anim.name] = anim
+		end
+		for _, child in root:GetChildren() do
+			if child:IsA("BasePart") then
+				local joint = child:FindFirstChild("Joint")
+				local rest = if joint then joint.C0 else CFrame.new()
+				if joint then
+					joint:Destroy()
+				end
+				child.Anchored = true
+				local anim = animByName[child.Name]
+				table.insert(items, {
+					part = child,
+					rest = rest,
+					baseSize = child.Size,
+					axis = anim and anim.axis,
+					rps = anim and anim.rps or 0,
+					phase = anim and anim.phase or 0,
+					pulse = anim and anim.pulse,
+				})
+				table.insert(parts, child)
+			end
+		end
+		-- No trail (it would smear as the camera moves) and no light (costly this
+		-- close to the walls). Particles stay, locked to the ball so they travel with it.
+		for _, item in root:GetDescendants() do
+			if item:IsA("Trail") or item:IsA("Light") then
+				item:Destroy()
+			elseif item:IsA("ParticleEmitter") then
+				local index = tonumber(string.match(item.Name, "%d+")) or 1
+				item.LockedToPart = true
+				item.Rate *= HELD_PARTICLE_SCALE * (particleScale or 1) * (if low then LOW_PARTICLE_SCALE else 1)
+				item.Enabled = not low or index == 1
+			end
+		end
+	else
+		root = plainBall(skin, diameter / 2, false, false)
+		plain = root
+		table.insert(items, { part = root, rest = CFrame.new(), baseSize = root.Size, rps = 0, phase = 0 })
+		table.insert(parts, root)
+	end
+	root.Name = "HeldBall"
+	if skin.Premium then
+		table.insert(parts, root) -- the invisible center carries the particles
+	end
+	held.root = root
+
+	local lastScale = 1
+	local pulses = not low
+	-- cframe: the ball's center (and how it's turned). scale: 1 = `diameter` across.
+	function held.place(cframe, scale, t)
+		local resize = scale ~= lastScale
+		lastScale = scale
+		for i, item in items do
+			local rest = item.rest
+			local s = scale
+			local pulse = item.pulse
+			if pulse and pulses then
+				s *= pulse.Min + (pulse.Max - pulse.Min) * (0.5 + 0.5 * math.sin(t * pulse.Hz * TAU))
+				item.part.Size = item.baseSize * s
+			elseif resize then
+				item.part.Size = item.baseSize * s
+			end
+			local c0 = CFrame.new(rest.Position * s) * rest.Rotation
+			if item.axis then
+				c0 = CFrame.fromAxisAngle(item.axis, (t * item.rps + item.phase) * TAU) * c0
+			end
+			cframes[i] = cframe * c0
+		end
+		if plain then
+			if skin.Rainbow then
+				plain.Color = Color3.fromHSV((t * 0.2) % 1, 0.8, 1)
+			end
+		else
+			cframes[#items + 1] = cframe
+		end
+		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+
+	function held.destroy()
+		root:Destroy()
+	end
+	return held
+end
+
+-- Impact colors ---------------------------------------------------------------------------
+
+local function luminance(color)
+	return 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+end
+
+-- The two colors a ball's impact splash uses: its trail color and its own color
+-- (very dark balls like Void / Obsidian use a lighter mix so the splash shows).
+function BallFx.impactStyle(skinId)
+	local skin = Config.getSkin(skinId)
+	local trail = styleOf(skin.Id).Fx and styleOf(skin.Id).Fx.Trail
+	local color = if trail then trail.Color else (skin.Trail or skin.Color)
+	local color2 = if trail and trail.Color2 then trail.Color2 else skin.Color
+	if luminance(color2) < 0.25 then
+		color2 = color:Lerp(Color3.new(1, 1, 1), 0.3)
+	end
+	if luminance(color) < 0.25 then
+		color = color2
+	end
+	return {
+		id = skin.Id,
+		color = color,
+		color2 = color2,
+		rainbow = skin.Rainbow == true,
+		premium = skin.Premium == true,
+	}
+end
+
 -- Settings: switching graphics re-shares particles / lights right away.
 Settings.changed:Connect(function(key)
 	if key == "graphics" then
@@ -4309,7 +4956,7 @@ return BallFx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="25">
+        <Item class="ModuleScript" referent="27">
           <Properties>
             <string name="Name">Decor</string>
             <string name="Source"><![CDATA[--[[
@@ -6350,7 +6997,7 @@ return Decor
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="26">
+        <Item class="ModuleScript" referent="28">
           <Properties>
             <string name="Name">GamepadAim</string>
             <string name="Source"><![CDATA[--[[
@@ -6705,7 +7352,7 @@ return GamepadAim
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="27">
+        <Item class="ModuleScript" referent="29">
           <Properties>
             <string name="Name">Haptics</string>
             <string name="Source"><![CDATA[--[[
@@ -7023,7 +7670,154 @@ return Haptics
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="28">
+        <Item class="ModuleScript" referent="30">
+          <Properties>
+            <string name="Name">HeldBall</string>
+            <string name="Source"><![CDATA[--[[
+	A ball held in one hand.
+
+	Viewmodel.luau owns two of these (one per hand) and tells each one where to
+	be every frame. This file only deals with the ball itself: building the
+	equipped skin's look (BallFx.held, premium skins included), swapping in the
+	Blender model once it has loaded, rebuilding when the graphics setting
+	changes, and drawing it at a given spot and size.
+
+	It's a real 3D ball, lit by the zone's lights, placed relative to the camera
+	every frame.
+
+	local ball = HeldBall.new(particleShare)
+		particleShare = { High = number, Low = number }: premium balls' particle
+		rate for this ball at each graphics level (two hands = two balls, so each
+		sparkles a bit less to keep phones smooth).
+	ball.attach(folder)        -- the run's world folder (call after building a new one)
+	ball.setSkin(skinId)
+	ball.draw(cframe, scale, now)
+		Draws the ball centered on cframe (which also turns it). scale 1 = the
+		normal held size (HeldBall.DIAMETER across for plain balls, a bit more
+		for premium ones). scale <= 0 hides it.
+	ball.hide()
+	ball.radius() -> studs     -- drawn radius at scale 1
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BallFx = require(script.Parent.BallFx)
+local Settings = require(script.Parent.Settings)
+
+local HeldBall = {}
+
+-- Look
+HeldBall.DIAMETER = 0.9 -- studs across for a plain ball (the arms are sized around this)
+local PREMIUM_DIAMETER = 1.25 -- premium balls have rings / flares around the core
+local PREMIUM_SHARE = 1.2 -- ...so they're drawn a little bigger to keep the core readable
+local MIN_SCALE = 0.02 -- smaller than this = hidden
+local MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+
+local function graphicsLow()
+	local ok, level = pcall(Settings.graphicsLevel)
+	return ok and level == "Low"
+end
+
+function HeldBall.new(particleShare)
+	local ball = {}
+
+	local folder = nil
+	local skinId = "Default"
+	local held = nil -- BallFx.held object
+	local heldLow = nil -- graphics level it was built for
+	local shown = false
+	local lastMeshCheck = 0
+	local failedSkin = nil -- a skin whose ball couldn't be built (not retried every frame)
+
+	local function destroyHeld()
+		if held then
+			held.destroy()
+			held = nil
+		end
+		shown = false
+	end
+
+	local function build()
+		destroyHeld()
+		if not folder or folder.Parent == nil then
+			return
+		end
+		local premium = BallFx.isPremium(skinId)
+		local diameter = if premium then PREMIUM_DIAMETER else HeldBall.DIAMETER
+		local low = graphicsLow()
+		local particleScale = if particleShare then particleShare[if low then "Low" else "High"] else 1
+		local ok, result = pcall(BallFx.held, skinId, diameter, particleScale)
+		if ok and result then
+			held = result
+			heldLow = low
+			held.diameter = diameter
+			held.share = if premium then PREMIUM_SHARE else 1
+		else
+			failedSkin = skinId
+			warn("[HeldBall] could not build the ball:", result)
+		end
+	end
+
+	function ball.hide()
+		if held and shown then
+			held.root.Parent = nil
+		end
+		shown = false
+	end
+
+	function ball.attach(newFolder)
+		folder = newFolder
+		destroyHeld() -- the old one went with the old world
+	end
+
+	function ball.setSkin(newSkinId)
+		newSkinId = Config.getSkin(newSkinId).Id
+		if newSkinId ~= skinId then
+			skinId = newSkinId
+			failedSkin = nil
+			destroyHeld()
+		end
+	end
+
+	function ball.radius()
+		local share = if BallFx.isPremium(skinId) then PREMIUM_SHARE else 1
+		return HeldBall.DIAMETER * share / 2
+	end
+
+	function ball.draw(cframe, scale, now)
+		if scale <= MIN_SCALE or not folder or folder.Parent == nil then
+			ball.hide()
+			return
+		end
+		if (held == nil and failedSkin ~= skinId) or (held and heldLow ~= graphicsLow()) then
+			build()
+		elseif held and not held.mesh and BallFx.isPremium(skinId) and now - lastMeshCheck > MESH_CHECK then
+			lastMeshCheck = now
+			if BallFx.hasMesh(skinId) then
+				build() -- the Blender model finished loading: swap the stand-in for it
+			end
+		end
+		if held == nil then
+			return
+		end
+		if not shown then
+			shown = true
+			held.root.Parent = folder
+		end
+		-- scale 1 = HeldBall.DIAMETER (x the premium share) across.
+		local size = scale * HeldBall.DIAMETER * held.share / held.diameter
+		held.place(cframe, size, now)
+	end
+
+	return ball
+end
+
+return HeldBall
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="31">
           <Properties>
             <string name="Name">LeaveGift</string>
             <string name="Source"><![CDATA[--[[
@@ -7644,7 +8438,7 @@ return LeaveGift
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="29">
+        <Item class="ModuleScript" referent="32">
           <Properties>
             <string name="Name">LightingFx</string>
             <string name="Source"><![CDATA[--[[
@@ -8121,7 +8915,7 @@ return LightingFx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="30">
+        <Item class="LocalScript" referent="33">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--[[
@@ -8134,7 +8928,7 @@ RunController.start()
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">Models</string>
             <string name="Source"><![CDATA[--[[
@@ -8242,7 +9036,7 @@ return Models
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="32">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">PerfOverlay</string>
             <string name="Source"><![CDATA[--[[
@@ -8418,7 +9212,7 @@ return PerfOverlay
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="36">
           <Properties>
             <string name="Name">RunController</string>
             <string name="Source"><![CDATA[--[[
@@ -8430,18 +9224,30 @@ return PerfOverlay
 
 	Boosts (Config.Boosts): picked in the menu or bought mid-run. The server
 	confirms which ones really started (Progress "BoostsActivated", or the
-	"UseBoostNow" answer for a Robux boost bought mid-run) and only those are
-	switched on here.
+	"UseBoostNow" answer for a Robux boost bought mid-run) and only those count.
 	  Shield     - the next crash costs no balls (buying more stacks: one per crash)
 	  Magnet     - crystals near the camera fly to you for a few seconds
 	  MegaBall   - the next few throws are giant balls that smash through everything
 	  SlowMo     - the world (camera, balls) runs slower for a few seconds
 	  DoubleGems - handled by the server, only shown here
+	Picked Shield and 2x Gems work by themselves from the start. Picked Magnet,
+	Slow-Mo and Mega Ball (Config.BOOST_BAR) wait "ready" in the HUD boost bar
+	until the player taps them (or D-pad Left / Up / Right, or keys 1 / 2 / 3);
+	any never tapped go back to the inventory when the run really ends. A boost
+	bought with Robux mid-run is switched on straight away.
 
 	Game feel (section "Feel" below): hit-stop (a split-second freeze) on big
 	smashes, a field-of-view punch on every smash, a kick + shake on crashes, a
 	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
 	Camera effects follow Settings "shake", the shield tint follows "flashes".
+
+	Your arms (Viewmodel.luau): your avatar's arms come up from the bottom
+	corners of the view, each hand holding the equipped ball. Throws alternate
+	right, left, right, left; a multiball throw uses both hands at once. A throw
+	launches from the hand toward the aim point (what the screen ray hits),
+	steered so it lands exactly where you aimed even with the camera's forward
+	speed added. Then that hand grabs a new ball from the pocket. Each hit
+	splashes the skin's colors (Shatter.skinBurst).
 
 	Destruction: balls knock solid decorations loose (Shatter.knockLoose) and kick
 	up dust + chips where they hit walls and floor (Shatter.impact). Knocked
@@ -8452,6 +9258,7 @@ return PerfOverlay
 	PerfOverlay (Config.SHOW_PERF) shows FPS / worst frame / part counts.
 ]]
 
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
@@ -8476,6 +9283,7 @@ local PerfOverlay = require(script.Parent.PerfOverlay)
 local Settings = require(script.Parent.Settings)
 local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
+local Viewmodel = require(script.Parent.Viewmodel)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local player = Players.LocalPlayer
@@ -8495,6 +9303,12 @@ local MEGA_KNOCK_REACH = 1 -- mega balls knock loose everything within their rad
 local MEGA_STRENGTH = 1.5 -- ...and knock it harder
 local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
+-- Throwing from the hands (Viewmodel.luau)
+local AIM_RANGE = 120 -- studs: you aim at what the screen ray hits within this, else this far along it
+local HAND_MIN_AIM = 8 -- aim points closer than this are thrown from the middle of the view instead
+local HAND_BLEND_TIME = 0.15 -- seconds a mega ball's drawing takes to join its real path from the hand
+local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
+
 -- Boosts
 local BOOSTS = Config.Boosts
 local MAGNET = BOOSTS.Magnet
@@ -8508,6 +9322,13 @@ local MAGNET_PICKUP = 1.5 -- this close to the camera = collected
 local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
 local WHITE = Color3.new(1, 1, 1)
 local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- Boost bar: picked boosts that wait until tapped, and the controller / keyboard
+-- keys that use them (same order as Config.BOOST_BAR: Magnet, Slow-Mo, Mega Ball).
+local BOOST_BAR = Config.BOOST_BAR
+local BOOST_PAD_KEYS = { Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadUp, Enum.KeyCode.DPadRight }
+local BOOST_NUMBER_KEYS = { Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three }
+local BOOST_KEYS_ACTION = "ShatterRunBoostKeys" -- ContextActionService name (bound only during a run)
+local BOOST_TIP_RETRY = 0.5 -- seconds between tries at the one-time boost bar tip
 local BASE_SATURATION = 0 -- zone grading already sets saturation; this layer stays neutral
 
 -- Feel
@@ -8564,6 +9385,7 @@ local shake = 0
 local activeBalls = {}
 local reportedMeters = 0
 local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
+local runSkinStyle = nil -- the equipped ball's impact colors (BallFx.impactStyle)
 -- Counted from the start of the run (a revive continues it). Sent with RunEnded.
 local runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = 1 }
 local ui
@@ -8572,6 +9394,15 @@ local ui
 -- shield = crashes it still absorbs, magnet / slowmo = seconds left,
 -- megaball = giant throws left.
 local boost = { shield = 0, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+-- Boost-bar boosts the server confirmed but the player hasn't tapped yet:
+-- { [boostId] = count } for every id in Config.BOOST_BAR. The UI reads this table.
+local ready = {}
+for _, boostId in BOOST_BAR do
+	ready[boostId] = 0
+end
+local boostKeysBound = false
+local boostTipDone = false -- the "tap a boost" tip was shown (or seen in an earlier session)
+local boostTipWait = 0
 local timeScale = 1 -- 1 = normal speed, lower while SlowMo is on
 local slowLook = 0 -- how much of the slow-mo color effect is showing (0..1)
 local magnetized = {} -- crystals currently flying to the camera
@@ -8738,13 +9569,39 @@ end)
 -- mega: a giant MegaBall boost ball (bigger, always has a trail).
 -- lite: a cheaper look for the extra balls of a multiball throw (premium balls
 -- only: no rings, particles or light). The look itself is in BallFx.luau.
-local function makeBallPart(mega, lite)
+-- priority: the ball just thrown from the hand (always full detail; it's big
+-- and close for its first moments). trailScale: longer trails at high speed.
+local function makeBallPart(mega, lite, priority, trailScale)
 	local radius = if mega then MEGA_RADIUS else Config.BALL_RADIUS
 	return BallFx.create(player:GetAttribute("EquippedSkin"), radius, {
 		mega = mega,
 		lite = lite,
+		priority = priority,
+		trailScale = trailScale,
 		parent = shardFolder,
 	})
+end
+
+-- The equipped ball's colors splash out wherever one of your balls hits.
+local function skinImpact(position, normal, big)
+	if runSkinStyle then
+		Shatter.skinBurst(position, normal, runSkinStyle, big)
+	end
+end
+
+-- Draws a ball where it is (mega balls thrown from the hand are drawn a little
+-- toward the hand for their first moment, see throwAlong).
+local function placeBall(ball)
+	local offset = ball.renderOffset
+	if offset then
+		local left = 1 - ball.age / HAND_BLEND_TIME
+		if left > 0 then
+			ball.part.CFrame = CFrame.new(ball.position + offset * (left * left))
+			return
+		end
+		ball.renderOffset = nil
+	end
+	ball.part.CFrame = CFrame.new(ball.position)
 end
 
 local function collectCrystal(crystal)
@@ -8844,12 +9701,14 @@ local function stepMegaBall(ball, travel)
 			if smashGlass(part, hit.Position, direction * MEGA_PUSH, runFx, false) then
 				bigHit = true
 			end
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = direction * remaining
 		elseif kind == "Prop" then
 			runStats.props += 1
 			broken += 1
 			Tutorial.tip("Props")
 			Shatter.prop(part, hit.Position, direction * MEGA_PUSH, shardFolder, runFx)
+			skinImpact(hit.Position, hit.Normal, true)
 			Sounds.play("Shatter", 0.8 + math.random() * 0.2)
 			travel = direction * remaining
 		elseif kind == "Crystal" then
@@ -8859,6 +9718,7 @@ local function stepMegaBall(ball, travel)
 			-- Decorations don't stop a giant ball: they're knocked flying.
 			knockDecoration(part, hit.Position, knockDirection(direction, hit.Normal), MEGA_RADIUS + MEGA_KNOCK_REACH, MEGA_STRENGTH)
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = direction * remaining
 		else
 			local door = if kind == "Door" or kind == "Button" then track:doorFor(part) else nil
@@ -8872,6 +9732,7 @@ local function stepMegaBall(ball, travel)
 				break
 			end
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
@@ -8908,7 +9769,7 @@ local function stepBall(ball, dt)
 
 	if ball.mega then
 		stepMegaBall(ball, travel)
-		ball.part.CFrame = CFrame.new(ball.position)
+		placeBall(ball)
 		return true
 	end
 
@@ -8927,12 +9788,14 @@ local function stepBall(ball, dt)
 		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
 			-- Armored glass: the first hit only cracks it and the ball bounces off.
 			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Shatter", 0.55)
 			smashFeedback(false)
 			travel = bounce(ball, hit, remaining)
 		elseif kind == "Glass" then
 			runStats.glass += 1
-			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
+			local big = smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
+			skinImpact(hit.Position, hit.Normal, big)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
 			travel = ball.velocity.Unit * remaining * 0.7
 		elseif kind == "Prop" then
@@ -8940,6 +9803,7 @@ local function stepBall(ball, dt)
 			runStats.props += 1
 			Tutorial.tip("Props")
 			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder, runFx)
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
 			smashFeedback(false)
 			ball.velocity *= 0.85
@@ -8949,6 +9813,7 @@ local function stepBall(ball, dt)
 			travel = travel.Unit * remaining
 		elseif kind == "Button" then
 			track:openDoor(track:doorFor(hit.Instance))
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Checkpoint")
 			smashFeedback(false)
 			ball.velocity = -ball.velocity * 0.4
@@ -8961,11 +9826,12 @@ local function stepBall(ball, dt)
 				knockDecoration(part, hit.Position, knockDirection(ball.velocity.Unit, hit.Normal), KNOCK_SPLASH, 1)
 			end
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, false)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
 
-	ball.part.CFrame = CFrame.new(ball.position)
+	placeBall(ball)
 	return true
 end
 
@@ -8990,20 +9856,26 @@ end
 -- far before its first frame. A sphere cast can't hit something the sphere
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
-local function spawnBall(origin, velocity, mega, preSweep, lite)
+-- drawFrom (optional): where the ball is drawn at first (the hand); the drawing
+-- joins the real path over HAND_BLEND_TIME. Returns the ball.
+local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, drawFrom)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
 		local oldest = table.remove(activeBalls, 1)
 		BallFx.destroy(oldest.part)
 	end
 
-	local part = makeBallPart(mega, lite)
+	local part = makeBallPart(mega, lite, not lite, trailScale)
 	local ball = { part = part, position = origin, velocity = velocity, age = 0, mega = mega }
 	table.insert(activeBalls, ball)
 	if mega and preSweep then
 		stepMegaBall(ball, preSweep)
 	end
-	part.CFrame = CFrame.new(ball.position)
+	if drawFrom then
+		ball.renderOffset = drawFrom - ball.position
+	end
+	placeBall(ball)
+	return ball
 end
 
 -- True while a Robux prompt opened mid-run is on screen (the run is frozen).
@@ -9011,7 +9883,36 @@ local function promptFrozen()
 	return promptFreezeUntil > 0 and os.clock() < promptFreezeUntil
 end
 
+-- What the player is aiming at: the first thing the screen ray hits within
+-- AIM_RANGE, or that far along the ray.
+local function aimPointFor(ray)
+	local direction = ray.Direction.Unit
+	local hit = workspace:Raycast(ray.Origin, direction * AIM_RANGE, raycastParams)
+	return if hit then hit.Position else ray.Origin + direction * AIM_RANGE
+end
+
+-- Balls are thrown at BALL_SPEED and keep the camera's forward momentum (carry).
+-- This picks the throw so the ball's real path runs exactly along `direction`
+-- (a unit vector), i.e. it lands where you aimed even at top speed.
+local function velocityAlong(direction, carry)
+	local along = direction:Dot(carry)
+	local speedSquared = Config.BALL_SPEED * Config.BALL_SPEED
+	return direction * (along + math.sqrt(math.max(0, along * along - carry:Dot(carry) + speedSquared)))
+end
+
+-- Where a normal ball thrown from a hand starts: the ball in that hand, unless
+-- something sits between your eye and the hand (it would be skipped) or the
+-- target is right in front of you (a throw from the corner would go sideways).
+-- nil = throw from the middle of the view instead, as always.
+local function handLaunchPoint(spot, ray, mega, aimFar)
+	if spot and not mega and aimFar and workspace:Raycast(ray.Origin, spot - ray.Origin, raycastParams) == nil then
+		return spot
+	end
+	return nil
+end
+
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
+-- The ball launches from the one in your hand (Viewmodel) toward the aim point.
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 or promptFrozen() then
@@ -9032,19 +9933,47 @@ local function throwAlong(ray)
 	-- Giant balls end up a bit further out so they don't fill the screen.
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
+	local aimDirection = ray.Direction.Unit
+	local aimPoint = aimPointFor(ray)
+	local aimFar = (aimPoint - ray.Origin).Magnitude >= HAND_MIN_AIM
+	-- The hand whose turn it is throws; with multiball the other hand throws
+	-- too (if it has a ball). Spots are nil for a hand that isn't showing.
+	local firstSpot, secondSpot, firstSide, bothHands = Viewmodel.launch(multiball >= 2)
+	local firstFrom = handLaunchPoint(firstSpot, ray, mega, aimFar)
+	local secondFrom = handLaunchPoint(secondSpot, ray, mega, aimFar)
+	local firstDirection = if firstFrom then (aimPoint - firstFrom).Unit else aimDirection
+	local secondDirection = if secondFrom then (aimPoint - secondFrom).Unit else aimDirection
+
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
+	local trailScale = 1 + speedShare * TRAIL_SPEED_BONUS
 	-- Only the middle ball of a multiball fan gets the full premium look (perf).
 	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
-		local angle = (i - (multiball + 1) / 2) * 0.05
-		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
-		local velocity = direction * Config.BALL_SPEED + carry
+		local offset = i - (multiball + 1) / 2
+		local fan = CFrame.fromAxisAngle(Vector3.yAxis, offset * 0.05)
+		local lite = i ~= hero
+		-- Both hands throwing: the balls fanning right come from the right hand,
+		-- the ones fanning left from the left hand, the middle one from the first.
+		local fanSide = if offset < 0 then 1 else -1
+		local useSecond = bothHands and offset ~= 0 and fanSide ~= firstSide
+		local handSpot = if useSecond then secondSpot else firstSpot
+		local fromHand = if useSecond then secondFrom else firstFrom
+		local handDirection = if useSecond then secondDirection else firstDirection
 		if mega then
-			-- Swept from the camera so anything close is still smashed.
-			spawnBall(ray.Origin, velocity, true, direction * startDistance, i ~= hero)
+			-- Giant balls are still swept from the camera: a sphere cast can't hit
+			-- what it already overlaps at its start, and a giant ball starting at
+			-- the hand would already be touching glass right next to it. Only the
+			-- drawing starts at the hand.
+			local direction = fan:VectorToWorldSpace(aimDirection)
+			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot)
+		elseif fromHand then
+			local direction = fan:VectorToWorldSpace(handDirection)
+			spawnBall(fromHand, velocityAlong(direction, carry), false, nil, lite, trailScale)
 		else
-			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, i ~= hero)
+			local direction = fan:VectorToWorldSpace(aimDirection)
+			spawnBall(ray.Origin + direction * startDistance, direction * Config.BALL_SPEED + carry, false, nil, lite, trailScale)
 		end
 	end
 
@@ -9164,6 +10093,9 @@ local function resetBoosts()
 	boost.slowmo = 0
 	boost.megaball = 0
 	boost.doubleGems = false
+	for boostId in ready do
+		ready[boostId] = 0
+	end
 	timeScale = 1
 	setSlowLook(0)
 	table.clear(magnetized)
@@ -9235,8 +10167,8 @@ local function shieldBreak()
 end
 
 -- What the HUD shows for boosts (sent every frame; the UI only redraws changes).
--- One table reused every frame (the UI only reads it).
-local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+-- One table reused every frame (the UI only reads it). ready = boost-bar counts.
+local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false, ready = ready }
 
 local function updateBoostHud()
 	if ui.setBoosts then
@@ -9246,6 +10178,87 @@ local function updateBoostHud()
 		boostState.megaball = boost.megaball
 		boostState.doubleGems = boost.doubleGems
 		ui:setBoosts(boostState)
+	end
+end
+
+local function anyReady()
+	for _, count in ready do
+		if count > 0 then
+			return true
+		end
+	end
+	return false
+end
+
+-- The player tapped a ready boost in the boost bar (or pressed its D-pad / number
+-- key): switch it on now. The server already took it from the inventory at the
+-- start of the run, so nothing is sent. Returns true if it switched on.
+local function useReadyBoost(boostId)
+	if state ~= "Running" or promptFrozen() or (ready[boostId] or 0) <= 0 then
+		return false
+	end
+	ready[boostId] -= 1
+	activateBoost(boostId)
+	-- A quick pop: chime, buzz and a small camera punch (the UI pops the button).
+	Sounds.play("Checkpoint", 1.3)
+	Haptics.play("boost")
+	punchFov(FOV_PUNCH_SHATTER)
+	updateBoostHud()
+	return true
+end
+
+-- First run with a boost waiting in the bar: a one-time tip. Tutorial.tip can
+-- be busy (another tip showing, save not loaded yet), so it's retried now and then.
+local function updateBoostTip(dt)
+	if boostTipDone or not anyReady() then
+		return
+	end
+	boostTipWait -= dt
+	if boostTipWait > 0 then
+		return
+	end
+	boostTipWait = BOOST_TIP_RETRY
+	boostTipDone = Tutorial.tip("BoostBar") == true
+end
+
+-- D-pad Left / Up / Right and keys 1 / 2 / 3 use the boost-bar boosts. Bound only
+-- while a run is going (high priority, so nothing else in the run takes them);
+-- the game over screen and menus get the D-pad back for moving between buttons.
+local function onBoostKey(_, inputState, input)
+	-- The Roblox menu, a Robux prompt or a UI selection is using the controller.
+	if GuiService.MenuIsOpen or promptFrozen() or GuiService.SelectedObject ~= nil then
+		return Enum.ContextActionResult.Pass
+	end
+	if inputState == Enum.UserInputState.Begin then
+		local slot = table.find(BOOST_PAD_KEYS, input.KeyCode) or table.find(BOOST_NUMBER_KEYS, input.KeyCode)
+		local boostId = slot and BOOST_BAR[slot]
+		if boostId then
+			useReadyBoost(boostId)
+		end
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function syncBoostKeys()
+	local wanted = state == "Running"
+	if wanted == boostKeysBound then
+		return
+	end
+	boostKeysBound = wanted
+	if wanted then
+		local keys = table.clone(BOOST_PAD_KEYS)
+		for _, keyCode in BOOST_NUMBER_KEYS do
+			table.insert(keys, keyCode)
+		end
+		ContextActionService:BindActionAtPriority(
+			BOOST_KEYS_ACTION,
+			onBoostKey,
+			false,
+			Enum.ContextActionPriority.High.Value,
+			table.unpack(keys)
+		)
+	else
+		ContextActionService:UnbindAction(BOOST_KEYS_ACTION)
 	end
 end
 
@@ -9272,6 +10285,9 @@ local function gameOver()
 	-- Unused boosts: the server gives them back if the player leaves from here.
 	report.unusedShield = boost.shield
 	report.unusedMegaThrows = boost.megaball
+	for boostId, count in ready do
+		report["ready" .. boostId] = count -- never tapped (e.g. readyMagnet)
+	end
 	Remotes.RunEnded:FireServer(distance, report)
 	Tutorial.setPaused(true)
 
@@ -9377,6 +10393,7 @@ local function resetWorld(checkpoint, tutorial)
 	shardFolder = Instance.new("Folder")
 	shardFolder.Name = "Effects"
 	shardFolder.Parent = world
+	Viewmodel.attach(world)
 
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
 	track = TrackBuilder.new(world, firstRoom, tutorial)
@@ -9403,7 +10420,8 @@ end
 local shopRequest -- defined in the Purchases section below
 
 -- The run is really over (PLAY AGAIN or MENU from the game over screen, without
--- a revive): unused Shields and Mega Ball throws go back to the inventory.
+-- a revive): unused Shields and Mega Ball throws, and boost-bar boosts never
+-- tapped, go back to the inventory.
 -- Sent once per run; the server checks it against what the run really turned on.
 local function returnUnusedBoosts()
 	if state ~= "GameOver" or unusedBoostsSent then
@@ -9411,16 +10429,30 @@ local function returnUnusedBoosts()
 	end
 	unusedBoostsSent = true
 	local shield, throws = boost.shield, boost.megaball
-	if shield <= 0 and throws < MEGA.Throws then
+	if shield <= 0 and throws < MEGA.Throws and not anyReady() then
 		return -- nothing that could be given back
+	end
+	local unused = { shield = shield, megaballThrows = throws }
+	for boostId, count in ready do
+		unused["ready" .. boostId] = count -- e.g. readyMagnet
 	end
 	-- Sent now (before RunStarted / resetWorld), answered in the background.
 	task.spawn(function()
-		local ok, message = shopRequest("ReturnUnusedBoosts", { shield = shield, megaballThrows = throws })
+		local ok, message = shopRequest("ReturnUnusedBoosts", unused)
 		if ok and type(message) == "string" then
 			ui:toast(message, "reward")
 		end
 	end)
+end
+
+-- The equipped ball: in your hands, on the HUD swatch and in the hit splashes.
+local function applyEquippedSkin()
+	local skinId = player:GetAttribute("EquippedSkin")
+	Viewmodel.setSkin(skinId)
+	runSkinStyle = BallFx.impactStyle(skinId)
+	if ui and ui.setBallSkin then
+		ui:setBallSkin(Config.getSkin(skinId).Id)
+	end
 end
 
 -- boostIds: boosts picked in the menu (may be nil/empty). They only switch on
@@ -9457,10 +10489,13 @@ local function startRun(checkpoint, boostIds)
 	speed = Config.START_SPEED
 	reportedMeters = math.floor(Config.checkpointMeters(checkpoint))
 	runFx = Config.getFx(player:GetAttribute("EquippedFx"))
+	applyEquippedSkin()
 	runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = multiball }
 	state = "Running"
 
-	local picked = pickBoosts(boostIds)
+	-- The guided first run teaches the basics without boosts: anything picked
+	-- stays in the inventory for the next run.
+	local picked = if tutorialRun then {} else pickBoosts(boostIds)
 	runSerial += 1
 	if #picked > 0 then
 		Remotes.RunStarted:FireServer(checkpoint, picked)
@@ -9540,6 +10575,8 @@ local function reportRoom(roomIndex)
 end
 
 local menuTime = 0
+-- What Viewmodel.update needs (one table reused every frame).
+local viewState = { show = false, balls = 0, mega = false, avoid = nil, avoidRadius = nil, speedShare = 0, worldRate = 1 }
 
 local function step(dt)
 	-- worldDt: game time, slower than real time while SlowMo is on.
@@ -9586,6 +10623,7 @@ local function step(dt)
 
 	if state == "Running" then
 		updateMagnet(worldDt)
+		updateBoostTip(dt)
 		if balls <= 0 and #activeBalls == 0 then
 			gameOver()
 		end
@@ -9613,7 +10651,19 @@ local function step(dt)
 		+ (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * SPEED_FOV
 		+ fovPunch
 
+	-- Your arms and the balls in your hands follow the camera that was just placed.
+	local avoid, avoidRadius = Tutorial.pointerTarget()
+	viewState.show = state == "Running"
+	viewState.balls = balls
+	viewState.mega = boost.megaball > 0
+	viewState.avoid = avoid
+	viewState.avoidRadius = avoidRadius
+	viewState.speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
+	viewState.worldRate = if state == "Running" and dt > 0 then worldDt / dt else 0
+	Viewmodel.update(dt, viewState)
+
 	updateBoostHud()
+	syncBoostKeys()
 	GamepadAim.update(dt, state == "Running")
 end
 
@@ -9817,9 +10867,14 @@ local function onBoostsActivated(event)
 	if event.run ~= nil and event.run ~= runSerial then
 		return
 	end
-	-- The UI shows the "... ON" toast for BoostsActivated itself.
+	-- The UI shows the "... ON" / "... READY" toast for BoostsActivated itself.
+	-- Boost-bar boosts wait in the bar until tapped; the rest switch on now.
 	for _, boostId in ipairs(event.boosts) do
-		activateBoost(boostId)
+		if ready[boostId] then
+			ready[boostId] += 1
+		else
+			activateBoost(boostId)
+		end
 	end
 end
 
@@ -9870,6 +10925,7 @@ function RunController.start()
 	task.spawn(hideCoreGui)
 	PerfOverlay.start(Shatter.liveCount)
 	GamepadAim.start()
+	Viewmodel.start()
 	LeaveGift.start({
 		claim = function()
 			return shopRequest("ClaimLeaveGift")
@@ -9907,9 +10963,13 @@ function RunController.start()
 		-- Generic: onShop("BuyFx", id), onShop("BuyBoost", id), onShop("ClaimMission", id),
 		-- onShop("ClaimSeasonTier", { track, tier })...
 		onShop = shopRequest,
+		-- A ready boost tapped in the HUD boost bar.
+		onUseBoost = useReadyBoost,
 	})
 
 	setupLighting()
+	applyEquippedSkin()
+	player:GetAttributeChangedSignal("EquippedSkin"):Connect(applyEquippedSkin)
 	showMenu()
 	-- Music plays from the moment you join, not only once a run starts.
 	Sounds.startMusic()
@@ -9975,7 +11035,7 @@ return RunController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">Settings</string>
             <string name="Source"><![CDATA[--[[
@@ -10094,7 +11154,7 @@ return Settings
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="35">
+        <Item class="ModuleScript" referent="38">
           <Properties>
             <string name="Name">Shatter</string>
             <string name="Source"><![CDATA[--[[
@@ -10108,6 +11168,8 @@ return Settings
 
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
 	Shatter.impact is the dust puff + chips when a ball hits a wall or the floor.
+	Shatter.skinBurst is the splash in the ball skin's colors wherever a ball hits
+	(premium balls get a themed one: Supernova flare, Black Hole implosion...).
 	Shatter.knockLoose / knockAround knock solid decorations off their spot.
 
 	Smoothness (why it looks like this):
@@ -10364,7 +11426,8 @@ end
 -- moves the next holder to the spot and calls Emit; particles already flying stay
 -- where they are. Round robin, so a new burst rarely recolors a fresh one.
 
-local function newEmitterSet(count, setup)
+-- holderSize: only matters for emitters that spawn on a shape (BlackHole's implosion).
+local function newEmitterSet(count, setup, holderSize)
 	local set = { next = 1 }
 	for i = 1, count do
 		local holder = Instance.new("Part")
@@ -10375,7 +11438,7 @@ local function newEmitterSet(count, setup)
 		holder.CanTouch = false
 		holder.CastShadow = false
 		holder.Transparency = 1
-		holder.Size = Vector3.one * 0.2
+		holder.Size = Vector3.one * (holderSize or 0.2)
 		holder.CFrame = PARK
 		local emitter = Instance.new("ParticleEmitter")
 		emitter.Enabled = false
@@ -10971,6 +12034,245 @@ function Shatter.impact(position, normal, surface)
 	end
 end
 
+-- Ball skin splash ---------------------------------------------------------------
+-- Wherever a ball hits glass, a prop or a wall, a short burst in its skin's colors
+-- sprays out of the surface, so you see your skin at the moment that matters.
+-- style = BallFx.impactStyle(skinId). Pooled emitters (round robin, made once;
+-- the themed ones only the first time that ball is used). Rate limited; smaller
+-- on Low graphics and while the shard budget is busy; the bright Supernova flare
+-- follows the "flashes" setting.
+
+local SKIN_BURST_INTERVAL = 0.05 -- at most one splash this often (a multiball fan hits at once)
+local SKIN_BURST_COUNT = 14 -- sparks in a normal splash (Low: 40%)
+local lastSkinBurst = 0
+local flashesOn = Settings.get("flashes") ~= false
+Settings.changed:Connect(function(key, value)
+	if key == "flashes" then
+		flashesOn = value ~= false
+	end
+end)
+
+local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
+local FIRE_TEXTURE = "rbxasset://textures/particles/fire_main.dds"
+
+local function fading(startSize, endSize)
+	return NumberSequence.new({
+		NumberSequenceKeypoint.new(0, startSize),
+		NumberSequenceKeypoint.new(1, endSize),
+	})
+end
+
+-- Every skin: sparks thrown out of the surface (the emitter faces along the normal).
+local skinSparks = newEmitterSet(4, function(emitter)
+	emitter.Texture = SPARKLE_TEXTURE
+	emitter.EmissionDirection = Enum.NormalId.Front
+	emitter.LightEmission = 1
+	emitter.Size = fading(0.4, 0)
+	emitter.Transparency = NumberSequence.new(0, 1)
+	emitter.Lifetime = NumberRange.new(0.25, 0.5)
+	emitter.Speed = NumberRange.new(8, 20)
+	emitter.SpreadAngle = Vector2.new(70, 70)
+	emitter.Acceleration = Vector3.new(0, -25, 0)
+	emitter.Drag = 4
+	emitter.Rotation = NumberRange.new(0, 360)
+end)
+
+-- Premium themes, made the first time they're needed.
+local THEMES = {
+	Supernova = {
+		count = 22,
+		setup = function(emitter) -- gold sparks flying hard
+			emitter.Texture = FIRE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 240, 180), Color3.fromRGB(255, 140, 30))
+			emitter.Size = fading(0.6, 0)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.25, 0.55)
+			emitter.Speed = NumberRange.new(14, 30)
+			emitter.SpreadAngle = Vector2.new(85, 85)
+			emitter.Drag = 5
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+		flare = function(emitter) -- one big gold glow that blooms and fades
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 225, 140))
+			emitter.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1.5),
+				NumberSequenceKeypoint.new(0.3, 4.5),
+				NumberSequenceKeypoint.new(1, 0.5),
+			})
+			emitter.Transparency = NumberSequence.new(0.1, 1)
+			emitter.Lifetime = NumberRange.new(0.22)
+			emitter.Speed = NumberRange.new(0)
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+	},
+	BlackHole = {
+		count = 26,
+		holderSize = 3.2,
+		setup = function(emitter) -- purple sparks pulled in from a sphere around the hit
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.Shape = Enum.ParticleEmitterShape.Sphere
+			emitter.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+			emitter.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(215, 180, 255), Color3.fromRGB(130, 50, 255))
+			emitter.Size = fading(0.3, 0.05)
+			emitter.Transparency = NumberSequence.new(0.1, 0.6)
+			emitter.Lifetime = NumberRange.new(0.2, 0.26)
+			emitter.Speed = NumberRange.new(6, 7.5) -- reaches the middle as it fades
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+	},
+	MagmaHeart = {
+		count = 18,
+		setup = function(emitter) -- glowing embers drifting up
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 190, 60), Color3.fromRGB(230, 50, 10))
+			emitter.Size = fading(0.28, 0.05)
+			emitter.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.7, 0.3),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			emitter.Lifetime = NumberRange.new(0.7, 1.3)
+			emitter.Speed = NumberRange.new(4, 11)
+			emitter.SpreadAngle = Vector2.new(80, 80)
+			emitter.Acceleration = Vector3.new(0, 7, 0)
+			emitter.Drag = 2.5
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-90, 90)
+		end,
+	},
+	PlasmaCore = {
+		count = 20,
+		setup = function(emitter) -- fast violet sparks
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 150, 255), Color3.fromRGB(140, 80, 255))
+			emitter.Size = fading(0.35, 0)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.15, 0.35)
+			emitter.Speed = NumberRange.new(20, 34)
+			emitter.SpreadAngle = Vector2.new(90, 90)
+			emitter.Drag = 7
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-300, 300)
+		end,
+	},
+	Frostbite = {
+		count = 24,
+		setup = function(emitter) -- soft snow sparkle settling down
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 0.7
+			emitter.Color = ColorSequence.new(Color3.fromRGB(240, 250, 255), Color3.fromRGB(150, 215, 255))
+			emitter.Size = fading(0.22, 0.06)
+			emitter.Transparency = NumberSequence.new(0.05, 1)
+			emitter.Lifetime = NumberRange.new(0.8, 1.4)
+			emitter.Speed = NumberRange.new(3, 7)
+			emitter.SpreadAngle = Vector2.new(90, 90)
+			emitter.Acceleration = Vector3.new(0, -4, 0)
+			emitter.Drag = 2
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-60, 60)
+		end,
+	},
+	-- CyberCore: glowing cyan bits (pooled chips, see below) + the normal sparks.
+}
+local themeSets = {} -- id -> { sparks = set, flare = set? }
+
+local function themeSet(id)
+	local theme = THEMES[id]
+	if not theme then
+		return nil
+	end
+	local sets = themeSets[id]
+	if not sets then
+		sets = { sparks = newEmitterSet(2, theme.setup, theme.holderSize) }
+		if theme.flare then
+			sets.flare = newEmitterSet(2, theme.flare)
+		end
+		themeSets[id] = sets
+	end
+	return sets, theme
+end
+
+local CYBER_BIT_STYLE = {
+	Material = Enum.Material.Neon,
+	Color = Color3.fromRGB(0, 235, 255),
+	Transparency = 0,
+	Reflectance = 0,
+}
+
+-- position: where the ball hit. normal: the surface's normal there (toward the ball).
+-- style: BallFx.impactStyle(skinId). big: a big pane or a mega ball (bigger splash).
+function Shatter.skinBurst(position, normal, style, big)
+	if not style then
+		return
+	end
+	local now = os.clock()
+	if now - lastSkinBurst < SKIN_BURST_INTERVAL then
+		return
+	end
+	lastSkinBurst = now
+
+	local scale = (if big then 1.6 else 1) * (if low then 0.4 else 1)
+	if overBudget() then
+		scale *= 0.5 -- lots of glass flying already
+	end
+	local up = if math.abs(normal.Y) > 0.9 then Vector3.xAxis else UP
+	local facing = CFrame.lookAt(position, position + normal, up)
+
+	local slot = nextEmitter(skinSparks)
+	slot.holder.CFrame = facing
+	if style.rainbow then
+		local hue = rng:NextNumber()
+		slot.emitter.Color = ColorSequence.new(Color3.fromHSV(hue, 0.75, 1), Color3.fromHSV((hue + 0.3) % 1, 0.75, 1))
+	else
+		slot.emitter.Color = ColorSequence.new(style.color, style.color2)
+	end
+	slot.emitter:Emit(math.max(3, math.floor(SKIN_BURST_COUNT * scale + 0.5)))
+
+	if not style.premium then
+		return
+	end
+	-- Premium: a bigger, themed splash on top.
+	local sets, theme = themeSet(style.id)
+	if sets then
+		local themed = nextEmitter(sets.sparks)
+		-- A shape emitter (the implosion sphere) sits a little out of the surface.
+		themed.holder.CFrame = if theme.holderSize then facing + normal * theme.holderSize * 0.25 else facing
+		themed.emitter:Emit(math.max(4, math.floor(theme.count * scale + 0.5)))
+		if sets.flare and flashesOn and not low then
+			local flare = nextEmitter(sets.flare)
+			flare.holder.CFrame = CFrame.new(position + normal * 0.3)
+			flare.emitter:Emit(if big then 2 else 1)
+		end
+	elseif style.id == "CyberCore" then
+		for _ = 1, if low then 2 else 5 do
+			local entry = acquire("Chip")
+			if not entry then
+				break
+			end
+			local bit = entry.a
+			applyStyle(bit, CYBER_BIT_STYLE, true)
+			bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
+			bit.CFrame = CFrame.new(position + normal * 0.3)
+				* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
+			bit.Anchored = false
+			bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
+			bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
+			addLive(entry, 0, 0.7, 0.3, position.Z)
+		end
+	end
+end
+
 -- Knock-loose decorations ------------------------------------------------------
 -- Solid decorations (kind "Wall", not part of the room shell) that a ball hits
 -- come off their spot and tumble. They stop being hittable (CanQuery = false),
@@ -11154,7 +12456,7 @@ return Shatter
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="36">
+        <Item class="ModuleScript" referent="39">
           <Properties>
             <string name="Name">Sounds</string>
             <string name="Source"><![CDATA[--[[
@@ -11184,6 +12486,8 @@ local DEFAULT_VOLUME = 0.6
 local VOLUMES = {
 	Gift = 1.4,
 	Music = 0.6,
+	Swing = 0.45, -- plays on every throw, so a bit softer
+	Reload = 0.3, -- quiet: it's a background detail
 }
 local MUSIC_SOUNDS = { Music = true }
 local CLEANUP_AFTER = 20 -- seconds: safety net for copies whose Ended never fires (failed to load)
@@ -11282,7 +12586,7 @@ return Sounds
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="37">
+        <Item class="ModuleScript" referent="40">
           <Properties>
             <string name="Name">TrackBuilder</string>
             <string name="Source"><![CDATA[--[[
@@ -12339,7 +13643,7 @@ return TrackBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="38">
+        <Item class="ModuleScript" referent="41">
           <Properties>
             <string name="Name">Tutorial</string>
             <string name="Source"><![CDATA[--[[
@@ -12722,6 +14026,18 @@ function Tutorial.isActive()
 	return active
 end
 
+-- Where the lesson's pointer ring is right now (viewport pixels) and how far it
+-- reaches from its center, or nil when it isn't showing. The ball in the
+-- player's hand (HeldBall.luau) steps aside rather than cover the target.
+function Tutorial.pointerTarget()
+	if not active or not ring or not ring.Visible then
+		return nil
+	end
+	local position = ring.Position
+	-- The ring is a square turned 45 degrees: its corners reach ~0.71 x its size.
+	return Vector2.new(position.X.Offset, position.Y.Offset), ring.Size.X.Offset * 0.71
+end
+
 function Tutorial.finish(skipped)
 	if not active then
 		return
@@ -12837,13 +14153,19 @@ local function seenHints()
 end
 
 -- Shows a first-time tip if this player has never seen it.
+-- Returns true once there's nothing left to do (shown now, or seen before), false
+-- if it couldn't show yet (lesson or another tip on screen, save not loaded).
 function Tutorial.tip(hintId)
 	local text = Config.Hints[hintId]
-	if not text or active or seenThisSession[hintId] or tipCooldown > 0 then
-		return
+	if not text or seenThisSession[hintId] then
+		return true
 	end
-	if player:GetAttribute("Hints") == nil or table.find(seenHints(), hintId) then
-		return
+	if active or tipCooldown > 0 or player:GetAttribute("Hints") == nil then
+		return false
+	end
+	if table.find(seenHints(), hintId) then
+		seenThisSession[hintId] = true
+		return true
 	end
 	if not gui then
 		buildUi()
@@ -12854,6 +14176,7 @@ function Tutorial.tip(hintId)
 
 	showCard("NEW!", text, ACCENT)
 	hideLater(TIP_SECONDS)
+	return true
 end
 
 -- Looks ahead for obstacle types the player hasn't been told about yet.
@@ -12892,7 +14215,7 @@ return Tutorial
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="39">
+        <Item class="ModuleScript" referent="42">
           <Properties>
             <string name="Name">UI</string>
             <string name="Source"><![CDATA[--[[
@@ -12986,6 +14309,10 @@ local PREMIUM_PREVIEW_DIAMETER = 2 -- studs; the camera is placed to fit this
 local PREMIUM_CAMERA_DISTANCE = 4.6
 local PREMIUM_ORBIT_SPEED = 0.45 -- radians per second the preview camera circles the ball
 local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+-- The equipped ball at the end of the PLAY button.
+local MENU_BALL_VIEW = 42 -- the window square (PLAY's face is 50 tall)
+local MENU_BALL_SPIN = 0.9 -- radians per second the camera circles it
+local MENU_BALL_FLOAT = 0.12 -- studs it bobs up and down
 -- The starter offer pops up once per session, the first time the menu opens
 -- after a run (never on the very first screen, and never again once closed).
 local OFFER_AFTER_MENU_OPENS = 2
@@ -14305,8 +15632,12 @@ function UI._buildMenuLeft(self, root)
 			self:_fire("onPlay", 0, self:_pickedBoosts())
 		end,
 	})
-	hatch(play.face, { Name = "Hatch", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 46, 1, -16) }, INK, 0, 4)
 	m.play = play
+	self:_buildMenuBall(play.face)
+	-- Text stops short of the ball window.
+	play.index.Size = UDim2.new(1, -(16 + MENU_BALL_VIEW), 0, 9)
+	play.index.TextTruncate = Enum.TextTruncate.AtEnd
+	play.label.Size = UDim2.new(1, -(16 + MENU_BALL_VIEW), 1, -11)
 
 	-- DAILY: opens the 7-day streak sheet. The pips on the right show the streak at a glance.
 	-- It shares the bottom row with the SETTINGS gear, so PLAY stays the one big button.
@@ -14357,6 +15688,90 @@ function UI._buildMenuLeft(self, root)
 	daily.holder.NextSelectionRight = gear.holder
 	gear.holder.NextSelectionLeft = daily.holder
 	gear.holder.NextSelectionUp = play.holder
+end
+
+-- The equipped ball, floating and turning in a small ink window at the end of
+-- PLAY (where the button's hatch used to be). Same 3D preview as the shop.
+function UI._buildMenuBall(self, face)
+	local m = self._menu
+	local plate = new("Frame", {
+		Name = "Ball",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -5, 0.5, 0),
+		Size = UDim2.fromOffset(MENU_BALL_VIEW, MENU_BALL_VIEW),
+		Parent = face,
+	})
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = plate,
+	})
+	brackets(plate, 5, 1, 0.2)
+	for _, item in plate:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	m.ball = { view = view, camera = viewCamera, preview = nil, skinId = nil }
+
+	-- Animated only while the menu is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		local ball = m.ball
+		local preview = ball.preview
+		if not preview or not m.root.Visible then
+			return
+		end
+		local now = os.clock()
+		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
+			lastMeshCheck = now
+			if not preview.mesh and BallFx.isPremium(ball.skinId) and BallFx.hasMesh(ball.skinId) then
+				self:_showMenuBall(ball.skinId, true) -- the Blender model has loaded
+				preview = ball.preview
+			end
+		end
+		preview.step(now)
+		if ball.rainbow and preview.model.PrimaryPart then
+			preview.model.PrimaryPart.Color = Color3.fromHSV((now * 0.2) % 1, 0.8, 1)
+		end
+		local angle = now * MENU_BALL_SPIN
+		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		local float = Vector3.new(0, math.sin(now * 2) * MENU_BALL_FLOAT, 0)
+		ball.camera.CFrame = CFrame.lookAt(eye - float, -float)
+	end))
+	self:_showMenuBall(player:GetAttribute("EquippedSkin"))
+end
+
+function UI._showMenuBall(self, skinId, force)
+	local ball = self._menu and self._menu.ball
+	if not ball then
+		return
+	end
+	skinId = Config.getSkin(skinId).Id
+	if ball.skinId == skinId and ball.preview and not force then
+		return
+	end
+	if ball.preview then
+		ball.preview.destroy()
+		ball.preview = nil
+	end
+	ball.skinId = skinId
+	ball.rainbow = Config.getSkin(skinId).Rainbow == true
+	local ok, preview = pcall(BallFx.preview, skinId, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = ball.view
+		ball.preview = preview
+	else
+		warn("[UI] menu ball preview failed:", preview)
+	end
 end
 
 -- The SETTINGS gear: a small square hard button (50 tall, like everything tappable).
@@ -17601,6 +19016,22 @@ function UI._buildHud(self)
 	local chip = new("Frame", { Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(5, 5), Parent = plate })
 	setAccent(chip, "BackgroundColor3")
 	text({ Text = "BALLS", TextSize = 9, Position = UDim2.fromOffset(17, 2), Size = UDim2.fromOffset(80, 12), Parent = plate })
+	-- Equipped ball: a tiny two-tone swatch (ball color | trail color) + its name. See setBallSkin.
+	local swatch = new("Frame", { Name = "Skin", BackgroundColor3 = PAPER, Position = UDim2.fromOffset(50, 4), Size = UDim2.fromOffset(8, 8), Parent = plate })
+	stroke(swatch, 1)
+	h.skinSwatch = swatch
+	h.skinSwatchTrail = new("Frame", { Name = "Trail", BackgroundColor3 = PAPER, Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromScale(0.5, 1), Parent = swatch })
+	h.skinGradient = new("UIGradient", { Color = rainbowSequence(), Enabled = false, Parent = swatch })
+	h.skinName = text({
+		Name = "SkinName",
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(62, 2),
+		Size = UDim2.fromOffset(64, 12),
+		Parent = plate,
+	})
 	text({ Text = "01", TextSize = 8, TextColor3 = GREY, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -48, 0, 2), Size = UDim2.fromOffset(40, 12), Parent = plate })
 
 	local digits = new("Frame", { Name = "Digits", BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 16), Size = UDim2.fromOffset(160, 44), Parent = plate })
@@ -19425,6 +20856,7 @@ function UI.new(callbacks)
 	end
 	onAttribute("EquippedSkin", function()
 		self:_refreshSkins()
+		self:_showMenuBall(player:GetAttribute("EquippedSkin"))
 	end)
 	onAttribute("OwnedSkins", function()
 		self:_refreshSkins()
@@ -20001,6 +21433,21 @@ function UI:isMenuOpen()
 	return self._menu.root.Visible
 end
 
+-- The equipped ball (RunController calls it at run start and when EquippedSkin
+-- changes): tints the HUD swatch next to BALLS and updates the menu's PLAY ball.
+function UI:setBallSkin(skinId)
+	local skin = Config.getSkin(skinId)
+	local h = self._hud
+	if h and h.skinSwatch then
+		h.skinGradient.Enabled = skin.Rainbow == true
+		h.skinSwatch.BackgroundColor3 = if skin.Rainbow then PAPER else skin.Color
+		h.skinSwatchTrail.Visible = not skin.Rainbow
+		h.skinSwatchTrail.BackgroundColor3 = skin.Trail or skin.Ring or skin.Color
+		h.skinName.Text = string.upper(skin.Name or skin.Id)
+	end
+	self:_showMenuBall(skin.Id)
+end
+
 -- Fills in the run report's XP line from the server's RunSummary.
 function UI._applyRunSummary(self, event)
 	local g = self._over
@@ -20108,16 +21555,599 @@ return UI
 ]]></string>
           </Properties>
         </Item>
+        <Item class="ModuleScript" referent="43">
+          <Properties>
+            <string name="Name">Viewmodel</string>
+            <string name="Source"><![CDATA[--[[
+	Your arms in first person, each holding a ball.
+
+	During a run your avatar's arms (the cleaned-up copy the server builds, see
+	Server/ViewmodelRigs.server.luau) come up from the bottom-left and
+	bottom-right of the view, each holding the equipped ball (HeldBall.luau).
+	Throws alternate right, left, right, left: the throwing arm does a quick
+	overhand throw, the ball flies from that hand, and the hand instantly grabs a
+	new ball from the pocket (a quick dip, and the ball pops in).
+
+	Balls in hand follow your ball count:
+	  2 or more  both hands hold a ball
+	  1          only the hand that throws next holds one
+	  0          both hands are empty
+
+	Layout: like the old single ball, each hand's ball sits at a fraction of the
+	screen and its size is a share of the screen height, so the arms look the
+	same on a phone, a PC or a TV at any field of view (the view widens at speed).
+	The balls stay above the corner HUD buttons (Ball Pack right, Shield left).
+	The arms are 3D parts, so the HUD is always drawn on top of them.
+
+	Feel: a gentle running bob (the arms go up and down in turn, faster at
+	higher speed) and a little sway when the camera kicks or shakes. Both are off
+	when the player turns camera shake off in Settings.
+
+	Viewmodel.start()           -- once: starts waiting for this player's arms
+	Viewmodel.attach(folder)    -- the run's world folder (the balls live there)
+	Viewmodel.setSkin(skinId)
+	Viewmodel.update(dt, view)  -- every frame, after the camera has moved
+		view = {
+			show = bool,          -- false in the menu / game over
+			balls = number,       -- balls left
+			mega = bool,          -- MegaBall throws left (balls drawn bigger)
+			avoid = Vector2?,     -- the tutorial pointer ring (viewport pixels)...
+			avoidRadius = number?, -- ...a hand hides while it would cover it
+			speedShare = number,  -- 0 at the start speed .. 1 at top speed
+			worldRate = number,   -- how fast the world runs (slow-mo, hit-stop, frozen = 0)
+		}
+	Viewmodel.launch(both) -> firstSpot, secondSpot, firstSide, bothThrew
+		Throws from the hand whose turn it is (and the other hand too when
+		`both`, i.e. multiball, and it has a ball). The spots are the world
+		positions of the thrown balls (nil = that hand isn't showing: throw from
+		the middle of the view). firstSide: 1 = right hand, -1 = left hand.
+]]
+
+local GuiService = game:GetService("GuiService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local ViewmodelRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ViewmodelRig"))
+local HeldBall = require(script.Parent.HeldBall)
+local Settings = require(script.Parent.Settings)
+local Sounds = require(script.Parent.Sounds)
+
+local player = Players.LocalPlayer
+
+local Viewmodel = {}
+
+-- Arms (camera space: +X right, +Y up, -Z forward; numbers are for the right arm, the left one is mirrored)
+local ARM_SCALE = 0.75 -- the R6 arm (1 x 2 x 1) is scaled to this: 0.75 wide, 1.5 long
+local ARM_LENGTH = 2 * ARM_SCALE
+local SHOULDER_DIRECTION = Vector3.new(0.1, -0.8, 0.6).Unit -- from the hand back to the shoulder: down, toward you, a bit outward
+local BALL_FORWARD = 0.4 -- the ball sits this many ball-radii past the fingertips...
+local BALL_UP = 1.0 -- ...and this many above the middle of the arm (resting in the hand)
+local UP = Vector3.yAxis
+local REST_FRONT = (UP - SHOULDER_DIRECTION * UP:Dot(SHOULDER_DIRECTION)).Unit -- the top of the arm at rest
+
+-- Where each hand's ball sits on screen (center, as a fraction of the screen,
+-- right hand; the left one is mirrored) and how big it is (diameter as a share
+-- of the screen height). The arms are sized to match the ball.
+local LAYOUT = {
+	wide = { x = 0.78, y = 0.74, share = 0.2 },
+	phone = { x = 0.72, y = 0.7, share = 0.24 }, -- short screens: further in, a bit bigger
+}
+local PHONE_HEIGHT = 600 -- viewport heights below this use the phone layout
+local HIGHEST = 0.55 -- a ball's center never goes above this much of the screen height
+
+-- Mirrors of UI.luau's HUD numbers (600x340 sheet, corner buttons 122x52, 12 from the edge)
+-- so the balls always sit above the Ball Pack / Shield buttons.
+local REF_W, REF_H = 600, 340
+local SCALE_MIN, SCALE_MAX = 0.8, 2
+local EDGE = 12
+local CORNER_BUTTON = Vector2.new(122, 52)
+local BUTTON_MARGIN = 10 -- pixels between a ball and the button / tutorial ring
+
+-- Ball look
+local MEGA_SCALE = 1.3 -- MegaBall throws left: bigger balls in your hands
+local SPIN_RPS = 0.12 -- turns per second
+local TILT = math.rad(20) -- tipped toward the camera so the top shows too
+local PARTICLE_SHARE = { High = 0.7, Low = 0.5 } -- premium sparkles per hand (two balls on screen)
+
+-- Throw (seconds). pitch: + = hand up and back, - = forward and down (radians,
+-- around the shoulder). yaw: + = toward the middle. push: the arm slides along
+-- itself (share of its length).
+local WIND_TIME = 0.04
+local SNAP_TIME = 0.08
+local RETURN_TIME = 0.12
+local WIND_POSE = { pitch = 0.35, yaw = -0.05, push = -0.1 }
+local SNAP_POSE = { pitch = -0.35, yaw = 0.2, push = 0.1 }
+
+-- Reload "from the pocket": once the snap is done the hand dips and a new ball pops in.
+local RELOAD_AT = WIND_TIME + SNAP_TIME
+local DIP_TIME = 0.05 -- the hand dips this long, then...
+local POP_TIME = 0.06 -- ...the new ball grows in this long (while the hand comes back up)
+local DIP_DEPTH = 0.07 -- screen-height share the hand dips
+local DIP_OUT = 0.02 -- ...and moves out toward the pocket
+local DIP_TWIST = 0.3 -- radians the hand flicks down
+local DROP_TIME = 0.06 -- a ball put away (fewer balls than hands) shrinks this fast
+
+-- Feel (screen-height shares; only while camera shake is on)
+local BOB_STEPS = 1.6 -- running steps per second at the start speed...
+local BOB_STEPS_FAST = 2.6 -- ...and at top speed
+local BOB_Y = 0.008 -- each arm goes up and down this much, in turn
+local BOB_X = 0.003 -- the body sways sideways this much
+local LAG = 1.4 -- per radian the camera turns in a frame (throw recoil, crash kick)
+local SHAKE_LAG = 0.05 -- per stud the camera jumps sideways (crash shake)
+local LAG_MAX = 0.04
+local LAG_RETURN = 10
+
+-- Arms model
+local RIG_WAIT = 10 -- seconds per wait for the server's rig folder (keeps waiting in the background)
+
+local runFolder = nil
+local model = nil -- this player's arms (a clone, parented to the camera)
+local rigDirty = true -- rebuild the arms from the newest template
+local rigFailed = false
+local shakeOn = Settings.get("shake") ~= false
+local bobPhase = 0
+local lagX, lagY = 0, 0
+local lastCamera = nil
+local armParts = {} -- BulkMoveTo list: { right arm, left arm }
+local armCFrames = {}
+
+local function newHand(side)
+	return {
+		side = side, -- 1 = right, -1 = left
+		ball = HeldBall.new(PARTICLE_SHARE),
+		arm = nil, -- arm part in the current model
+		visible = false, -- drawn this frame (false while it would cover the tutorial ring)
+		wanted = false, -- the ball count says this hand holds a ball
+		loaded = false, -- a ball is in the hand (or popping in)
+		thrownAt = -math.huge, -- os.clock() of its last throw
+		dipAt = -math.huge, -- the reload flick started
+		dropAt = -math.huge, -- a ball was put away
+		ballPosition = nil, -- world position of its ball last frame
+		armVisible = false,
+	}
+end
+
+local right = newHand(1)
+local left = newHand(-1)
+local hands = { right, left }
+
+local function firstHand()
+	return if Settings.get("leftHanded") == true then left else right
+end
+local nextHand = firstHand()
+
+local function otherHand(hand)
+	return if hand == right then left else right
+end
+
+Settings.changed:Connect(function(key, value)
+	if key == "shake" then
+		shakeOn = value ~= false
+		if not shakeOn then
+			lagX, lagY = 0, 0
+		end
+	end
+end)
+
+-- Arms model ----------------------------------------------------------------------
+
+local function findTemplate()
+	local folder = ReplicatedStorage:FindFirstChild(ViewmodelRig.FOLDER_NAME)
+	local template = folder and folder:FindFirstChild(tostring(player.UserId))
+	return if template and template:IsA("Model") then template else nil
+end
+
+local function destroyModel()
+	if model then
+		model:Destroy()
+		model = nil
+	end
+	right.arm, left.arm = nil, nil
+	right.armVisible, left.armVisible = false, false
+	table.clear(armParts)
+end
+
+local function setArmVisible(hand, visible)
+	if hand.arm and hand.armVisible ~= visible then
+		hand.armVisible = visible
+		hand.arm.Transparency = if visible then 0 else 1
+	end
+end
+
+-- Always the same size of arm, whatever the template says.
+local function normalizeArms(newModel, rightArm, leftArm)
+	local factor = ARM_LENGTH / math.max(rightArm.Size.Y, 0.01)
+	if math.abs(factor - 1) > 1e-3 then
+		local ok = pcall(function()
+			newModel:ScaleTo(newModel:GetScale() * factor)
+		end)
+		if not ok then
+			rightArm.Size *= factor
+			leftArm.Size *= factor
+		end
+	end
+	local size = ViewmodelRig.ARM_SIZE * ARM_SCALE
+	for _, arm in { rightArm, leftArm } do
+		if (arm.Size - size).Magnitude > 0.01 then
+			arm.Size = size
+		end
+	end
+end
+
+local function makeModel()
+	local newModel = nil
+	local template = findTemplate()
+	if template then
+		local ok, clone = pcall(template.Clone, template)
+		if ok and clone then
+			newModel = clone
+		end
+	end
+	-- Checked again here: only arms, Humanoid, Shirt and Body Colors stay.
+	if newModel and not ViewmodelRig.strip(newModel) then
+		newModel:Destroy()
+		newModel = nil
+	end
+	if not newModel then
+		newModel = ViewmodelRig.buildDefault("Viewmodel")
+		ViewmodelRig.strip(newModel)
+	end
+	newModel.Name = "Viewmodel"
+	local rightArm = newModel:FindFirstChild("Right Arm")
+	local leftArm = newModel:FindFirstChild("Left Arm")
+	normalizeArms(newModel, rightArm, leftArm)
+	for _, arm in { rightArm, leftArm } do
+		ViewmodelRig.quietPart(arm)
+		arm.Transparency = 1 -- shown by update
+	end
+	-- The camera keeps it between runs (the run's world folder is rebuilt every run),
+	-- and the Humanoid inside lets the classic Shirt show on the arms.
+	newModel.Parent = workspace.CurrentCamera
+	return newModel, rightArm, leftArm
+end
+
+local function buildModel()
+	destroyModel()
+	rigDirty = false
+	local ok, newModel, rightArm, leftArm = pcall(makeModel)
+	if not ok then
+		rigFailed = true
+		warn("[Viewmodel] could not build the arms:", newModel)
+		return
+	end
+	rigFailed = false
+	model = newModel
+	right.arm, left.arm = rightArm, leftArm
+	armParts[1], armParts[2] = rightArm, leftArm
+end
+
+-- Layout --------------------------------------------------------------------------
+
+-- The right hand's ball: screen spot (viewport pixels) and size share, kept
+-- above the corner button. The left hand's is the mirror image.
+local function screenSpot(viewport)
+	local layout = if viewport.Y < PHONE_HEIGHT then LAYOUT.phone else LAYOUT.wide
+	local radius = layout.share * viewport.Y / 2
+	local x = layout.x * viewport.X
+	local y = layout.y * viewport.Y
+
+	local insetTop, insetBottom = GuiService:GetGuiInset()
+	local safe = viewport - insetTop - insetBottom
+	local sheet = math.clamp(math.min(safe.X / REF_W, safe.Y / REF_H), SCALE_MIN, SCALE_MAX)
+	local button = CORNER_BUTTON * sheet
+	local buttonTop = viewport.Y - insetBottom.Y - EDGE - button.Y - BUTTON_MARGIN
+	if x + radius > viewport.X - insetBottom.X - EDGE - button.X - BUTTON_MARGIN then
+		y = math.min(y, buttonTop - radius)
+	end
+	y = math.max(y, HIGHEST * viewport.Y)
+	return x, y, layout.share
+end
+
+-- Viewport pixels -> a camera-space point `depth` studs in front.
+local function cameraPoint(x, y, depth, viewport, tanY)
+	local ndcX = x / viewport.X * 2 - 1
+	local ndcY = 1 - y / viewport.Y * 2
+	return Vector3.new(ndcX * tanY * viewport.X / viewport.Y * depth, ndcY * tanY * depth, -depth)
+end
+
+-- Camera-space point -> viewport pixels (nil if it's behind the camera).
+local function screenPoint(point, viewport, tanY)
+	local depth = -point.Z
+	if depth < 0.05 then
+		return nil
+	end
+	local aspect = viewport.X / viewport.Y
+	return Vector2.new(
+		(0.5 + 0.5 * point.X / (depth * tanY * aspect)) * viewport.X,
+		(0.5 - 0.5 * point.Y / (depth * tanY)) * viewport.Y
+	)
+end
+
+local function distanceToSegment(point, a, b)
+	local ab = b - a
+	local lengthSquared = ab:Dot(ab)
+	local t = if lengthSquared > 0 then math.clamp((point - a):Dot(ab) / lengthSquared, 0, 1) else 0
+	return (point - (a + ab * t)).Magnitude
+end
+
+local function mirror(v)
+	return Vector3.new(-v.X, v.Y, v.Z)
+end
+
+local function ease(t)
+	return 1 - (1 - t) * (1 - t)
+end
+
+-- The throwing arm's pose t seconds after the throw: pitch, yaw, push.
+local function throwPose(t)
+	local from, to, k
+	if t >= WIND_TIME + SNAP_TIME + RETURN_TIME or t < 0 then
+		return 0, 0, 0
+	elseif t < WIND_TIME then
+		from, to, k = nil, WIND_POSE, ease(t / WIND_TIME)
+	elseif t < WIND_TIME + SNAP_TIME then
+		from, to, k = WIND_POSE, SNAP_POSE, ease((t - WIND_TIME) / SNAP_TIME)
+	else
+		from, to, k = SNAP_POSE, nil, ease((t - WIND_TIME - SNAP_TIME) / RETURN_TIME)
+	end
+	local fromPitch = if from then from.pitch else 0
+	local fromYaw = if from then from.yaw else 0
+	local fromPush = if from then from.push else 0
+	local toPitch = if to then to.pitch else 0
+	local toYaw = if to then to.yaw else 0
+	local toPush = if to then to.push else 0
+	return fromPitch + (toPitch - fromPitch) * k, fromYaw + (toYaw - fromYaw) * k, fromPush + (toPush - fromPush) * k
+end
+
+-- 0..1: how far down the reload flick is (down and back up again).
+local function dipAmount(hand, now)
+	local t = (now - hand.dipAt) / (DIP_TIME + POP_TIME)
+	if t <= 0 or t >= 1 then
+		return 0
+	end
+	return math.sin(t * math.pi)
+end
+
+-- How big the hand's ball is drawn (0 = empty hand).
+local function ballScale(hand, now)
+	if hand.loaded then
+		local t = (now - hand.dipAt - DIP_TIME) / POP_TIME
+		if t <= 0 then
+			return 0
+		elseif t >= 1 then
+			return 1
+		end
+		return math.max(0, 1 + 2.2 * (t - 1) ^ 3 + 1.2 * (t - 1) ^ 2) -- ease-out-back: a little overshoot, like a catch
+	end
+	local t = (now - hand.dropAt) / DROP_TIME
+	return if t < 1 then 1 - t else 0
+end
+
+-- Public ----------------------------------------------------------------------------
+
+local function hideAll()
+	for _, hand in hands do
+		hand.ball.hide()
+		setArmVisible(hand, false)
+		hand.visible = false
+		hand.wanted = false
+		hand.loaded = false
+		hand.thrownAt = -math.huge
+		hand.dipAt = -math.huge
+		hand.dropAt = -math.huge
+		hand.ballPosition = nil
+	end
+	nextHand = firstHand()
+	lastCamera = nil
+	lagX, lagY = 0, 0
+end
+
+function Viewmodel.start()
+	-- The server builds the arms a moment after joining (it has to load the
+	-- avatar). Until they arrive, plain default arms are used; when they
+	-- arrive (even mid-run) they're swapped in.
+	task.spawn(function()
+		local folder = nil
+		while not folder do
+			folder = ReplicatedStorage:WaitForChild(ViewmodelRig.FOLDER_NAME, RIG_WAIT)
+		end
+		local myName = tostring(player.UserId)
+		folder.ChildAdded:Connect(function(child)
+			if child.Name == myName then
+				rigDirty = true
+			end
+		end)
+		if folder:FindFirstChild(myName) then
+			rigDirty = true
+		end
+	end)
+end
+
+function Viewmodel.attach(folder)
+	runFolder = folder
+	for _, hand in hands do
+		hand.ball.attach(folder)
+	end
+end
+
+function Viewmodel.setSkin(skinId)
+	for _, hand in hands do
+		hand.ball.setSkin(skinId)
+	end
+end
+
+function Viewmodel.update(dt, view)
+	if not view.show or not runFolder or runFolder.Parent == nil then
+		hideAll()
+		return
+	end
+	if rigDirty or (model and model.Parent ~= workspace.CurrentCamera) or (model == nil and not rigFailed) then
+		buildModel()
+	end
+
+	local camera = workspace.CurrentCamera
+	local viewport = camera.ViewportSize
+	if viewport.X < 1 or viewport.Y < 1 then
+		hideAll()
+		return
+	end
+	local now = os.clock()
+	local tanY = math.tan(math.rad(camera.FieldOfView) / 2)
+	local spotX, spotY, share = screenSpot(viewport)
+	-- Same size on screen at any field of view: the depth follows the FOV.
+	local depth = HeldBall.DIAMETER / (2 * share * tanY)
+	local studsPerScreen = 2 * depth * tanY -- studs per screen height at that depth
+	local cameraCFrame = camera.CFrame
+
+	-- Feel: running bob + lag behind camera kicks and shakes (only with shake on).
+	if shakeOn then
+		local steps = BOB_STEPS + (BOB_STEPS_FAST - BOB_STEPS) * math.clamp(view.speedShare or 0, 0, 1)
+		bobPhase = (bobPhase + dt * (view.worldRate or 1) * steps * math.pi) % (math.pi * 2)
+		if lastCamera then
+			local delta = lastCamera:ToObjectSpace(cameraCFrame)
+			local pitch, yaw = delta:ToEulerAnglesYXZ()
+			local moved = delta.Position
+			lagX = math.clamp(lagX + yaw * LAG - moved.X * SHAKE_LAG, -LAG_MAX, LAG_MAX)
+			lagY = math.clamp(lagY + pitch * LAG + moved.Y * SHAKE_LAG, -LAG_MAX, LAG_MAX)
+		end
+		local settle = math.exp(-LAG_RETURN * dt)
+		lagX *= settle
+		lagY *= settle
+	end
+	lastCamera = cameraCFrame
+	local swayX = if shakeOn then math.cos(bobPhase) * BOB_X else 0
+	local bobY = if shakeOn then math.sin(bobPhase) * BOB_Y else 0
+
+	local balls = view.balls or 0
+	local megaScale = if view.mega then MEGA_SCALE else 1
+	local spin = cameraCFrame.Rotation * CFrame.Angles(TILT, now * SPIN_RPS * math.pi * 2, 0)
+	local avoid, avoidRadius = view.avoid, view.avoidRadius or 0
+
+	for i, hand in hands do
+		local side = hand.side
+
+		-- Ball count rule, then the reload / put-away state.
+		hand.wanted = balls >= 2 or (balls == 1 and hand == nextHand)
+		if hand.wanted and not hand.loaded and now - hand.thrownAt >= RELOAD_AT then
+			hand.loaded = true
+			hand.dipAt = now -- quick flick to the pocket, then the new ball pops in
+			if hand.thrownAt > -math.huge then
+				Sounds.play("Reload", 0.95 + math.random() * 0.1) -- soft pocket grab
+			end
+		elseif not hand.wanted and hand.loaded then
+			hand.loaded = false
+			hand.dropAt = now
+		end
+
+		-- Everything below is worked out for the right arm and mirrored for the left.
+		local x = spotX + side * (lagX + swayX) * viewport.Y
+		local y = spotY + (lagY + side * bobY) * viewport.Y
+		local restBall = cameraPoint(x, y, depth, viewport, tanY)
+		local radius = HeldBall.DIAMETER / 2
+		local restHand = restBall + SHOULDER_DIRECTION * (BALL_FORWARD * radius) - REST_FRONT * (BALL_UP * radius)
+		local shoulder = restHand + SHOULDER_DIRECTION * ARM_LENGTH
+
+		-- Throw swing around the shoulder, plus the reload dip.
+		local pitch, yaw, push = throwPose(now - hand.thrownAt)
+		local dip = dipAmount(hand, now)
+		pitch -= DIP_TWIST * dip
+		shoulder += Vector3.new(DIP_OUT * dip, -DIP_DEPTH * dip, 0) * studsPerScreen
+		local along = CFrame.fromEulerAnglesYXZ(pitch, yaw, 0):VectorToWorldSpace(-SHOULDER_DIRECTION) -- shoulder -> hand
+		local handPoint = shoulder + along * (ARM_LENGTH * (1 + push))
+		local armCenter = shoulder + along * (ARM_LENGTH * (0.5 + push))
+		if side < 0 then
+			along = mirror(along)
+			handPoint = mirror(handPoint)
+			armCenter = mirror(armCenter)
+			shoulder = mirror(shoulder)
+		end
+
+		-- The arm block: +Y toward the shoulder, its front facing up (like arms raised in front of you).
+		local yAxis = -along
+		local front = UP - yAxis * UP:Dot(yAxis)
+		front = if front.Magnitude > 1e-3 then front.Unit else -Vector3.zAxis
+		local zAxis = -front
+		local armLocal = CFrame.fromMatrix(armCenter, yAxis:Cross(zAxis), yAxis, zAxis)
+
+		local ballRadius = hand.ball.radius() * megaScale
+		local ballPoint = handPoint + along * (BALL_FORWARD * ballRadius) + front * (BALL_UP * ballRadius)
+
+		-- The tutorial's pointer ring: never cover the thing it points at.
+		local visible = true
+		if avoid then
+			local ballSpot = screenPoint(ballPoint, viewport, tanY)
+			local handSpot = screenPoint(handPoint, viewport, tanY)
+			local shoulderSpot = screenPoint(shoulder, viewport, tanY)
+			local pixelsPerStud = viewport.Y / studsPerScreen
+			local clear = avoidRadius + BUTTON_MARGIN
+			if ballSpot and (avoid - ballSpot).Magnitude < ballRadius * pixelsPerStud + clear then
+				visible = false
+			elseif handSpot and shoulderSpot then
+				-- The arm gets wider toward the bottom of the screen (it's closer).
+				local armRadius = ARM_SCALE * 0.75 * pixelsPerStud
+				if distanceToSegment(avoid, handSpot, shoulderSpot) < armRadius + clear then
+					visible = false
+				end
+			end
+		end
+		hand.visible = visible
+
+		-- Draw.
+		setArmVisible(hand, visible)
+		armCFrames[i] = cameraCFrame * armLocal
+		local ballWorld = cameraCFrame * ballPoint
+		hand.ballPosition = if visible then ballWorld else nil
+		local scale = if visible then ballScale(hand, now) * megaScale else 0
+		hand.ball.draw(CFrame.new(ballWorld) * spin, scale, now)
+	end
+
+	if right.arm and left.arm and (right.visible or left.visible) then
+		workspace:BulkMoveTo(armParts, armCFrames, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+end
+
+-- Starts the throw on one hand. Returns where its ball is (nil = not showing).
+local function throwFrom(hand, now)
+	local position = if hand.visible then hand.ballPosition else nil
+	-- Arm whoosh: right hand slightly higher pitch than the left, plus a little
+	-- random wobble, so fast alternating throws don't sound robotic.
+	Sounds.play("Swing", (if hand.side > 0 then 1.06 else 0.94) + (math.random() - 0.5) * 0.1)
+	hand.thrownAt = now
+	hand.loaded = false
+	hand.dropAt = -math.huge -- gone at once (it's the ball that was just thrown)
+	return position
+end
+
+function Viewmodel.launch(both)
+	local now = os.clock()
+	local first = nextHand
+	local second = otherHand(first)
+	nextHand = second -- right, left, right, left...
+	local firstSpot = throwFrom(first, now)
+	local secondSpot = nil
+	local bothThrew = false
+	-- Multiball: the other hand throws too, if it has a ball.
+	if both and second.visible and second.wanted then
+		secondSpot = throwFrom(second, now)
+		bothThrew = true
+	end
+	return firstSpot, secondSpot, first.side, bothThrew
+end
+
+return Viewmodel
+]]></string>
+          </Properties>
+        </Item>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="40">
+  <Item class="Workspace" referent="44">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="FilteringEnabled">true</bool>
       <bool name="NeedsPivotMigration">false</bool>
     </Properties>
-    <Item class="Part" referent="41">
+    <Item class="Part" referent="45">
       <Properties>
         <string name="Name">Baseplate</string>
         <bool name="Anchored">true</bool>
@@ -20138,7 +22168,7 @@ return UI
         <token name="TopSurface">0</token>
       </Properties>
     </Item>
-    <Item class="SpawnLocation" referent="42">
+    <Item class="SpawnLocation" referent="46">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

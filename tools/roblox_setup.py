@@ -65,6 +65,8 @@ SOUNDS = {
     "Crash": "crash_1.mp3",
     "Checkpoint": "checkpoint_1.mp3",
     "Gift": "gift_2.mp3",
+    "Swing": "swing_1.mp3",
+    "Reload": "reload_1.mp3",
     "Music": "music.mp3",
 }
 

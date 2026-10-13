@@ -8,6 +8,7 @@
     "Supernova": 72233037920626
   },
   "Done": {
+    "ballStylesHash": "2898b21ca1dd8e2b617c5b4bb1a23215fb49622b6a60332e9be4ad70e0be55af",
     "settings": false
   },
   "GamePasses": {
@@ -87,7 +88,9 @@
     "Crystal": 123400852818800,
     "Gift": 109446253768240,
     "Music": 108496618537935,
+    "Reload": 109753819262777,
     "Shatter": 114868106025273,
+    "Swing": 75847376684855,
     "Throw": 97004882080822
   },
   "Universe": 10770617881

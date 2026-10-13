@@ -50,6 +50,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ViewmodelRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ViewmodelRig"))
 local HeldBall = require(script.Parent.HeldBall)
 local Settings = require(script.Parent.Settings)
+local Sounds = require(script.Parent.Sounds)
 
 local player = Players.LocalPlayer
 
@@ -470,6 +471,9 @@ function Viewmodel.update(dt, view)
 		if hand.wanted and not hand.loaded and now - hand.thrownAt >= RELOAD_AT then
 			hand.loaded = true
 			hand.dipAt = now -- quick flick to the pocket, then the new ball pops in
+			if hand.thrownAt > -math.huge then
+				Sounds.play("Reload", 0.95 + math.random() * 0.1) -- soft pocket grab
+			end
 		elseif not hand.wanted and hand.loaded then
 			hand.loaded = false
 			hand.dropAt = now
@@ -545,6 +549,9 @@ end
 -- Starts the throw on one hand. Returns where its ball is (nil = not showing).
 local function throwFrom(hand, now)
 	local position = if hand.visible then hand.ballPosition else nil
+	-- Arm whoosh: right hand slightly higher pitch than the left, plus a little
+	-- random wobble, so fast alternating throws don't sound robotic.
+	Sounds.play("Swing", (if hand.side > 0 then 1.06 else 0.94) + (math.random() - 0.5) * 0.1)
 	hand.thrownAt = now
 	hand.loaded = false
 	hand.dropAt = -math.huge -- gone at once (it's the ball that was just thrown)

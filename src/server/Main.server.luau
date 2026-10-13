@@ -59,9 +59,11 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 --   meterGems (gems paid for distance on this run, for 2x Gems back pay),
 --   midRunBoosts ({ [boostId] = count } turned on by UseBoostNow, for ReturnBoost),
 --   shieldsOn / megaBallsOn (Shields / Mega Balls turned on this run, the most
---   ReturnUnusedBoosts can give back), unusedReturned (already given back),
---   lastUnused ({ shield, megaballThrows } the device reported with its last
---   RunEnded, given back if they leave from the game over screen),
+--   ReturnUnusedBoosts can give back), readyOn ({ [boostId] = count } of the
+--   Config.BOOST_BAR boosts RunStarted put in the boost bar, the most that can
+--   come back untapped), unusedReturned (already given back),
+--   lastUnused ({ shield, megaballThrows, readyMagnet, ... } the device reported
+--   with its last RunEnded, given back if they leave from the game over screen),
 --   lastRoom (last room index accepted from RoomReached), roomClock (active
 --   seconds the next room is measured from), pausedMaxStuds (cached time cap
 --   while paused), lastEndedAt (os.clock() of the last RunEnded we handled)
@@ -181,11 +183,13 @@ local function createLeaderstats(player)
 end
 
 -- Unused boosts ------------------------------------------------------------------
--- A Shield or Mega Ball still unused when the run really ends (PLAY AGAIN / MENU
--- from the game over screen without a revive, or leaving the game) goes back to
--- the inventory: "your next crash is free" shouldn't vanish because the run
--- ended by running out of balls. Capped at what this run actually turned on,
--- and only once per run.
+-- When the run really ends (PLAY AGAIN / MENU from the game over screen without a
+-- revive, or leaving the game from there), these go back to the inventory:
+--  * a Shield that never absorbed a crash, and a Mega Ball with all its throws left
+--    ("your next crash is free" shouldn't vanish because you ran out of balls),
+--  * a boost-bar boost (Config.BOOST_BAR: Magnet, Slow-Mo, Mega Ball) the player
+--    never tapped.
+-- Capped at what this run actually took from the inventory, and only once per run.
 
 -- Reads a whole, non-negative count from a client table (anything else = 0).
 local function readCount(source, name)
@@ -196,27 +200,59 @@ local function readCount(source, name)
 	return math.max(0, math.floor(value))
 end
 
--- Returns how many Shields and Mega Balls went back to the inventory.
-local function refundUnusedBoosts(player, data, run, shieldCount, megaThrows)
+-- The order refunds are listed in ("Unused boosts saved: 1 SHIELD + 1 MAGNET").
+local REFUND_ORDER = { "Shield", "Magnet", "SlowMo", "MegaBall" }
+
+-- A fresh { [boostId] = 0 } for every boost-bar boost.
+local function emptyBarCounts()
+	local counts = {}
+	for _, boostId in Config.BOOST_BAR do
+		counts[boostId] = 0
+	end
+	return counts
+end
+
+-- unused = what the device reported (any of these may be missing or junk = 0):
+--   shield         - Shields that never absorbed a crash
+--   megaballThrows - giant throws left on Mega Balls that were tapped
+--   readyMagnet / readySlowMo / readyMegaBall - boost-bar boosts never tapped
+-- Gives them back (capped, once per run) and returns { [boostId] = count given back }.
+local function refundUnusedBoosts(player, data, run, unused)
+	local refunded = {}
 	if run.unusedReturned then
-		return 0, 0
+		return refunded
 	end
 	run.unusedReturned = true
-	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
-	local shields = math.min(shieldCount, run.shieldsOn)
-	local megaBalls = math.min(megaThrows // throwsPerMega, run.megaBallsOn)
+
+	-- Never tapped: no more than RunStarted put in the bar.
+	for _, boostId in Config.BOOST_BAR do
+		local count = math.min(readCount(unused, "ready" .. boostId), run.readyOn[boostId] or 0)
+		run.readyOn[boostId] = (run.readyOn[boostId] or 0) - count
+		refunded[boostId] = count
+	end
+
+	local shields = math.min(readCount(unused, "shield"), run.shieldsOn)
 	run.shieldsOn -= shields
+	refunded.Shield = shields
+
+	-- Mega Balls: whole ones with every throw left, plus the untapped ones counted
+	-- above, but never more than this run turned on in total.
+	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
+	local megaBalls = math.min(readCount(unused, "megaballThrows") // throwsPerMega + (refunded.MegaBall or 0), run.megaBallsOn)
 	run.megaBallsOn -= megaBalls
-	if shields > 0 then
-		Progression.addBoost(data, "Shield", shields)
+	refunded.MegaBall = megaBalls
+
+	local any = false
+	for boostId, count in refunded do
+		if count > 0 then
+			Progression.addBoost(data, boostId, count)
+			any = true
+		end
 	end
-	if megaBalls > 0 then
-		Progression.addBoost(data, "MegaBall", megaBalls)
-	end
-	if shields > 0 or megaBalls > 0 then
+	if any then
 		PlayerData.publish(player, { "Boosts" })
 	end
-	return shields, megaBalls
+	return refunded
 end
 
 local function onPlayerAdded(player)
@@ -236,7 +272,7 @@ Players.PlayerRemoving:Connect(function(player)
 	local run = activeRuns[player]
 	local data = PlayerData.get(player)
 	if run and data and run.pausedAt and run.lastUnused then
-		refundUnusedBoosts(player, data, run, run.lastUnused.shield, run.lastUnused.megaballThrows)
+		refundUnusedBoosts(player, data, run, run.lastUnused)
 	end
 	activeRuns[player] = nil
 	runCounts[player] = nil
@@ -324,10 +360,11 @@ Shop.addAction("ReturnBoost", function(player, data, boostId)
 	return true
 end)
 
--- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t }): the
--- device sends this once when a run really ends (PLAY AGAIN or MENU from the
--- game over screen, no revive). Only while the run is stopped at game over, and
--- only once per run (see refundUnusedBoosts for the caps).
+-- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t, readyMagnet = n,
+-- readySlowMo = n, readyMegaBall = n }): the device sends this once when a run
+-- really ends (PLAY AGAIN or MENU from the game over screen, no revive). Only
+-- while the run is stopped at game over, and only once per run (see
+-- refundUnusedBoosts for what each field means and the caps).
 Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
 	if type(unused) ~= "table" then
 		return false, "Bad request"
@@ -339,14 +376,13 @@ Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
 	if run.unusedReturned then
 		return true -- already done for this run
 	end
-	local shields, megaBalls =
-		refundUnusedBoosts(player, data, run, readCount(unused, "shield"), readCount(unused, "megaballThrows"))
+	local refunded = refundUnusedBoosts(player, data, run, unused)
 	local parts = {}
-	if shields > 0 then
-		table.insert(parts, shields .. " " .. Config.Boosts.Shield.Name)
-	end
-	if megaBalls > 0 then
-		table.insert(parts, megaBalls .. " " .. Config.Boosts.MegaBall.Name)
+	for _, boostId in REFUND_ORDER do
+		local count = refunded[boostId] or 0
+		if count > 0 then
+			table.insert(parts, count .. " " .. Config.Boosts[boostId].Name)
+		end
 	end
 	if #parts > 0 then
 		return true, "Unused boosts saved: " .. table.concat(parts, " + ")
@@ -457,6 +493,7 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 		midRunBoosts = {},
 		shieldsOn = 0,
 		megaBallsOn = 0,
+		readyOn = emptyBarCounts(),
 		unusedReturned = false,
 		lastUnused = nil,
 		lastRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT, -- the room the run starts in
@@ -473,7 +510,9 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 	end
 
 	-- Boosts: use up one of each, then tell the client which ones really started
-	-- (it only turns on what we confirm here).
+	-- (it only turns on what we confirm here). Shield and 2x Gems work by
+	-- themselves; boost-bar boosts (Config.BOOST_BAR) wait until the player taps
+	-- them, and come back with ReturnUnusedBoosts if they never do.
 	local used = {}
 	for _, boostId in chooseBoosts(data, boostIds) do
 		if Progression.takeBoost(data, boostId) then
@@ -485,6 +524,9 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 				run.shieldsOn += 1
 			elseif boostId == "MegaBall" then
 				run.megaBallsOn += 1
+			end
+			if run.readyOn[boostId] then
+				run.readyOn[boostId] += 1
 			end
 		end
 	end
@@ -568,12 +610,17 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if type(runStats) ~= "table" then
 		runStats = {}
 	end
-	-- Shields / Mega Ball throws still unused at this game over (given back if
-	-- they leave from the game over screen; see PlayerRemoving).
-	run.lastUnused = {
+	-- Shields / Mega Ball throws still unused and boost-bar boosts never tapped at
+	-- this game over (given back if they leave from the game over screen; see
+	-- PlayerRemoving). Same fields as a ReturnUnusedBoosts request.
+	local lastUnused = {
 		shield = readCount(runStats, "unusedShield"),
 		megaballThrows = readCount(runStats, "unusedMegaThrows"),
 	}
+	for _, boostId in Config.BOOST_BAR do
+		lastUnused["ready" .. boostId] = readCount(runStats, "ready" .. boostId)
+	end
+	run.lastUnused = lastUnused
 
 	-- Anti-cheat: the distance is the smallest of
 	--  * what the device says,

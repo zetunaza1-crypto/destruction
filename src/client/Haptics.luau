@@ -8,6 +8,7 @@
 	  "crash"      heavy, about a quarter second
 	  "crystal"    soft pulse
 	  "levelUp"    celebration pattern
+	  "boost"      a boost from the boost bar switched on (double pop)
 	  "gift"       celebration pattern
 
 	Where it buzzes: the controller the player is using (gamepad), or the phone
@@ -53,6 +54,10 @@ local PATTERNS = {
 	},
 }
 PATTERNS.gift = PATTERNS.levelUp
+PATTERNS.boost = {
+	{ at = 0, large = 0.2, small = 0.6, time = 0.05 },
+	{ at = 0.08, large = 0.55, small = 0.7, time = 0.1 },
+}
 
 -- Preset effects used for the HapticEffect fallback (names are Roblox enum items;
 -- an item this Roblox version doesn't have is just skipped).
@@ -64,6 +69,7 @@ local EFFECT_TYPES = {
 	crystal = "UIHover",
 	levelUp = "UINotification",
 	gift = "UINotification",
+	boost = "UINotification",
 }
 
 -- Support checks -------------------------------------------------------------------
