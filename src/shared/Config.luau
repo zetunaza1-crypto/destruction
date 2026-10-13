@@ -246,7 +246,25 @@ Config.Sounds = {
 	Crystal = 0,
 	Crash = 0,
 	Checkpoint = 0,
+	Gift = 0, -- assets/sounds/gift_*.mp3
 	Music = 0,
+}
+
+-- "Wait! Free gift" -----------------------------------------------------------------
+-- When a player opens the Roblox menu (maybe to leave) and closes it again, a free
+-- gift pops up with a big sound. Once per cooldown, after some real play time,
+-- so it can't be farmed. It never blocks leaving.
+Config.LeaveGift = {
+	MinPlaySeconds = 120,
+	Cooldown = 20 * 60 * 60,
+	-- Cycles through these, one per claim.
+	Rewards = {
+		{ Boost = "Shield", Text = "FREE SHIELD BOOST" },
+		{ Gems = 75, Text = "+75 FREE GEMS" },
+		{ Boost = "MegaBall", Text = "FREE MEGA BALL BOOST" },
+		{ Gems = 100, Text = "+100 FREE GEMS" },
+		{ Boost = "DoubleGems", Text = "FREE 2X GEMS BOOST" },
+	},
 }
 
 -- Tutorial & first-time tips ----------------------------------------------------
