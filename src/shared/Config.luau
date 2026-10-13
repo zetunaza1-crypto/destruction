@@ -97,31 +97,42 @@ Config.Sounds = {
 }
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
+-- Style picks the room decoration set in src/client/Decor.luau.
 Config.Themes = {
 	{
 		Wall = Color3.fromRGB(235, 238, 245),
 		Accent = Color3.fromRGB(90, 200, 255),
 		Fog = Color3.fromRGB(215, 230, 245),
+		Style = "Lab", -- decoration set used by Decor.luau
+		Name = "LAB",
 	},
 	{
 		Wall = Color3.fromRGB(40, 44, 60),
 		Accent = Color3.fromRGB(255, 90, 170),
 		Fog = Color3.fromRGB(30, 30, 45),
+		Style = "Neon", -- decoration set used by Decor.luau
+		Name = "NEON CITY",
 	},
 	{
 		Wall = Color3.fromRGB(245, 225, 200),
 		Accent = Color3.fromRGB(255, 150, 40),
 		Fog = Color3.fromRGB(250, 215, 170),
+		Style = "Temple", -- decoration set used by Decor.luau
+		Name = "TEMPLE",
 	},
 	{
 		Wall = Color3.fromRGB(20, 60, 50),
 		Accent = Color3.fromRGB(80, 255, 160),
 		Fog = Color3.fromRGB(15, 45, 40),
+		Style = "Greenhouse", -- decoration set used by Decor.luau
+		Name = "GREENHOUSE",
 	},
 	{
 		Wall = Color3.fromRGB(70, 40, 90),
 		Accent = Color3.fromRGB(255, 230, 80),
 		Fog = Color3.fromRGB(55, 30, 75),
+		Style = "Void", -- decoration set used by Decor.luau
+		Name = "THE VOID",
 	},
 }
 
@@ -133,6 +144,10 @@ Config.ZonePatterns = {
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double" },
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
 }
+
+-- Glass breaking ---------------------------------------------------------------
+Config.SHARD_RAYS = 8 -- cracks spreading from the impact (more = finer shards, slower)
+Config.SHARD_LIFETIME = 2.5
 
 Config.GLASS_COLOR = Color3.fromRGB(200, 235, 255)
 Config.CRYSTAL_COLOR = Color3.fromRGB(60, 140, 255)

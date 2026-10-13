@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Decor = require(script.Parent.Decor)
 
 local WIDTH = Config.CORRIDOR_WIDTH
 local HEIGHT = Config.CORRIDOR_HEIGHT
@@ -17,6 +18,7 @@ local EYE_Y = ORIGIN.Y + Config.CAMERA_HEIGHT
 local TrackBuilder = {}
 TrackBuilder.__index = TrackBuilder
 
+-- kind: "Wall" (balls bounce), "Glass" (hazard), "Crystal", "Door", "Button", "Prop" (breakable decoration)
 local function newPart(parent, kind, props)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -32,6 +34,14 @@ local function newPart(parent, kind, props)
 	part.Parent = parent
 	return part
 end
+
+-- Shared with Decor.luau.
+TrackBuilder.newPart = newPart
+TrackBuilder.WIDTH = WIDTH
+TrackBuilder.HEIGHT = HEIGHT
+TrackBuilder.LENGTH = LENGTH
+TrackBuilder.ORIGIN = ORIGIN
+TrackBuilder.EYE_Y = EYE_Y
 
 function TrackBuilder.themeFor(roomIndex)
 	local checkpoint = roomIndex // Config.ROOMS_PER_CHECKPOINT
@@ -226,7 +236,8 @@ function TrackBuilder:buildRoom(roomIndex)
 	folder.Name = "Room" .. roomIndex
 	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
 
-	local wallProps = { Color = theme.Wall, Material = Enum.Material.SmoothPlastic }
+	-- Shell parts collide so glass shards can bounce off the floor and walls.
+	local wallProps = { Color = theme.Wall, Material = Enum.Material.SmoothPlastic, CanCollide = true }
 	local function wall(size, position)
 		local props = table.clone(wallProps)
 		props.Size = size
@@ -275,6 +286,15 @@ function TrackBuilder:buildRoom(roomIndex)
 			trim(Vector3.new(1, HEIGHT, 1), Vector3.new(ORIGIN.X + WIDTH / 2 - 0.5, ORIGIN.Y + HEIGHT / 2, startZ + offset))
 		end
 	end
+
+	Decor.decorate(self, room, {
+		roomIndex = roomIndex,
+		zone = zone,
+		theme = theme,
+		startZ = startZ,
+		isZoneStart = isZoneStart,
+		rng = rng,
+	})
 
 	if roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
 		-- Difficulty climbs inside each zone and keeps climbing zone to zone.

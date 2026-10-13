@@ -194,7 +194,7 @@ local function throw(screenPosition)
 end
 
 local function collectCrystal(crystal)
-	Shatter.crystal(crystal)
+	Shatter.crystal(crystal, shardFolder)
 	balls += Config.CRYSTAL_REWARD
 	streak += 1
 	if streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL == 0 and multiball < Config.MAX_MULTIBALL then
@@ -237,6 +237,12 @@ local function stepBall(ball, dt)
 			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
 			travel = ball.velocity.Unit * remaining * 0.7
+		elseif kind == "Prop" then
+			-- Breakable decoration: just for fun, the ball smashes straight through.
+			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder)
+			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
+			ball.velocity *= 0.85
+			travel = ball.velocity.Unit * remaining * 0.85
 		elseif kind == "Crystal" then
 			collectCrystal(hit.Instance)
 			travel = travel.Unit * remaining
