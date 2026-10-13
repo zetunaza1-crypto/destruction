@@ -43,17 +43,10 @@ plus assets (read/write) for uploads. The key's "experience" scope must include 
 Owner must do by hand in Creator Hub: maturity/content questionnaire, genre, visibility (public),
 icon/thumbnails upload if the API can't (files in assets/images).
 
-## Next session (needs the Roblox key working)
-Everything is automated in `tools/roblox_setup.py` (sounds, models, passes, products,
-server settings, IDs into Config.luau, rojo build, publish). Saved IDs live in
-`tools/roblox_ids.json`, so re-running never duplicates anything. Manual steps for the
-owner are in `SETUP.md`.
-Blockers found last session:
-- The Roblox key is set up as a network secret for `create.roblox.com`, but the API
-  lives at `apis.roblox.com`, so calls fail with "Invalid authentication data provided".
-  The owner must change the secret's host to `apis.roblox.com` (SETUP.md step 1).
-- The universe ID and place ID are unknown. The owner's only public experience is
-  "Scorched Earth" (universe 10258084678, place 99548007304061). Don't assume that's
-  Shatter Run; ask first, because publishing would overwrite it.
-Then run: `ROJO=<path to rojo> python3 tools/roblox_setup.py --universe <U> --place <P>`
-(try `--dry-run` first), commit Config.luau + roblox_ids.json + ShatterRun.rbxlx, and send the file.
+## Next session
+Shatter Run = universe 10770617881, start place 85718900803679 (NOT "Scorched Earth" 10258084678 - never touch it).
+The key works (network secret on apis.roblox.com, header x-api-key). Done: sounds, models, 3 game passes,
+15 developer products uploaded/created; all IDs in Config.luau and `tools/roblox_ids.json`; ShatterRun.rbxlx rebuilt.
+Still to do once the owner adds **universe: Write** and **universe-places: Write** to the key:
+`ROJO=<path to rojo> python3 tools/roblox_setup.py --universe 10770617881 --place 85718900803679`
+(it skips everything already done, applies the settings and publishes). Manual steps for the owner: `SETUP.md`.

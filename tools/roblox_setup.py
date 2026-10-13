@@ -141,6 +141,15 @@ def request(method, url, body=None, content_type=None, retries=4):
             raise SystemExit(f"\n{method} {url}\n-> network error: {err}")
 
 
+def try_request(*args, **kwargs):
+    """Like request(), but prints the error and returns None instead of stopping the script."""
+    try:
+        return request(*args, **kwargs)
+    except SystemExit as err:
+        print(f"  SKIPPED: {str(err).strip()}")
+        return None
+
+
 def hint(code):
     if code == 401:
         return "Hint: the API key is missing or invalid (check ROBLOX_API_KEY)."
@@ -319,7 +328,6 @@ def step_settings(ids, universe, place):
     print("\n[5/8] Experience + server settings")
     universe_fields = {
         "voiceChatEnabled": False,
-        "privateServerPriceRobux": None,  # None = private servers off
         "desktopEnabled": True,
         "mobileEnabled": True,
         "tabletEnabled": True,
@@ -332,18 +340,21 @@ def step_settings(ids, universe, place):
         "serverSize": SERVER_SIZE,
     }
     if DRY_RUN:
-        print(f"  would set universe: {universe_fields}")
+        print(f"  would set universe: {universe_fields}, private servers off")
         print(f"  would set place: name, description, serverSize={SERVER_SIZE}")
         return
-    mask = ",".join(universe_fields)
-    request("PATCH", f"{API}/cloud/v2/universes/{universe}?updateMask={mask}",
-            json.dumps(universe_fields).encode(), "application/json")
-    print("  devices on (computer, phone, tablet, console), VR off, voice chat off, private servers off")
+    # privateServerPriceRobux is in the mask but not in the body: that turns private servers off.
+    mask = ",".join(list(universe_fields) + ["privateServerPriceRobux"])
+    ok = try_request("PATCH", f"{API}/cloud/v2/universes/{universe}?updateMask={mask}",
+                     json.dumps(universe_fields).encode(), "application/json")
+    if ok:
+        print("  devices on (computer, phone, tablet, console), VR off, voice chat off, private servers off")
     mask = ",".join(place_fields)
-    request("PATCH", f"{API}/cloud/v2/universes/{universe}/places/{place}?updateMask={mask}",
-            json.dumps(place_fields).encode(), "application/json")
-    print(f"  name '{EXPERIENCE_NAME}', description set, {SERVER_SIZE} players per server")
-    ids["Done"]["settings"] = True
+    ok_place = try_request("PATCH", f"{API}/cloud/v2/universes/{universe}/places/{place}?updateMask={mask}",
+                           json.dumps(place_fields).encode(), "application/json")
+    if ok_place:
+        print(f"  name '{EXPERIENCE_NAME}', description set, {SERVER_SIZE} players per server")
+    ids["Done"]["settings"] = bool(ok and ok_place)
     save_ids(ids)
 
 
@@ -404,19 +415,28 @@ def step_publish(universe, place):
 def main():
     global DRY_RUN
     parser = argparse.ArgumentParser(description="Upload Shatter Run assets and set up the experience.")
-    parser.add_argument("--universe", required=True, help="Universe ID (Creator Hub: ... > Copy Universe ID)")
-    parser.add_argument("--place", required=True, help="Start place ID")
+    parser.add_argument("--universe", help="Universe ID (Creator Hub: ... > Copy Universe ID)")
+    parser.add_argument("--place", help="Start place ID")
+    parser.add_argument("--assets-only", action="store_true",
+                        help="Only upload sounds + models and write their IDs (no experience needed)")
     parser.add_argument("--dry-run", action="store_true", help="Only print what would happen")
     parser.add_argument("--no-publish", action="store_true", help="Do everything except publishing")
     args = parser.parse_args()
     DRY_RUN = args.dry_run
 
     ids = load_ids()
+    step_sounds(ids)
+    step_models(ids)
+    if args.assets_only:
+        step_config(ids)
+        step_build()
+        print("\nSounds and models done (--assets-only).")
+        return
+    if not (args.universe and args.place):
+        parser.error("--universe and --place are needed (or use --assets-only)")
     ids["Universe"], ids["Place"] = int(args.universe), int(args.place)
     save_ids(ids)
 
-    step_sounds(ids)
-    step_models(ids)
     print("\n[3/8] Game passes")
     create_items(ids, "GamePasses", GAME_PASSES, args.universe, "pass")
     print("\n[4/8] Developer products")
