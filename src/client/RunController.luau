@@ -87,8 +87,10 @@ local MEGA_STRENGTH = 1.5 -- ...and knock it harder
 local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
 -- Throwing from the hands (Viewmodel.luau)
-local HAND_BLEND_TIME = 0.08 -- seconds a thrown ball's drawing takes to join its real path from the hand
-local MEGA_HAND_BLEND_TIME = 0.15 -- the same for giant balls (slower, so the big ball reads as thrown)
+local MEGA_HAND_BLEND_TIME = 0.15 -- seconds a giant ball's drawing takes to join its real path from the hand
+local AIM_RANGE = 120 -- studs checked ahead of a throw to find what it will hit
+local HAND_LINE_MIN = 0.04 -- seconds: shortest / longest time a normal ball is drawn on the
+local HAND_LINE_MAX = 0.3 --   straight line from the hand to where it hits (see throwAlong)
 local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
 
 -- Boosts
@@ -371,14 +373,17 @@ local function skinImpact(position, normal, big)
 	end
 end
 
--- Draws a ball where it is (balls thrown from the hand are drawn a little
--- toward the hand for their first moment, see throwAlong).
+-- Draws a ball where it is. Balls thrown from the hand are drawn shifted toward
+-- the hand at first, and the shift shrinks to nothing by ball.blendTime. For
+-- normal balls it shrinks evenly, so the drawn ball travels one straight line
+-- from the hand to the spot it really hits (see throwAlong).
 local function placeBall(ball)
 	local offset = ball.renderOffset
 	if offset then
-		local left = 1 - ball.age / (if ball.mega then MEGA_HAND_BLEND_TIME else HAND_BLEND_TIME)
+		local left = 1 - ball.age / ball.blendTime
 		if left > 0 then
-			ball.part.CFrame = CFrame.new(ball.position + offset * (left * left))
+			local share = if ball.mega then left * left else left
+			ball.part.CFrame = CFrame.new(ball.position + offset * share)
 			return
 		end
 		ball.renderOffset = nil
@@ -422,6 +427,7 @@ end
 -- this frame's movement.
 local function bounce(ball, hit, remaining)
 	local normal = hit.Normal
+	ball.renderOffset = nil -- drawn exactly where it is from now on (it changed direction)
 	ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
 	ball.position += normal * 0.05
 	return ball.velocity.Unit * remaining * 0.6
@@ -639,8 +645,8 @@ end
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
 -- drawFrom (optional): where the ball is drawn at first (the hand); the drawing
--- joins the real path over HAND_BLEND_TIME (MEGA_HAND_BLEND_TIME). Returns the ball.
-local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, drawFrom)
+-- joins the real path after blendTime seconds. Returns the ball.
+local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, drawFrom, blendTime)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
 		local oldest = table.remove(activeBalls, 1)
@@ -653,8 +659,9 @@ local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, dra
 	if mega and preSweep then
 		stepMegaBall(ball, preSweep)
 	end
-	if drawFrom then
+	if drawFrom and blendTime and blendTime > 0 then
 		ball.renderOffset = drawFrom - ball.position
+		ball.blendTime = blendTime
 	end
 	placeBall(ball)
 	return ball
@@ -677,7 +684,8 @@ end
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
 -- Every ball really flies straight out from the middle of the view along your
 -- aim, so it goes exactly where you tapped. It's only *drawn* leaving your hand
--- (Viewmodel) and joins that path within a split second.
+-- (Viewmodel): on a straight line from the hand to the spot it will hit, so it
+-- never looks like it swerves or bumps into the ball from the other hand.
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 or promptFrozen() then
@@ -699,6 +707,9 @@ local function throwAlong(ray)
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
 	local aimDirection = ray.Direction.Unit
+	-- How far away the thing you aimed at is (sets how long the hand line lasts).
+	local aimHit = workspace:Raycast(ray.Origin, aimDirection * AIM_RANGE, raycastParams)
+	local aimDistance = if aimHit then aimHit.Distance else AIM_RANGE
 	-- The hand whose turn it is throws; with multiball the other hand throws
 	-- too (if it has a ball). Spots are nil for a hand that isn't showing.
 	local firstSpot, secondSpot, firstSide, bothHands = Viewmodel.launch(multiball >= 2)
@@ -722,9 +733,11 @@ local function throwAlong(ray)
 		if mega then
 			-- Giant balls are swept from the camera: a sphere cast can't hit what it
 			-- already overlaps at its start.
-			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot)
+			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot, MEGA_HAND_BLEND_TIME)
 		else
-			spawnBall(ray.Origin + direction * startDistance, velocityAlong(direction, carry), false, nil, lite, trailScale, handSpot)
+			local velocity = velocityAlong(direction, carry)
+			local lineTime = math.clamp((aimDistance - startDistance) / velocity.Magnitude, HAND_LINE_MIN, HAND_LINE_MAX)
+			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, lite, trailScale, handSpot, lineTime)
 		end
 	end
 
