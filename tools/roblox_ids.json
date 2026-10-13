@@ -1,0 +1,60 @@
+{
+  "Done": {
+    "settings": false
+  },
+  "GamePasses": {
+    "Checkpoints": 2033012291,
+    "Multiball": 2032604290,
+    "VIP": 2033774283
+  },
+  "Models": {
+    "Brazier": 135076448089649,
+    "CeilingLight": 111102201783891,
+    "Crate": 88284134622799,
+    "Crystal": 71122553195459,
+    "Flask": 75379835914054,
+    "GlassBottle": 133286417864756,
+    "GlassLantern": 121120655792654,
+    "GlassOrb": 104587869238169,
+    "GlassUrn": 139403879238182,
+    "GlassVase": 95736141645894,
+    "HangingVine": 83778887860086,
+    "LabBench": 139713171667919,
+    "NeonTube": 86431343269497,
+    "Pillar": 90753795746389,
+    "PipeRun": 107736602209422,
+    "Plant": 104443575586162,
+    "Planter": 135027161994753,
+    "ServerRack": 72678109653009,
+    "TestTubeRack": 111512710162434,
+    "Vent": 98915355039928
+  },
+  "Place": 85718900803679,
+  "Products": {
+    "BallPack": 3718291633,
+    "BoostDoubleGems": 3718291666,
+    "BoostMagnet": 3718291664,
+    "BoostMegaBall": 3718291669,
+    "BoostShield": 3718291661,
+    "BoostSlowMo": 3718291672,
+    "ExtraReroll": 3718291678,
+    "GemPack": 3718291639,
+    "GemPackLarge": 3718291650,
+    "GemPackMedium": 3718291644,
+    "GemTopUp": 3718291674,
+    "Revive": 3718291625,
+    "SeasonPremium": 3718291657,
+    "StarterPack": 3718291655,
+    "StreakSaver": 3718291682
+  },
+  "Sounds": {
+    "Checkpoint": 119584218311262,
+    "Crash": 134925413192056,
+    "Crystal": 123400852818800,
+    "Gift": 109446253768240,
+    "Music": 108496618537935,
+    "Shatter": 114868106025273,
+    "Throw": 97004882080822
+  },
+  "Universe": 10770617881
+}

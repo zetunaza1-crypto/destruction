@@ -189,30 +189,30 @@ end
 -- and paste the IDs here. An ID of 0 hides that button in the game.
 -- Suggested prices are just a starting point.
 Config.Products = {
-	Revive = { Id = 0, Balls = 25 }, -- game over screen (~25 R$)
-	BallPack = { Id = 0, Balls = 50 }, -- during a run (~15 R$)
+	Revive = { Id = 3718291625, Balls = 25 }, -- game over screen (~25 R$)
+	BallPack = { Id = 3718291633, Balls = 50 }, -- during a run (~15 R$)
 	-- Gem packs: bigger packs are better value.
-	GemPack = { Id = 0, Gems = 500 }, -- ~49 R$
-	GemPackMedium = { Id = 0, Gems = 1200, Badge = "+20%" }, -- ~99 R$
-	GemPackLarge = { Id = 0, Gems = 3200, Badge = "BEST VALUE" }, -- ~199 R$
+	GemPack = { Id = 3718291639, Gems = 500 }, -- ~49 R$
+	GemPackMedium = { Id = 3718291644, Gems = 1200, Badge = "+20%" }, -- ~99 R$
+	GemPackLarge = { Id = 3718291650, Gems = 3200, Badge = "BEST VALUE" }, -- ~199 R$
 	-- One-time offer for new players (hidden once bought).
-	StarterPack = { Id = 0, Gems = 1000, Skin = "Starter", Fx = "Frost", OneTime = true }, -- ~49 R$
+	StarterPack = { Id = 3718291655, Gems = 1000, Skin = "Starter", Fx = "Frost", OneTime = true }, -- ~49 R$
 	-- Unlocks the premium track of the current season pass.
-	SeasonPremium = { Id = 0 }, -- ~199 R$
+	SeasonPremium = { Id = 3718291657 }, -- ~199 R$
 
 	-- Impulse buys -----------------------------------------------------------
 	-- Boosts bought with Robux: into your inventory (or used right away mid-run).
-	BoostShield = { Id = 0, Boost = "Shield" }, -- ~10 R$
-	BoostMagnet = { Id = 0, Boost = "Magnet" }, -- ~10 R$
-	BoostDoubleGems = { Id = 0, Boost = "DoubleGems" }, -- ~15 R$
-	BoostMegaBall = { Id = 0, Boost = "MegaBall" }, -- ~15 R$
-	BoostSlowMo = { Id = 0, Boost = "SlowMo" }, -- ~10 R$
+	BoostShield = { Id = 3718291661, Boost = "Shield" }, -- ~10 R$
+	BoostMagnet = { Id = 3718291664, Boost = "Magnet" }, -- ~10 R$
+	BoostDoubleGems = { Id = 3718291666, Boost = "DoubleGems" }, -- ~15 R$
+	BoostMegaBall = { Id = 3718291669, Boost = "MegaBall" }, -- ~15 R$
+	BoostSlowMo = { Id = 3718291672, Boost = "SlowMo" }, -- ~10 R$
 	-- Small gem top-up, offered when a player is just short for something.
-	GemTopUp = { Id = 0, Gems = 150 }, -- ~15 R$
+	GemTopUp = { Id = 3718291674, Gems = 150 }, -- ~15 R$
 	-- Extra daily mission reroll.
-	ExtraReroll = { Id = 0 }, -- ~5 R$
+	ExtraReroll = { Id = 3718291678 }, -- ~5 R$
 	-- Keeps a broken login streak going (only offered right after it breaks).
-	StreakSaver = { Id = 0 }, -- ~15 R$
+	StreakSaver = { Id = 3718291682 }, -- ~15 R$
 }
 
 -- Boosts --------------------------------------------------------------------------
@@ -233,9 +233,9 @@ Config.LOW_BALLS_OFFER = 8 -- show the mid-run Shield quick-buy at or below this
 Config.LEVEL_UP_BOOST = true
 
 Config.GamePasses = {
-	VIP = { Id = 0, ExtraStartBalls = 15, GemMultiplier = 2 }, -- ~149 R$
-	Multiball = { Id = 0 }, -- multiball never drops below x2 (~99 R$)
-	Checkpoints = { Id = 0 }, -- start from any checkpoint you've reached (~199 R$)
+	VIP = { Id = 2033774283, ExtraStartBalls = 15, GemMultiplier = 2 }, -- ~149 R$
+	Multiball = { Id = 2032604290 }, -- multiball never drops below x2 (~99 R$)
+	Checkpoints = { Id = 2033012291 }, -- start from any checkpoint you've reached (~199 R$)
 }
 
 Config.REVIVE_SECONDS = 6 -- how long the revive button stays up after game over
@@ -243,13 +243,13 @@ Config.REVIVE_SECONDS = 6 -- how long the revive button stays up after game over
 -- Sounds ---------------------------------------------------------------------
 -- Upload sounds in the Creator Hub and paste the asset IDs. 0 = silent.
 Config.Sounds = {
-	Throw = 0,
-	Shatter = 0,
-	Crystal = 0,
-	Crash = 0,
-	Checkpoint = 0,
-	Gift = 0, -- assets/sounds/gift_*.mp3
-	Music = 0,
+	Throw = 97004882080822,
+	Shatter = 114868106025273,
+	Crystal = 123400852818800,
+	Crash = 134925413192056,
+	Checkpoint = 119584218311262,
+	Gift = 109446253768240, -- assets/sounds/gift_*.mp3
+	Music = 108496618537935,
 }
 
 -- Player settings (saved per account; see src/client/Settings.luau) ------------------
@@ -298,26 +298,26 @@ Config.Hints = {
 -- Blender models from assets/models/, uploaded to Roblox as Model assets.
 -- Paste each asset ID here. 0 = use the built-in block version instead.
 Config.Models = {
-	Crystal = 0,
-	GlassVase = 0,
-	GlassBottle = 0,
-	GlassUrn = 0,
-	GlassLantern = 0,
-	Flask = 0,
-	TestTubeRack = 0,
-	GlassOrb = 0,
-	NeonTube = 0,
-	Pillar = 0,
-	Brazier = 0,
-	Planter = 0,
-	Plant = 0,
-	HangingVine = 0,
-	LabBench = 0,
-	ServerRack = 0,
-	CeilingLight = 0,
-	PipeRun = 0,
-	Vent = 0,
-	Crate = 0,
+	Crystal = 71122553195459,
+	GlassVase = 95736141645894,
+	GlassBottle = 133286417864756,
+	GlassUrn = 139403879238182,
+	GlassLantern = 121120655792654,
+	Flask = 75379835914054,
+	TestTubeRack = 111512710162434,
+	GlassOrb = 104587869238169,
+	NeonTube = 86431343269497,
+	Pillar = 90753795746389,
+	Brazier = 135076448089649,
+	Planter = 135027161994753,
+	Plant = 104443575586162,
+	HangingVine = 83778887860086,
+	LabBench = 139713171667919,
+	ServerRack = 72678109653009,
+	CeilingLight = 111102201783891,
+	PipeRun = 107736602209422,
+	Vent = 98915355039928,
+	Crate = 88284134622799,
 }
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------

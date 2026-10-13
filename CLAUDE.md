@@ -51,8 +51,10 @@ plus assets (read/write) for uploads. The key's "experience" scope must include 
 Owner must do by hand in Creator Hub: maturity/content questionnaire, genre, visibility (public),
 icon/thumbnails upload if the API can't (files in assets/images).
 
-## Next session (needs ROBLOX_API_KEY)
-1. Upload assets/sounds (pick one variant each) -> Config.Sounds IDs.
-2. Upload assets/models/*.fbx as Model assets -> Config.Models IDs (Models.place auto-fits size).
-3. Upload images; create passes/products listed in Config.Products / Config.GamePasses (prices in comments) -> IDs. If Open Cloud can't create passes/products, give the owner a click-by-click list.
-4. Rebuild ShatterRun.rbxlx and send it.
+## Next session
+Shatter Run = universe 10770617881, start place 85718900803679 (NOT "Scorched Earth" 10258084678 - never touch it).
+The key works (network secret on apis.roblox.com, header x-api-key). Done: sounds, models, 3 game passes,
+15 developer products uploaded/created; all IDs in Config.luau and `tools/roblox_ids.json`; ShatterRun.rbxlx rebuilt.
+Still to do once the owner adds **universe: Write** and **universe-places: Write** to the key:
+`ROJO=<path to rojo> python3 tools/roblox_setup.py --universe 10770617881 --place 85718900803679`
+(it skips everything already done, applies the settings and publishes). Manual steps for the owner: `SETUP.md`.
