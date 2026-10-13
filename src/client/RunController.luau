@@ -20,6 +20,12 @@
 	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
 	Camera effects follow Settings "shake", the shield tint follows "flashes".
 
+	The ball in your hand (HeldBall.luau): the equipped ball sits in the bottom
+	corner of the view. A throw launches from there toward the aim point (what
+	the screen ray hits), steered so it lands exactly where you aimed even with
+	the camera's forward speed added. Then the next ball pops back in. Each hit
+	splashes the skin's colors (Shatter.skinBurst).
+
 	Destruction: balls knock solid decorations loose (Shatter.knockLoose) and kick
 	up dust + chips where they hit walls and floor (Shatter.impact). Knocked
 	pieces can't be hit again and never block glass.
@@ -44,6 +50,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local BallFx = require(script.Parent.BallFx)
 local GamepadAim = require(script.Parent.GamepadAim)
 local Haptics = require(script.Parent.Haptics)
+local HeldBall = require(script.Parent.HeldBall)
 local LeaveGift = require(script.Parent.LeaveGift)
 local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
@@ -71,6 +78,12 @@ local KNOCK_OUT = 0.8 -- knocked parts fly along the ball, plus this much straig
 local MEGA_KNOCK_REACH = 1 -- mega balls knock loose everything within their radius plus this
 local MEGA_STRENGTH = 1.5 -- ...and knock it harder
 local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
+
+-- Throwing from the hand (HeldBall.luau)
+local AIM_RANGE = 120 -- studs: you aim at what the screen ray hits within this, else this far along it
+local HAND_MIN_AIM = 8 -- aim points closer than this are thrown from the middle of the view instead
+local HAND_BLEND_TIME = 0.15 -- seconds a mega ball's drawing takes to join its real path from the hand
+local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
 
 -- Boosts
 local BOOSTS = Config.Boosts
@@ -141,6 +154,7 @@ local shake = 0
 local activeBalls = {}
 local reportedMeters = 0
 local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
+local runSkinStyle = nil -- the equipped ball's impact colors (BallFx.impactStyle)
 -- Counted from the start of the run (a revive continues it). Sent with RunEnded.
 local runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = 1 }
 local ui
@@ -315,13 +329,39 @@ end)
 -- mega: a giant MegaBall boost ball (bigger, always has a trail).
 -- lite: a cheaper look for the extra balls of a multiball throw (premium balls
 -- only: no rings, particles or light). The look itself is in BallFx.luau.
-local function makeBallPart(mega, lite)
+-- priority: the ball just thrown from the hand (always full detail; it's big
+-- and close for its first moments). trailScale: longer trails at high speed.
+local function makeBallPart(mega, lite, priority, trailScale)
 	local radius = if mega then MEGA_RADIUS else Config.BALL_RADIUS
 	return BallFx.create(player:GetAttribute("EquippedSkin"), radius, {
 		mega = mega,
 		lite = lite,
+		priority = priority,
+		trailScale = trailScale,
 		parent = shardFolder,
 	})
+end
+
+-- The equipped ball's colors splash out wherever one of your balls hits.
+local function skinImpact(position, normal, big)
+	if runSkinStyle then
+		Shatter.skinBurst(position, normal, runSkinStyle, big)
+	end
+end
+
+-- Draws a ball where it is (mega balls thrown from the hand are drawn a little
+-- toward the hand for their first moment, see throwAlong).
+local function placeBall(ball)
+	local offset = ball.renderOffset
+	if offset then
+		local left = 1 - ball.age / HAND_BLEND_TIME
+		if left > 0 then
+			ball.part.CFrame = CFrame.new(ball.position + offset * (left * left))
+			return
+		end
+		ball.renderOffset = nil
+	end
+	ball.part.CFrame = CFrame.new(ball.position)
 end
 
 local function collectCrystal(crystal)
@@ -421,12 +461,14 @@ local function stepMegaBall(ball, travel)
 			if smashGlass(part, hit.Position, direction * MEGA_PUSH, runFx, false) then
 				bigHit = true
 			end
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = direction * remaining
 		elseif kind == "Prop" then
 			runStats.props += 1
 			broken += 1
 			Tutorial.tip("Props")
 			Shatter.prop(part, hit.Position, direction * MEGA_PUSH, shardFolder, runFx)
+			skinImpact(hit.Position, hit.Normal, true)
 			Sounds.play("Shatter", 0.8 + math.random() * 0.2)
 			travel = direction * remaining
 		elseif kind == "Crystal" then
@@ -436,6 +478,7 @@ local function stepMegaBall(ball, travel)
 			-- Decorations don't stop a giant ball: they're knocked flying.
 			knockDecoration(part, hit.Position, knockDirection(direction, hit.Normal), MEGA_RADIUS + MEGA_KNOCK_REACH, MEGA_STRENGTH)
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = direction * remaining
 		else
 			local door = if kind == "Door" or kind == "Button" then track:doorFor(part) else nil
@@ -449,6 +492,7 @@ local function stepMegaBall(ball, travel)
 				break
 			end
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, true)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
@@ -485,7 +529,7 @@ local function stepBall(ball, dt)
 
 	if ball.mega then
 		stepMegaBall(ball, travel)
-		ball.part.CFrame = CFrame.new(ball.position)
+		placeBall(ball)
 		return true
 	end
 
@@ -504,12 +548,14 @@ local function stepBall(ball, dt)
 		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
 			-- Armored glass: the first hit only cracks it and the ball bounces off.
 			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Shatter", 0.55)
 			smashFeedback(false)
 			travel = bounce(ball, hit, remaining)
 		elseif kind == "Glass" then
 			runStats.glass += 1
-			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
+			local big = smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
+			skinImpact(hit.Position, hit.Normal, big)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
 			travel = ball.velocity.Unit * remaining * 0.7
 		elseif kind == "Prop" then
@@ -517,6 +563,7 @@ local function stepBall(ball, dt)
 			runStats.props += 1
 			Tutorial.tip("Props")
 			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder, runFx)
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
 			smashFeedback(false)
 			ball.velocity *= 0.85
@@ -526,6 +573,7 @@ local function stepBall(ball, dt)
 			travel = travel.Unit * remaining
 		elseif kind == "Button" then
 			track:openDoor(track:doorFor(hit.Instance))
+			skinImpact(hit.Position, hit.Normal, false)
 			Sounds.play("Checkpoint")
 			smashFeedback(false)
 			ball.velocity = -ball.velocity * 0.4
@@ -538,11 +586,12 @@ local function stepBall(ball, dt)
 				knockDecoration(part, hit.Position, knockDirection(ball.velocity.Unit, hit.Normal), KNOCK_SPLASH, 1)
 			end
 			Shatter.impact(hit.Position, hit.Normal, part)
+			skinImpact(hit.Position, hit.Normal, false)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
 
-	ball.part.CFrame = CFrame.new(ball.position)
+	placeBall(ball)
 	return true
 end
 
@@ -567,20 +616,26 @@ end
 -- far before its first frame. A sphere cast can't hit something the sphere
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
-local function spawnBall(origin, velocity, mega, preSweep, lite)
+-- drawFrom (optional): where the ball is drawn at first (the hand); the drawing
+-- joins the real path over HAND_BLEND_TIME. Returns the ball.
+local function spawnBall(origin, velocity, mega, preSweep, lite, trailScale, drawFrom)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
 		local oldest = table.remove(activeBalls, 1)
 		BallFx.destroy(oldest.part)
 	end
 
-	local part = makeBallPart(mega, lite)
+	local part = makeBallPart(mega, lite, not lite, trailScale)
 	local ball = { part = part, position = origin, velocity = velocity, age = 0, mega = mega }
 	table.insert(activeBalls, ball)
 	if mega and preSweep then
 		stepMegaBall(ball, preSweep)
 	end
-	part.CFrame = CFrame.new(ball.position)
+	if drawFrom then
+		ball.renderOffset = drawFrom - ball.position
+	end
+	placeBall(ball)
+	return ball
 end
 
 -- True while a Robux prompt opened mid-run is on screen (the run is frozen).
@@ -588,7 +643,25 @@ local function promptFrozen()
 	return promptFreezeUntil > 0 and os.clock() < promptFreezeUntil
 end
 
+-- What the player is aiming at: the first thing the screen ray hits within
+-- AIM_RANGE, or that far along the ray.
+local function aimPointFor(ray)
+	local direction = ray.Direction.Unit
+	local hit = workspace:Raycast(ray.Origin, direction * AIM_RANGE, raycastParams)
+	return if hit then hit.Position else ray.Origin + direction * AIM_RANGE
+end
+
+-- Balls are thrown at BALL_SPEED and keep the camera's forward momentum (carry).
+-- This picks the throw so the ball's real path runs exactly along `direction`
+-- (a unit vector), i.e. it lands where you aimed even at top speed.
+local function velocityAlong(direction, carry)
+	local along = direction:Dot(carry)
+	local speedSquared = Config.BALL_SPEED * Config.BALL_SPEED
+	return direction * (along + math.sqrt(math.max(0, along * along - carry:Dot(carry) + speedSquared)))
+end
+
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
+-- The ball launches from the one in your hand (HeldBall) toward the aim point.
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 or promptFrozen() then
@@ -609,19 +682,45 @@ local function throwAlong(ray)
 	-- Giant balls end up a bit further out so they don't fill the screen.
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
+	local aimDirection = ray.Direction.Unit
+	local aimPoint = aimPointFor(ray)
+	local hand = HeldBall.launch() -- nil when no ball is showing in the hand
+	-- Normal balls start at the hand, unless something sits between your eye and
+	-- the hand (it would be skipped) or the target is right in front of you (a
+	-- throw from the corner would go sideways): then from the middle, as always.
+	local fromHand = nil
+	if
+		hand
+		and not mega
+		and (aimPoint - ray.Origin).Magnitude >= HAND_MIN_AIM
+		and workspace:Raycast(ray.Origin, hand - ray.Origin, raycastParams) == nil
+	then
+		fromHand = hand
+	end
+	local handDirection = if fromHand then (aimPoint - fromHand).Unit else aimDirection
+
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
+	local trailScale = 1 + speedShare * TRAIL_SPEED_BONUS
 	-- Only the middle ball of a multiball fan gets the full premium look (perf).
 	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
-		local angle = (i - (multiball + 1) / 2) * 0.05
-		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
-		local velocity = direction * Config.BALL_SPEED + carry
+		local fan = CFrame.fromAxisAngle(Vector3.yAxis, (i - (multiball + 1) / 2) * 0.05)
+		local lite = i ~= hero
 		if mega then
-			-- Swept from the camera so anything close is still smashed.
-			spawnBall(ray.Origin, velocity, true, direction * startDistance, i ~= hero)
+			-- Giant balls are still swept from the camera: a sphere cast can't hit
+			-- what it already overlaps at its start, and a giant ball starting at
+			-- the hand would already be touching glass right next to it. Only the
+			-- drawing starts at the hand.
+			local direction = fan:VectorToWorldSpace(aimDirection)
+			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, hand)
+		elseif fromHand then
+			local direction = fan:VectorToWorldSpace(handDirection)
+			spawnBall(fromHand, velocityAlong(direction, carry), false, nil, lite, trailScale)
 		else
-			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, i ~= hero)
+			local direction = fan:VectorToWorldSpace(aimDirection)
+			spawnBall(ray.Origin + direction * startDistance, direction * Config.BALL_SPEED + carry, false, nil, lite, trailScale)
 		end
 	end
 
@@ -954,6 +1053,7 @@ local function resetWorld(checkpoint, tutorial)
 	shardFolder = Instance.new("Folder")
 	shardFolder.Name = "Effects"
 	shardFolder.Parent = world
+	HeldBall.attach(world)
 
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
 	track = TrackBuilder.new(world, firstRoom, tutorial)
@@ -1000,6 +1100,16 @@ local function returnUnusedBoosts()
 	end)
 end
 
+-- The equipped ball: in your hand, on the HUD swatch and in the hit splashes.
+local function applyEquippedSkin()
+	local skinId = player:GetAttribute("EquippedSkin")
+	HeldBall.setSkin(skinId)
+	runSkinStyle = BallFx.impactStyle(skinId)
+	if ui and ui.setBallSkin then
+		ui:setBallSkin(Config.getSkin(skinId).Id)
+	end
+end
+
 -- boostIds: boosts picked in the menu (may be nil/empty). They only switch on
 -- once the server confirms them (see onBoostsActivated).
 local function startRun(checkpoint, boostIds)
@@ -1034,6 +1144,7 @@ local function startRun(checkpoint, boostIds)
 	speed = Config.START_SPEED
 	reportedMeters = math.floor(Config.checkpointMeters(checkpoint))
 	runFx = Config.getFx(player:GetAttribute("EquippedFx"))
+	applyEquippedSkin()
 	runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = multiball }
 	state = "Running"
 
@@ -1189,6 +1300,10 @@ local function step(dt)
 	camera.FieldOfView = BASE_FOV
 		+ (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * SPEED_FOV
 		+ fovPunch
+
+	-- The ball in your hand follows the camera that was just placed.
+	local avoid, avoidRadius = Tutorial.pointerTarget()
+	HeldBall.update(dt, state == "Running" and balls > 0, boost.megaball > 0, avoid, avoidRadius)
 
 	updateBoostHud()
 	GamepadAim.update(dt, state == "Running")
@@ -1487,6 +1602,8 @@ function RunController.start()
 	})
 
 	setupLighting()
+	applyEquippedSkin()
+	player:GetAttributeChangedSignal("EquippedSkin"):Connect(applyEquippedSkin)
 	showMenu()
 	-- Music plays from the moment you join, not only once a run starts.
 	Sounds.startMusic()

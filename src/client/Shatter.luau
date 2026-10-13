@@ -9,6 +9,8 @@
 
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
 	Shatter.impact is the dust puff + chips when a ball hits a wall or the floor.
+	Shatter.skinBurst is the splash in the ball skin's colors wherever a ball hits
+	(premium balls get a themed one: Supernova flare, Black Hole implosion...).
 	Shatter.knockLoose / knockAround knock solid decorations off their spot.
 
 	Smoothness (why it looks like this):
@@ -265,7 +267,8 @@ end
 -- moves the next holder to the spot and calls Emit; particles already flying stay
 -- where they are. Round robin, so a new burst rarely recolors a fresh one.
 
-local function newEmitterSet(count, setup)
+-- holderSize: only matters for emitters that spawn on a shape (BlackHole's implosion).
+local function newEmitterSet(count, setup, holderSize)
 	local set = { next = 1 }
 	for i = 1, count do
 		local holder = Instance.new("Part")
@@ -276,7 +279,7 @@ local function newEmitterSet(count, setup)
 		holder.CanTouch = false
 		holder.CastShadow = false
 		holder.Transparency = 1
-		holder.Size = Vector3.one * 0.2
+		holder.Size = Vector3.one * (holderSize or 0.2)
 		holder.CFrame = PARK
 		local emitter = Instance.new("ParticleEmitter")
 		emitter.Enabled = false
@@ -869,6 +872,245 @@ function Shatter.impact(position, normal, surface)
 		chip.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 5 + UP * 4
 		chip.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(5, 15)
 		addLive(entry, style.Transparency, Config.IMPACT_CHIP_LIFETIME, 0.3, position.Z)
+	end
+end
+
+-- Ball skin splash ---------------------------------------------------------------
+-- Wherever a ball hits glass, a prop or a wall, a short burst in its skin's colors
+-- sprays out of the surface, so you see your skin at the moment that matters.
+-- style = BallFx.impactStyle(skinId). Pooled emitters (round robin, made once;
+-- the themed ones only the first time that ball is used). Rate limited; smaller
+-- on Low graphics and while the shard budget is busy; the bright Supernova flare
+-- follows the "flashes" setting.
+
+local SKIN_BURST_INTERVAL = 0.05 -- at most one splash this often (a multiball fan hits at once)
+local SKIN_BURST_COUNT = 14 -- sparks in a normal splash (Low: 40%)
+local lastSkinBurst = 0
+local flashesOn = Settings.get("flashes") ~= false
+Settings.changed:Connect(function(key, value)
+	if key == "flashes" then
+		flashesOn = value ~= false
+	end
+end)
+
+local SPARKLE_TEXTURE = "rbxasset://textures/particles/sparkles_main.dds"
+local FIRE_TEXTURE = "rbxasset://textures/particles/fire_main.dds"
+
+local function fading(startSize, endSize)
+	return NumberSequence.new({
+		NumberSequenceKeypoint.new(0, startSize),
+		NumberSequenceKeypoint.new(1, endSize),
+	})
+end
+
+-- Every skin: sparks thrown out of the surface (the emitter faces along the normal).
+local skinSparks = newEmitterSet(4, function(emitter)
+	emitter.Texture = SPARKLE_TEXTURE
+	emitter.EmissionDirection = Enum.NormalId.Front
+	emitter.LightEmission = 1
+	emitter.Size = fading(0.4, 0)
+	emitter.Transparency = NumberSequence.new(0, 1)
+	emitter.Lifetime = NumberRange.new(0.25, 0.5)
+	emitter.Speed = NumberRange.new(8, 20)
+	emitter.SpreadAngle = Vector2.new(70, 70)
+	emitter.Acceleration = Vector3.new(0, -25, 0)
+	emitter.Drag = 4
+	emitter.Rotation = NumberRange.new(0, 360)
+end)
+
+-- Premium themes, made the first time they're needed.
+local THEMES = {
+	Supernova = {
+		count = 22,
+		setup = function(emitter) -- gold sparks flying hard
+			emitter.Texture = FIRE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 240, 180), Color3.fromRGB(255, 140, 30))
+			emitter.Size = fading(0.6, 0)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.25, 0.55)
+			emitter.Speed = NumberRange.new(14, 30)
+			emitter.SpreadAngle = Vector2.new(85, 85)
+			emitter.Drag = 5
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+		flare = function(emitter) -- one big gold glow that blooms and fades
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 225, 140))
+			emitter.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1.5),
+				NumberSequenceKeypoint.new(0.3, 4.5),
+				NumberSequenceKeypoint.new(1, 0.5),
+			})
+			emitter.Transparency = NumberSequence.new(0.1, 1)
+			emitter.Lifetime = NumberRange.new(0.22)
+			emitter.Speed = NumberRange.new(0)
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+	},
+	BlackHole = {
+		count = 26,
+		holderSize = 3.2,
+		setup = function(emitter) -- purple sparks pulled in from a sphere around the hit
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.Shape = Enum.ParticleEmitterShape.Sphere
+			emitter.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+			emitter.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(215, 180, 255), Color3.fromRGB(130, 50, 255))
+			emitter.Size = fading(0.3, 0.05)
+			emitter.Transparency = NumberSequence.new(0.1, 0.6)
+			emitter.Lifetime = NumberRange.new(0.2, 0.26)
+			emitter.Speed = NumberRange.new(6, 7.5) -- reaches the middle as it fades
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+	},
+	MagmaHeart = {
+		count = 18,
+		setup = function(emitter) -- glowing embers drifting up
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 190, 60), Color3.fromRGB(230, 50, 10))
+			emitter.Size = fading(0.28, 0.05)
+			emitter.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.7, 0.3),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			emitter.Lifetime = NumberRange.new(0.7, 1.3)
+			emitter.Speed = NumberRange.new(4, 11)
+			emitter.SpreadAngle = Vector2.new(80, 80)
+			emitter.Acceleration = Vector3.new(0, 7, 0)
+			emitter.Drag = 2.5
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-90, 90)
+		end,
+	},
+	PlasmaCore = {
+		count = 20,
+		setup = function(emitter) -- fast violet sparks
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 150, 255), Color3.fromRGB(140, 80, 255))
+			emitter.Size = fading(0.35, 0)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.15, 0.35)
+			emitter.Speed = NumberRange.new(20, 34)
+			emitter.SpreadAngle = Vector2.new(90, 90)
+			emitter.Drag = 7
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-300, 300)
+		end,
+	},
+	Frostbite = {
+		count = 24,
+		setup = function(emitter) -- soft snow sparkle settling down
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 0.7
+			emitter.Color = ColorSequence.new(Color3.fromRGB(240, 250, 255), Color3.fromRGB(150, 215, 255))
+			emitter.Size = fading(0.22, 0.06)
+			emitter.Transparency = NumberSequence.new(0.05, 1)
+			emitter.Lifetime = NumberRange.new(0.8, 1.4)
+			emitter.Speed = NumberRange.new(3, 7)
+			emitter.SpreadAngle = Vector2.new(90, 90)
+			emitter.Acceleration = Vector3.new(0, -4, 0)
+			emitter.Drag = 2
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-60, 60)
+		end,
+	},
+	-- CyberCore: glowing cyan bits (pooled chips, see below) + the normal sparks.
+}
+local themeSets = {} -- id -> { sparks = set, flare = set? }
+
+local function themeSet(id)
+	local theme = THEMES[id]
+	if not theme then
+		return nil
+	end
+	local sets = themeSets[id]
+	if not sets then
+		sets = { sparks = newEmitterSet(2, theme.setup, theme.holderSize) }
+		if theme.flare then
+			sets.flare = newEmitterSet(2, theme.flare)
+		end
+		themeSets[id] = sets
+	end
+	return sets, theme
+end
+
+local CYBER_BIT_STYLE = {
+	Material = Enum.Material.Neon,
+	Color = Color3.fromRGB(0, 235, 255),
+	Transparency = 0,
+	Reflectance = 0,
+}
+
+-- position: where the ball hit. normal: the surface's normal there (toward the ball).
+-- style: BallFx.impactStyle(skinId). big: a big pane or a mega ball (bigger splash).
+function Shatter.skinBurst(position, normal, style, big)
+	if not style then
+		return
+	end
+	local now = os.clock()
+	if now - lastSkinBurst < SKIN_BURST_INTERVAL then
+		return
+	end
+	lastSkinBurst = now
+
+	local scale = (if big then 1.6 else 1) * (if low then 0.4 else 1)
+	if overBudget() then
+		scale *= 0.5 -- lots of glass flying already
+	end
+	local up = if math.abs(normal.Y) > 0.9 then Vector3.xAxis else UP
+	local facing = CFrame.lookAt(position, position + normal, up)
+
+	local slot = nextEmitter(skinSparks)
+	slot.holder.CFrame = facing
+	if style.rainbow then
+		local hue = rng:NextNumber()
+		slot.emitter.Color = ColorSequence.new(Color3.fromHSV(hue, 0.75, 1), Color3.fromHSV((hue + 0.3) % 1, 0.75, 1))
+	else
+		slot.emitter.Color = ColorSequence.new(style.color, style.color2)
+	end
+	slot.emitter:Emit(math.max(3, math.floor(SKIN_BURST_COUNT * scale + 0.5)))
+
+	if not style.premium then
+		return
+	end
+	-- Premium: a bigger, themed splash on top.
+	local sets, theme = themeSet(style.id)
+	if sets then
+		local themed = nextEmitter(sets.sparks)
+		-- A shape emitter (the implosion sphere) sits a little out of the surface.
+		themed.holder.CFrame = if theme.holderSize then facing + normal * theme.holderSize * 0.25 else facing
+		themed.emitter:Emit(math.max(4, math.floor(theme.count * scale + 0.5)))
+		if sets.flare and flashesOn and not low then
+			local flare = nextEmitter(sets.flare)
+			flare.holder.CFrame = CFrame.new(position + normal * 0.3)
+			flare.emitter:Emit(if big then 2 else 1)
+		end
+	elseif style.id == "CyberCore" then
+		for _ = 1, if low then 2 else 5 do
+			local entry = acquire("Chip")
+			if not entry then
+				break
+			end
+			local bit = entry.a
+			applyStyle(bit, CYBER_BIT_STYLE, true)
+			bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
+			bit.CFrame = CFrame.new(position + normal * 0.3)
+				* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
+			bit.Anchored = false
+			bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
+			bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
+			addLive(entry, 0, 0.7, 0.3, position.Z)
+		end
 	end
 end
 

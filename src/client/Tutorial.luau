@@ -378,6 +378,18 @@ function Tutorial.isActive()
 	return active
 end
 
+-- Where the lesson's pointer ring is right now (viewport pixels) and how far it
+-- reaches from its center, or nil when it isn't showing. The ball in the
+-- player's hand (HeldBall.luau) steps aside rather than cover the target.
+function Tutorial.pointerTarget()
+	if not active or not ring or not ring.Visible then
+		return nil
+	end
+	local position = ring.Position
+	-- The ring is a square turned 45 degrees: its corners reach ~0.71 x its size.
+	return Vector2.new(position.X.Offset, position.Y.Offset), ring.Size.X.Offset * 0.71
+end
+
 function Tutorial.finish(skipped)
 	if not active then
 		return

@@ -15,15 +15,26 @@
 		radius is the collision radius; premium balls are drawn 2.6x that across
 		so their details read in flight.
 		options = {
-			mega = bool,      -- MegaBall boost ball (plain skins get a trail)
-			lite = bool,      -- cheap version: no rings / particles / light (extra multiball balls)
+			mega = bool,       -- MegaBall boost ball (trail in the boost's color)
+			lite = bool,       -- cheap version: no rings / particles / light (extra multiball balls)
+			priority = bool,   -- the ball just thrown from the hand: always full detail
+			                   -- (if the budget is full, the oldest full ball is toned down instead)
+			trailScale = num,  -- trail lifetime multiplier (RunController: longer at high speed)
 			parent = Instance,
 		}
+		Every ball has a trail in its skin's colors (premium ones longer and brighter).
 	BallFx.destroy(ball)  -- use this instead of ball:Destroy() (frees its budget)
 	BallFx.isPremium(skinId)
 	BallFx.hasMesh(skinId) -- the Blender model has loaded
 	BallFx.preview(skinId, diameter) -> { model, mesh, step(t), destroy() }
 		Anchored copy for the shop's ViewportFrame. step(os.clock()) animates it.
+	BallFx.held(skinId, diameter) -> { root, mesh, skinId, place(cframe, scale, t), destroy() }
+		The ball in the player's hand (HeldBall.luau). Same look and animation as a
+		thrown ball, with its particles but no trail / light. All parts are anchored
+		and moved together with one BulkMoveTo per frame (it follows the camera).
+		diameter = how big it's drawn across (studs); place() scales it (pop-in, mega).
+	BallFx.impactStyle(skinId) -> { id, color, color2, rainbow, premium }
+		The skin's colors for Shatter.skinBurst (the splash where a ball hits).
 
 	Keeping phones smooth:
 	  - one RenderStepped loop animates every live premium ball (no per-ball connections)
@@ -31,6 +42,7 @@
 	  - particle rates are shared: the more full balls, the less each one emits
 	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
 	  - balls far from the camera aren't animated
+	  - trails: lifetime capped (TRAIL_MAX_LIFETIME), shorter on Low graphics
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -52,6 +64,17 @@ local LOW_PARTICLE_SCALE = 0.4 -- Low graphics: fewer particles (and only the fi
 local ANIMATE_RANGE = 120 -- studs; balls further from the camera stop animating
 local TAU = math.pi * 2
 local MEGA_COLOR = Config.Boosts.MegaBall.Color
+
+-- Trails: every ball leaves one in its skin's colors, so a skin reads even as a
+-- far-away dot. Premium trails are longer and brighter.
+local PLAIN_TRAIL_LIFETIME = 0.34 -- seconds (was 0.25, and only some skins had one)
+local PLAIN_TRAIL_WIDTH = 0.8 -- x the ball's radius, above and below its center
+local PREMIUM_TRAIL_LENGTH = 1.5 -- x the lifetime in BallStyles
+local PREMIUM_TRAIL_WIDTH = 0.36 -- x the drawn diameter (was 0.3)
+local TRAIL_BRIGHTNESS = { plain = 1.6, premium = 2.4 }
+local TRAIL_MAX_LIFETIME = 0.8
+local LOW_TRAIL_SCALE = 0.75 -- Low graphics: shorter trails
+local HELD_PARTICLE_SCALE = 0.6 -- the ball in your hand sparkles a bit less than a thrown one
 
 local TEXTURES = {
 	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
@@ -124,6 +147,22 @@ local function newPart(name, shape, size, color, material, transparency)
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	quiet(part, false)
 	return part
+end
+
+-- Trail.Brightness makes a trail glow brighter than its color alone. pcall: an
+-- older client without the property just keeps the normal brightness.
+local function setBrightness(trail, brightness)
+	pcall(function()
+		trail.Brightness = brightness
+	end)
+end
+
+local function rainbowColors()
+	local keys = {}
+	for i = 0, 6 do
+		table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6, 0.8, 1)))
+	end
+	return ColorSequence.new(keys)
 end
 
 -- The invisible anchored center every premium ball hangs off.
@@ -318,7 +357,7 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 	local trailStyle = fx.Trail
 	local trailColor = if trailStyle then trailStyle.Color else (skin.Trail or skin.Color)
 	local trailColor2 = if trailStyle then (trailStyle.Color2 or trailColor) else trailColor
-	local width = diameter * 0.3 * (if trailStyle then (trailStyle.WidthScale or 1) else 1)
+	local width = diameter * PREMIUM_TRAIL_WIDTH * (if trailStyle then (trailStyle.WidthScale or 1) else 1)
 	local a0 = Instance.new("Attachment")
 	a0.Position = Vector3.new(0, width, 0)
 	a0.Parent = root
@@ -328,12 +367,17 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 	local trail = Instance.new("Trail")
 	trail.Attachment0 = a0
 	trail.Attachment1 = a1
-	trail.Lifetime = if trailStyle then (trailStyle.Lifetime or 0.3) else 0.3
+	trail.Lifetime = (if trailStyle then (trailStyle.Lifetime or 0.3) else 0.3) * PREMIUM_TRAIL_LENGTH
 	trail.LightEmission = 1
 	trail.FaceCamera = true
 	trail.Color = ColorSequence.new(trailColor, trailColor2)
-	trail.Transparency = NumberSequence.new(0.15, 1)
-	trail.WidthScale = NumberSequence.new(1, 0.2)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.55, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new(1, 0.25)
+	setBrightness(trail, TRAIL_BRIGHTNESS.premium)
 	trail.Parent = root
 	if lite then
 		return
@@ -507,8 +551,9 @@ local function fullCount()
 	return count
 end
 
--- Plain skins: one ball part (the look the game always had).
-local function plainBall(skin, radius, mega)
+-- Plain skins: one ball part (the look the game always had), now always with a
+-- trail in the skin's colors. trail = false: no trail (the shop preview).
+local function plainBall(skin, radius, mega, trail)
 	local part = Instance.new("Part")
 	part.Name = if mega then "MegaBall" else "Ball"
 	part.Shape = Enum.PartType.Ball
@@ -525,24 +570,72 @@ local function plainBall(skin, radius, mega)
 		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
 	end
 
-	if skin.Trail or skin.Rainbow or mega then
+	if trail ~= false then
+		local width = radius * PLAIN_TRAIL_WIDTH
 		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, radius * 0.6, 0)
+		a0.Position = Vector3.new(0, width, 0)
 		a0.Parent = part
 		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -radius * 0.6, 0)
+		a1.Position = Vector3.new(0, -width, 0)
 		a1.Parent = part
 
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = a0
-		trail.Attachment1 = a1
-		trail.Lifetime = 0.25
-		trail.LightEmission = 1
-		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA_COLOR else part.Color))
-		trail.Transparency = NumberSequence.new(0.2, 1)
-		trail.Parent = part
+		local streak = Instance.new("Trail")
+		streak.Attachment0 = a0
+		streak.Attachment1 = a1
+		streak.Lifetime = PLAIN_TRAIL_LIFETIME
+		streak.LightEmission = 1
+		streak.FaceCamera = true
+		if mega then
+			streak.Color = ColorSequence.new(MEGA_COLOR)
+		elseif skin.Rainbow then
+			streak.Color = rainbowColors()
+		else
+			-- Skin color into its trail color (dark skins like Void glow in their trail color).
+			streak.Color = ColorSequence.new(skin.Trail or skin.Color, skin.Color:Lerp(skin.Trail or skin.Color, 0.6))
+		end
+		streak.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.05),
+			NumberSequenceKeypoint.new(0.6, 0.55),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		streak.WidthScale = NumberSequence.new(1, 0.3)
+		setBrightness(streak, TRAIL_BRIGHTNESS.plain)
+		streak.Parent = part
 	end
 	return part
+end
+
+-- Over budget: the oldest full-detail ball stops animating and sparkling (it's
+-- far down the corridor by now) so the one just thrown can be full detail.
+local function demoteOldest()
+	for i = 1, #live do
+		local entry = live[i]
+		if entry.root.Parent then
+			table.remove(live, i)
+			entries[entry.root] = nil
+			for _, item in entry.emitters do
+				item.emitter.Enabled = false
+			end
+			if entry.light then
+				entry.light.Enabled = false
+			end
+			return true
+		end
+	end
+	return false
+end
+
+-- Longer trails at high speed (options.trailScale), shorter on Low graphics.
+local function scaleTrail(root, trailScale)
+	local trail = root:FindFirstChildOfClass("Trail")
+	if not trail then
+		return
+	end
+	local scale = trailScale or 1
+	if graphicsLevel() == "Low" then
+		scale *= LOW_TRAIL_SCALE
+	end
+	trail.Lifetime = math.min(trail.Lifetime * scale, TRAIL_MAX_LIFETIME)
 end
 
 function BallFx.create(skinId, radius, options)
@@ -551,14 +644,25 @@ function BallFx.create(skinId, radius, options)
 	local root
 	if not skin.Premium then
 		root = plainBall(skin, radius, options.mega)
+		scaleTrail(root, options.trailScale)
 		root.Parent = options.parent
 		return root
 	end
 
-	local lite = options.lite == true or fullCount() >= MAX_FULL[graphicsLevel()]
+	local lite = options.lite == true
+	if not lite then
+		local most = MAX_FULL[graphicsLevel()]
+		while fullCount() >= most do
+			if not (options.priority and demoteOldest()) then
+				lite = true
+				break
+			end
+		end
+	end
 	local proto = prototypeFor(skin, radius, lite)
 	root = proto.root:Clone()
 	root.Name = if options.mega then "MegaBall" else "Ball"
+	scaleTrail(root, options.trailScale)
 	if not lite then
 		local entry = { root = root, anims = {}, emitters = {}, light = nil, phase = math.random() }
 		for _, anim in proto.anims do
@@ -649,10 +753,7 @@ function BallFx.preview(skinId, diameter)
 		root.Parent = model
 		model.PrimaryPart = root
 	else
-		local part = plainBall(skin, diameter / 2, false)
-		for _, item in part:GetChildren() do
-			item:Destroy() -- no trail in a viewport
-		end
+		local part = plainBall(skin, diameter / 2, false, false) -- no trail in a viewport
 		part.Parent = model
 		model.PrimaryPart = part
 	end
@@ -677,6 +778,139 @@ function BallFx.preview(skinId, diameter)
 		model:Destroy()
 	end
 	return preview
+end
+
+-- The ball in your hand ----------------------------------------------------------------
+-- Every part is anchored and placed directly each frame (one BulkMoveTo), so it
+-- sticks to the camera exactly, with no physics or weld lag at full speed.
+
+function BallFx.held(skinId, diameter)
+	local skin = Config.getSkin(skinId)
+	local held = { skinId = skin.Id, mesh = false }
+	local low = graphicsLevel() == "Low"
+	local parts = {} -- BulkMoveTo list (the root is last)
+	local cframes = {}
+	local items = {} -- one per visible part: { part, rest, baseSize, axis, rps, phase, pulse }
+	local root
+	local plain = nil
+
+	if skin.Premium then
+		local proto = prototypeFor(skin, diameter / VISUAL_SCALE, false)
+		held.mesh = proto.mesh
+		root = proto.root:Clone()
+		local animByName = {}
+		for _, anim in proto.anims do
+			animByName[anim.name] = anim
+		end
+		for _, child in root:GetChildren() do
+			if child:IsA("BasePart") then
+				local joint = child:FindFirstChild("Joint")
+				local rest = if joint then joint.C0 else CFrame.new()
+				if joint then
+					joint:Destroy()
+				end
+				child.Anchored = true
+				local anim = animByName[child.Name]
+				table.insert(items, {
+					part = child,
+					rest = rest,
+					baseSize = child.Size,
+					axis = anim and anim.axis,
+					rps = anim and anim.rps or 0,
+					phase = anim and anim.phase or 0,
+					pulse = anim and anim.pulse,
+				})
+				table.insert(parts, child)
+			end
+		end
+		-- No trail (it would smear as the camera moves) and no light (costly this
+		-- close to the walls). Particles stay, locked to the ball so they travel with it.
+		for _, item in root:GetDescendants() do
+			if item:IsA("Trail") or item:IsA("Light") then
+				item:Destroy()
+			elseif item:IsA("ParticleEmitter") then
+				local index = tonumber(string.match(item.Name, "%d+")) or 1
+				item.LockedToPart = true
+				item.Rate *= HELD_PARTICLE_SCALE * (if low then LOW_PARTICLE_SCALE else 1)
+				item.Enabled = not low or index == 1
+			end
+		end
+	else
+		root = plainBall(skin, diameter / 2, false, false)
+		plain = root
+		table.insert(items, { part = root, rest = CFrame.new(), baseSize = root.Size, rps = 0, phase = 0 })
+		table.insert(parts, root)
+	end
+	root.Name = "HeldBall"
+	if skin.Premium then
+		table.insert(parts, root) -- the invisible center carries the particles
+	end
+	held.root = root
+
+	local lastScale = 1
+	local pulses = not low
+	-- cframe: the ball's center (and how it's turned). scale: 1 = `diameter` across.
+	function held.place(cframe, scale, t)
+		local resize = scale ~= lastScale
+		lastScale = scale
+		for i, item in items do
+			local rest = item.rest
+			local s = scale
+			local pulse = item.pulse
+			if pulse and pulses then
+				s *= pulse.Min + (pulse.Max - pulse.Min) * (0.5 + 0.5 * math.sin(t * pulse.Hz * TAU))
+				item.part.Size = item.baseSize * s
+			elseif resize then
+				item.part.Size = item.baseSize * s
+			end
+			local c0 = CFrame.new(rest.Position * s) * rest.Rotation
+			if item.axis then
+				c0 = CFrame.fromAxisAngle(item.axis, (t * item.rps + item.phase) * TAU) * c0
+			end
+			cframes[i] = cframe * c0
+		end
+		if plain then
+			if skin.Rainbow then
+				plain.Color = Color3.fromHSV((t * 0.2) % 1, 0.8, 1)
+			end
+		else
+			cframes[#items + 1] = cframe
+		end
+		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+
+	function held.destroy()
+		root:Destroy()
+	end
+	return held
+end
+
+-- Impact colors ---------------------------------------------------------------------------
+
+local function luminance(color)
+	return 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+end
+
+-- The two colors a ball's impact splash uses: its trail color and its own color
+-- (very dark balls like Void / Obsidian use a lighter mix so the splash shows).
+function BallFx.impactStyle(skinId)
+	local skin = Config.getSkin(skinId)
+	local trail = styleOf(skin.Id).Fx and styleOf(skin.Id).Fx.Trail
+	local color = if trail then trail.Color else (skin.Trail or skin.Color)
+	local color2 = if trail and trail.Color2 then trail.Color2 else skin.Color
+	if luminance(color2) < 0.25 then
+		color2 = color:Lerp(Color3.new(1, 1, 1), 0.3)
+	end
+	if luminance(color) < 0.25 then
+		color = color2
+	end
+	return {
+		id = skin.Id,
+		color = color,
+		color2 = color2,
+		rainbow = skin.Rainbow == true,
+		premium = skin.Premium == true,
+	}
 end
 
 -- Settings: switching graphics re-shares particles / lights right away.

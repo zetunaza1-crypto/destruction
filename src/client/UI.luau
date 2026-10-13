@@ -89,6 +89,10 @@ local PREMIUM_PREVIEW_DIAMETER = 2 -- studs; the camera is placed to fit this
 local PREMIUM_CAMERA_DISTANCE = 4.6
 local PREMIUM_ORBIT_SPEED = 0.45 -- radians per second the preview camera circles the ball
 local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+-- The equipped ball at the end of the PLAY button.
+local MENU_BALL_VIEW = 42 -- the window square (PLAY's face is 50 tall)
+local MENU_BALL_SPIN = 0.9 -- radians per second the camera circles it
+local MENU_BALL_FLOAT = 0.12 -- studs it bobs up and down
 -- The starter offer pops up once per session, the first time the menu opens
 -- after a run (never on the very first screen, and never again once closed).
 local OFFER_AFTER_MENU_OPENS = 2
@@ -1408,8 +1412,12 @@ function UI._buildMenuLeft(self, root)
 			self:_fire("onPlay", 0, self:_pickedBoosts())
 		end,
 	})
-	hatch(play.face, { Name = "Hatch", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 46, 1, -16) }, INK, 0, 4)
 	m.play = play
+	self:_buildMenuBall(play.face)
+	-- Text stops short of the ball window.
+	play.index.Size = UDim2.new(1, -(16 + MENU_BALL_VIEW), 0, 9)
+	play.index.TextTruncate = Enum.TextTruncate.AtEnd
+	play.label.Size = UDim2.new(1, -(16 + MENU_BALL_VIEW), 1, -11)
 
 	-- DAILY: opens the 7-day streak sheet. The pips on the right show the streak at a glance.
 	-- It shares the bottom row with the SETTINGS gear, so PLAY stays the one big button.
@@ -1460,6 +1468,90 @@ function UI._buildMenuLeft(self, root)
 	daily.holder.NextSelectionRight = gear.holder
 	gear.holder.NextSelectionLeft = daily.holder
 	gear.holder.NextSelectionUp = play.holder
+end
+
+-- The equipped ball, floating and turning in a small ink window at the end of
+-- PLAY (where the button's hatch used to be). Same 3D preview as the shop.
+function UI._buildMenuBall(self, face)
+	local m = self._menu
+	local plate = new("Frame", {
+		Name = "Ball",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -5, 0.5, 0),
+		Size = UDim2.fromOffset(MENU_BALL_VIEW, MENU_BALL_VIEW),
+		Parent = face,
+	})
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = plate,
+	})
+	brackets(plate, 5, 1, 0.2)
+	for _, item in plate:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	m.ball = { view = view, camera = viewCamera, preview = nil, skinId = nil }
+
+	-- Animated only while the menu is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		local ball = m.ball
+		local preview = ball.preview
+		if not preview or not m.root.Visible then
+			return
+		end
+		local now = os.clock()
+		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
+			lastMeshCheck = now
+			if not preview.mesh and BallFx.isPremium(ball.skinId) and BallFx.hasMesh(ball.skinId) then
+				self:_showMenuBall(ball.skinId, true) -- the Blender model has loaded
+				preview = ball.preview
+			end
+		end
+		preview.step(now)
+		if ball.rainbow and preview.model.PrimaryPart then
+			preview.model.PrimaryPart.Color = Color3.fromHSV((now * 0.2) % 1, 0.8, 1)
+		end
+		local angle = now * MENU_BALL_SPIN
+		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		local float = Vector3.new(0, math.sin(now * 2) * MENU_BALL_FLOAT, 0)
+		ball.camera.CFrame = CFrame.lookAt(eye - float, -float)
+	end))
+	self:_showMenuBall(player:GetAttribute("EquippedSkin"))
+end
+
+function UI._showMenuBall(self, skinId, force)
+	local ball = self._menu and self._menu.ball
+	if not ball then
+		return
+	end
+	skinId = Config.getSkin(skinId).Id
+	if ball.skinId == skinId and ball.preview and not force then
+		return
+	end
+	if ball.preview then
+		ball.preview.destroy()
+		ball.preview = nil
+	end
+	ball.skinId = skinId
+	ball.rainbow = Config.getSkin(skinId).Rainbow == true
+	local ok, preview = pcall(BallFx.preview, skinId, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = ball.view
+		ball.preview = preview
+	else
+		warn("[UI] menu ball preview failed:", preview)
+	end
 end
 
 -- The SETTINGS gear: a small square hard button (50 tall, like everything tappable).
@@ -4704,6 +4796,22 @@ function UI._buildHud(self)
 	local chip = new("Frame", { Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(5, 5), Parent = plate })
 	setAccent(chip, "BackgroundColor3")
 	text({ Text = "BALLS", TextSize = 9, Position = UDim2.fromOffset(17, 2), Size = UDim2.fromOffset(80, 12), Parent = plate })
+	-- Equipped ball: a tiny two-tone swatch (ball color | trail color) + its name. See setBallSkin.
+	local swatch = new("Frame", { Name = "Skin", BackgroundColor3 = PAPER, Position = UDim2.fromOffset(50, 4), Size = UDim2.fromOffset(8, 8), Parent = plate })
+	stroke(swatch, 1)
+	h.skinSwatch = swatch
+	h.skinSwatchTrail = new("Frame", { Name = "Trail", BackgroundColor3 = PAPER, Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromScale(0.5, 1), Parent = swatch })
+	h.skinGradient = new("UIGradient", { Color = rainbowSequence(), Enabled = false, Parent = swatch })
+	h.skinName = text({
+		Name = "SkinName",
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(62, 2),
+		Size = UDim2.fromOffset(64, 12),
+		Parent = plate,
+	})
 	text({ Text = "01", TextSize = 8, TextColor3 = GREY, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -48, 0, 2), Size = UDim2.fromOffset(40, 12), Parent = plate })
 
 	local digits = new("Frame", { Name = "Digits", BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 16), Size = UDim2.fromOffset(160, 44), Parent = plate })
@@ -6528,6 +6636,7 @@ function UI.new(callbacks)
 	end
 	onAttribute("EquippedSkin", function()
 		self:_refreshSkins()
+		self:_showMenuBall(player:GetAttribute("EquippedSkin"))
 	end)
 	onAttribute("OwnedSkins", function()
 		self:_refreshSkins()
@@ -7102,6 +7211,21 @@ end
 
 function UI:isMenuOpen()
 	return self._menu.root.Visible
+end
+
+-- The equipped ball (RunController calls it at run start and when EquippedSkin
+-- changes): tints the HUD swatch next to BALLS and updates the menu's PLAY ball.
+function UI:setBallSkin(skinId)
+	local skin = Config.getSkin(skinId)
+	local h = self._hud
+	if h and h.skinSwatch then
+		h.skinGradient.Enabled = skin.Rainbow == true
+		h.skinSwatch.BackgroundColor3 = if skin.Rainbow then PAPER else skin.Color
+		h.skinSwatchTrail.Visible = not skin.Rainbow
+		h.skinSwatchTrail.BackgroundColor3 = skin.Trail or skin.Ring or skin.Color
+		h.skinName.Text = string.upper(skin.Name or skin.Id)
+	end
+	self:_showMenuBall(skin.Id)
 end
 
 -- Fills in the run report's XP line from the server's RunSummary.
