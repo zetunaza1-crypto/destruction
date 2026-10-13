@@ -9919,6 +9919,7 @@ end
 -- this frame's movement.
 local function bounce(ball, hit, remaining)
 	local normal = hit.Normal
+	ball.spent = true -- a ball that bounced can't break glass or press buttons any more
 	ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
 	ball.position += normal * 0.05
 	return ball.velocity.Unit * remaining * 0.6
@@ -10072,8 +10073,10 @@ local function stepBall(ball, dt)
 		-- is the touching point on the surface, used for the effects).
 		ball.position += travel / distance * hit.Distance
 
-		if kind == "Glass" and ball.velocity.Magnitude < GLASS_BREAK_SPEED then
-			-- Out of power (it already broke a pane): it just bounces off this one.
+		-- Only direct throws break glass and press buttons: a ball that already
+		-- bounced off something (or lost its power on a pane) just taps them.
+		local powerless = ball.spent or ball.velocity.Magnitude < GLASS_BREAK_SPEED
+		if (kind == "Glass" or kind == "Button") and powerless then
 			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
 			skinImpact(hit.Position, hit.Normal, false)
 			travel = bounce(ball, hit, remaining)
