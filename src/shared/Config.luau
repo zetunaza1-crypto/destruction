@@ -39,8 +39,114 @@ Config.BALL_LIFETIME = 3
 
 -- Rewards --------------------------------------------------------------------
 Config.GEMS_PER_METER = 0.1
-Config.DAILY_REWARD_GEMS = 100
+Config.PREMIUM_GEM_BONUS = 0.1 -- Roblox Premium members earn +10% gems
+
+-- Daily login streak: claim once per day, day 7 is the big one. Missing a day
+-- (48h without claiming) restarts at day 1.
 Config.DAILY_REWARD_COOLDOWN = 20 * 60 * 60 -- 20 hours, so it fits any daily routine
+Config.DAILY_STREAK_RESET = 48 * 60 * 60
+Config.DailyStreak = {
+	{ Gems = 50 },
+	{ Gems = 75 },
+	{ Gems = 100 },
+	{ Gems = 150, Balls = 10 }, -- bonus balls added to the next run
+	{ Gems = 200 },
+	{ Gems = 250 },
+	{ Gems = 500, Fx = "Prism" }, -- exclusive shatter effect
+}
+Config.DAILY_REWARD_GEMS = Config.DailyStreak[1].Gems -- kept for older UI text
+
+-- Player level --------------------------------------------------------------------
+-- XP from every run. Levels give gems; some levels unlock cosmetics.
+Config.XP = {
+	PerMeter = 0.5,
+	PerGlass = 1,
+	PerCrystal = 2,
+	PerProp = 1,
+}
+function Config.xpForLevel(level)
+	return 100 + 25 * math.min(level - 1, 40)
+end
+Config.LEVEL_UP_GEMS = 25
+Config.LevelUnlocks = {
+	[3] = { Skin = "Copper" },
+	[5] = { Fx = "Ember" },
+	[10] = { Skin = "Chrome" },
+	[15] = { Fx = "Toxic" },
+	[20] = { Skin = "Obsidian" },
+	[30] = { Fx = "Galaxy" },
+}
+
+-- Daily missions -----------------------------------------------------------------
+-- 3 random missions every day. Stat names match what a run reports.
+Config.MISSIONS_PER_DAY = 3
+Config.MISSION_REROLLS_PER_DAY = 1
+Config.MissionPool = {
+	{ Id = "glass_s", Stat = "glass", Goal = 100, Gems = 60, XP = 80, Text = "Smash %d glass" },
+	{ Id = "glass_l", Stat = "glass", Goal = 400, Gems = 150, XP = 200, Text = "Smash %d glass" },
+	{ Id = "crystal_s", Stat = "crystals", Goal = 30, Gems = 60, XP = 80, Text = "Collect %d crystals" },
+	{ Id = "crystal_l", Stat = "crystals", Goal = 120, Gems = 150, XP = 200, Text = "Collect %d crystals" },
+	{ Id = "props", Stat = "props", Goal = 40, Gems = 80, XP = 100, Text = "Break %d decorations" },
+	{ Id = "runs", Stat = "runs", Goal = 5, Gems = 50, XP = 60, Text = "Play %d runs" },
+	{ Id = "dist", Stat = "bestRunMeters", Goal = 500, Gems = 100, XP = 120, Text = "Fly %dm in one run", Max = true },
+	{ Id = "zone2", Stat = "bestZone", Goal = 2, Gems = 120, XP = 150, Text = "Reach zone %d", Max = true },
+	{ Id = "multi", Stat = "bestMultiball", Goal = 3, Gems = 80, XP = 100, Text = "Reach multiball x%d", Max = true },
+}
+
+-- Season pass ----------------------------------------------------------------------
+-- Tiers fill with the same XP as levels. Free rewards for everyone, premium
+-- rewards need Products.SeasonPremium. Bump SEASON_ID to start a new season.
+Config.SEASON_ID = 1
+Config.SEASON_NAME = "SEASON 1: FIRST CRACK"
+Config.SEASON_ENDS = 0 -- os.time() the season ends (0 = no countdown shown)
+Config.SEASON_TIER_XP = 300
+Config.SeasonTiers = {} -- filled below: SeasonTiers[tier] = { Free = reward?, Premium = reward }
+for tier = 1, 30 do
+	local free = if tier % 3 == 0 then { Gems = 50 + tier * 5 } else nil
+	local premium = { Gems = 40 + tier * 6 }
+	if tier == 5 then
+		premium = { Skin = "Neonite" }
+	elseif tier == 10 then
+		premium = { Fx = "Gold" }
+	elseif tier == 15 then
+		free = { Skin = "Season1" }
+	elseif tier == 20 then
+		premium = { Skin = "Diamond" }
+	elseif tier == 25 then
+		premium = { Fx = "Rainbow" }
+	elseif tier == 30 then
+		free = { Gems = 500 }
+		premium = { Skin = "Shatterborn", Fx = "Supernova" }
+	end
+	Config.SeasonTiers[tier] = { Free = free, Premium = premium }
+end
+
+-- Shatter effects: what color glass shards turn when YOU break them (cosmetic) ----
+-- Price 0 + Source = unlocked another way (level, streak, season, starter pack).
+Config.ShatterFx = {
+	{ Id = "Classic", Name = "Classic", Price = 0 },
+	{ Id = "Ruby", Name = "Ruby", Price = 600, Color = Color3.fromRGB(255, 60, 90) },
+	{ Id = "Emerald", Name = "Emerald", Price = 600, Color = Color3.fromRGB(60, 230, 120) },
+	{ Id = "Amethyst", Name = "Amethyst", Price = 900, Color = Color3.fromRGB(170, 90, 255) },
+	{ Id = "Neon", Name = "Neon", Price = 1500, Color = Color3.fromRGB(80, 255, 240), Neon = true },
+	{ Id = "Ember", Name = "Ember", Price = 0, Source = "LEVEL 5", Color = Color3.fromRGB(255, 120, 30), Neon = true },
+	{ Id = "Toxic", Name = "Toxic", Price = 0, Source = "LEVEL 15", Color = Color3.fromRGB(150, 255, 40), Neon = true },
+	{ Id = "Galaxy", Name = "Galaxy", Price = 0, Source = "LEVEL 30", Color = Color3.fromRGB(90, 40, 200), Neon = true, Sparkle = true },
+	{ Id = "Prism", Name = "Prism", Price = 0, Source = "7-DAY STREAK", Rainbow = true },
+	{ Id = "Frost", Name = "Frost", Price = 0, Source = "STARTER PACK", Color = Color3.fromRGB(190, 240, 255), Sparkle = true },
+	{ Id = "Gold", Name = "Gold", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 200, 50), Metal = true },
+	{ Id = "Rainbow", Name = "Rainbow", Price = 0, Source = "SEASON PASS", Rainbow = true, Neon = true },
+	{ Id = "Supernova", Name = "Supernova", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 240, 200), Neon = true, Sparkle = true },
+}
+
+function Config.getFx(fxId)
+	for _, fx in Config.ShatterFx do
+		if fx.Id == fxId then
+			return fx
+		end
+	end
+	return Config.ShatterFx[1]
+end
 
 -- Ball skins, bought with gems in the shop ------------------------------------
 -- Order here is the order they show up in the shop.
@@ -52,6 +158,15 @@ Config.Skins = {
 	{ Id = "Void", Name = "Void", Price = 2000, Color = Color3.fromRGB(20, 10, 40), Material = Enum.Material.Neon, Trail = Color3.fromRGB(170, 80, 255) },
 	{ Id = "Plasma", Name = "Plasma", Price = 3500, Color = Color3.fromRGB(80, 220, 255), Material = Enum.Material.ForceField, Trail = Color3.fromRGB(80, 220, 255) },
 	{ Id = "Rainbow", Name = "Rainbow", Price = 6000, Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
+	-- Unlocked by progression / offers instead of gems (Price 0 + Source).
+	{ Id = "Copper", Name = "Copper", Price = 0, Source = "LEVEL 3", Color = Color3.fromRGB(200, 110, 60), Material = Enum.Material.Metal },
+	{ Id = "Chrome", Name = "Chrome", Price = 0, Source = "LEVEL 10", Color = Color3.fromRGB(240, 245, 255), Material = Enum.Material.Foil },
+	{ Id = "Obsidian", Name = "Obsidian", Price = 0, Source = "LEVEL 20", Color = Color3.fromRGB(25, 20, 35), Material = Enum.Material.Glass, Trail = Color3.fromRGB(255, 80, 40) },
+	{ Id = "Starter", Name = "Starter", Price = 0, Source = "STARTER PACK", Color = Color3.fromRGB(80, 200, 255), Material = Enum.Material.Neon, Trail = Color3.fromRGB(80, 200, 255) },
+	{ Id = "Season1", Name = "Cracked", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(220, 235, 255), Material = Enum.Material.Glass },
+	{ Id = "Neonite", Name = "Neonite", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 70, 200), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 70, 200) },
+	{ Id = "Diamond", Name = "Diamond", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(200, 240, 255), Material = Enum.Material.Glass, Trail = Color3.fromRGB(255, 255, 255) },
+	{ Id = "Shatterborn", Name = "Shatterborn", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
 }
 
 function Config.getSkin(skinId)
@@ -74,7 +189,14 @@ end
 Config.Products = {
 	Revive = { Id = 0, Balls = 25 }, -- game over screen (~25 R$)
 	BallPack = { Id = 0, Balls = 50 }, -- during a run (~15 R$)
-	GemPack = { Id = 0, Gems = 500 }, -- shop (~49 R$)
+	-- Gem packs: bigger packs are better value.
+	GemPack = { Id = 0, Gems = 500 }, -- ~49 R$
+	GemPackMedium = { Id = 0, Gems = 1200, Badge = "+20%" }, -- ~99 R$
+	GemPackLarge = { Id = 0, Gems = 3200, Badge = "BEST VALUE" }, -- ~199 R$
+	-- One-time offer for new players (hidden once bought).
+	StarterPack = { Id = 0, Gems = 1000, Skin = "Starter", Fx = "Frost", OneTime = true }, -- ~49 R$
+	-- Unlocks the premium track of the current season pass.
+	SeasonPremium = { Id = 0 }, -- ~199 R$
 }
 
 Config.GamePasses = {
