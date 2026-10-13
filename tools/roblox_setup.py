@@ -87,15 +87,15 @@ PRODUCTS = {
     "GemPackMedium": ("Big Gem Pack", "1,200 gems (+20% bonus).", 99, "product_gempack.png"),
     "GemPackLarge": ("Huge Gem Pack", "3,200 gems - best value!", 199, "product_gempack.png"),
     "StarterPack": ("Starter Pack", "1,000 gems, the Starter ball and the Frost shatter effect. One time offer: if you already own the items, you still get the gems.", 49, "product_gempack.png"),
-    "SeasonPremium": ("Season Pass Premium", "Unlock the premium rewards of Season 1 (ends 15 Dec 2026). Already premium? You get 3,200 gems instead.", 199, None),
-    "BoostShield": ("Shield Boost", "Your next crash is free. Not used this run? It goes back to your boosts.", 10, None),
-    "BoostMagnet": ("Magnet Boost", "Crystals fly to you for 20 seconds.", 10, None),
-    "BoostDoubleGems": ("2x Gems Boost", "Double gems for one run.", 15, None),
-    "BoostMegaBall": ("Mega Ball Boost", "Your next 10 throws are giant. If you use none of them this run, it goes back to your boosts.", 15, None),
-    "BoostSlowMo": ("Slow-Mo Boost", "Slow down time for 8 seconds.", 10, None),
+    "SeasonPremium": ("Season Pass Premium", "Unlock the premium rewards of Season 1 (ends 15 Dec 2026). Already premium? You get 3,200 gems instead.", 199, "product_season.png"),
+    "BoostShield": ("Shield Boost", "Your next crash is free. Not used this run? It goes back to your boosts.", 10, "product_shield.png"),
+    "BoostMagnet": ("Magnet Boost", "Crystals fly to you for 20 seconds.", 10, "product_magnet.png"),
+    "BoostDoubleGems": ("2x Gems Boost", "Double gems for one run.", 15, "product_doublegems.png"),
+    "BoostMegaBall": ("Mega Ball Boost", "Your next 10 throws are giant. If you use none of them this run, it goes back to your boosts.", 15, "product_megaball.png"),
+    "BoostSlowMo": ("Slow-Mo Boost", "Slow down time for 8 seconds.", 10, "product_slowmo.png"),
     "GemTopUp": ("Gem Top-Up", "150 gems.", 15, "product_gempack.png"),
-    "ExtraReroll": ("Extra Reroll", "Swap one daily mission for a new one.", 5, None),
-    "StreakSaver": ("Streak Saver", "Keeps your daily streak going after you missed a day. If your streak is not broken, you get 150 gems instead.", 15, None),
+    "ExtraReroll": ("Extra Reroll", "Swap one daily mission for a new one.", 5, "product_reroll.png"),
+    "StreakSaver": ("Streak Saver", "Keeps your daily streak going after you missed a day. If your streak is not broken, you get 150 gems instead.", 15, "product_streak.png"),
 }
 
 # Premium balls: Config.Skins id -> (name, description, price in Robux).
@@ -366,6 +366,7 @@ def create_items(ids, section, items, universe, kind):
     for key, (name, description, price, image) in items.items():
         if ids[section].get(key):
             print(f"  {key}: already created ({ids[section][key]})")
+            update_icon(ids, section, key, image, f"{base}/{ids[section][key]}")
             continue
         if name in existing:
             ids[section][key] = existing[name]
@@ -392,8 +393,35 @@ def create_items(ids, section, items, universe, kind):
         body, ctype = multipart(fields, files)
         result = request("POST", base, body, ctype)
         ids[section][key] = int(result[id_key])
+        if "imageFile" in files:
+            ids.setdefault("IconHashes", {})[f"{section}.{key}"] = hashlib.sha256(files["imageFile"][1]).hexdigest()
         save_ids(ids)
         print(f"  {key}: {ids[section][key]} ('{name}', {price} R$)")
+        time.sleep(0.5)  # stay under the rate limit
+
+
+def update_icon(ids, section, key, image, item_url):
+    """Uploads the item's icon again when its image file changed (or it never had one).
+    ids["IconHashes"] remembers which version of each image is on Roblox."""
+    if not image:
+        return
+    path = os.path.join(ROOT, "assets", "images", image)
+    if not os.path.exists(path):
+        return
+    data = read_file(path)
+    digest = hashlib.sha256(data).hexdigest()
+    hashes = ids.setdefault("IconHashes", {})
+    record = f"{section}.{key}"
+    if hashes.get(record) == digest:
+        return
+    if DRY_RUN:
+        print(f"  {key}: would upload icon {image}")
+        return
+    body, ctype = multipart({}, {"imageFile": (image, data, mimetypes.guess_type(path)[0] or "image/png")})
+    if try_request("PATCH", item_url, body, ctype) is not None:
+        hashes[record] = digest
+        save_ids(ids)
+        print(f"  {key}: icon updated ({image})")
         time.sleep(0.5)  # stay under the rate limit
 
 
