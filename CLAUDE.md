@@ -25,6 +25,12 @@ The owner works from cloud sessions only (no local Rojo/Studio connection). Afte
 ## Checking code
 No Roblox runtime here. Syntax-check Luau with `luau-compile <file>` (download from github.com/luau-lang/luau releases if missing). Test gameplay in Roblox Studio via `rojo serve`.
 
-## Status / next ideas
-- Done: zones 0–4 + endless, glass/door/spinner/moving/grid obstacles, multiball, revive, passes, gem shop skins, daily reward, global top 10, ElevenLabs audio in `assets/sounds/` (needs uploading + IDs in Config).
-- Ideas: thumbnail/icon art, more zone themes, power-ups (slow-mo, big ball), friend races / ghost runs, seasonal events.
+## Status
+Built: 5 themed zones with detailed decor + breakable props, realistic glass shattering, Future lighting with per-zone presets and room lights, levels/XP, daily missions, 7-day streak, season pass (free + premium), boosts (Shield, Magnet, Mega Ball, Slow-Mo, 2x Gems), skins + shatter FX shop, gem packs, starter pack, impulse buys, leave gift, first-run tutorial + one-time tips, gamepad aiming/navigation, mobile-safe UI, anti-cheat (RoomReached validation), coalesced saves + autosave.
+Store art: assets/images (Blender renders). Audio: assets/sounds (ElevenLabs). Models: assets/models (Blender FBX, not yet uploaded).
+
+## Next session (needs ROBLOX_API_KEY)
+1. Upload assets/sounds (pick one variant each) -> Config.Sounds IDs.
+2. Upload assets/models/*.fbx as Model assets -> Config.Models IDs (Models.place auto-fits size).
+3. Upload images; create passes/products listed in Config.Products / Config.GamePasses (prices in comments) -> IDs. If Open Cloud can't create passes/products, give the owner a click-by-click list.
+4. Rebuild ShatterRun.rbxlx and send it.

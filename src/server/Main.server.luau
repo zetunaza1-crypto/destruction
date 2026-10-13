@@ -51,6 +51,10 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 -- }
 local activeRuns = {}
 
+-- player -> os.clock() when they joined this server (for the "wait! free gift",
+-- which needs some real play time first).
+local sessionStarts = {}
+
 -- player -> how many RunStarted events they've sent this session. Sent back with
 -- BoostsActivated so the client can ignore a confirmation meant for an older run.
 local runCounts = {}
@@ -144,6 +148,7 @@ local function createLeaderstats(player)
 end
 
 local function onPlayerAdded(player)
+	sessionStarts[player] = sessionStarts[player] or os.clock()
 	createLeaderstats(player)
 	PlayerData.load(player)
 end
@@ -156,6 +161,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	activeRuns[player] = nil
 	runCounts[player] = nil
+	sessionStarts[player] = nil
 	Shop.release(player)
 	PlayerData.release(player)
 end)
@@ -204,6 +210,21 @@ Shop.addAction("ResumeRun", function(player)
 	end
 	resumeRun(run)
 	return true
+end)
+
+-- Shop action "ClaimLeaveGift": the "wait! free gift" popup's CLAIM button.
+-- Progression.claimLeaveGift checks the cooldown and the play time; the client's
+-- own check only decides whether to show the popup.
+Shop.addAction("ClaimLeaveGift", function(player, data)
+	local started = sessionStarts[player]
+	local playedSeconds = if started then os.clock() - started else 0
+	local ok, message = Progression.claimLeaveGift(data, os.time(), playedSeconds)
+	if ok then
+		-- Saved by the autosave (publish marks the data as changed).
+		PlayerData.publish(player, Progression.LEAVE_GIFT_FIELDS)
+		Progression.fire(player, { type = "Reward", text = message, source = "LeaveGift" })
+	end
+	return ok, message
 end)
 
 -- Picks the boosts the player asked for (boostIds, a list of ids) that are real,

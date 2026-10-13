@@ -458,6 +458,45 @@ end
 
 Progression.DAILY_FIELDS = { "Gems", "BonusBalls", "OwnedSkins", "OwnedFx", "Boosts", "StreakDay", "NextDaily", "StreakExpires" }
 
+-- "Wait! Free gift" ------------------------------------------------------------
+-- Shown when a player comes back from the Roblox menu (see client LeaveGift).
+-- One claim per Config.LeaveGift.Cooldown, only after MinPlaySeconds of play
+-- this session. The rewards take turns (Config.LeaveGift.Rewards).
+
+-- The reward the next claim gives (or nil if none are set up).
+function Progression.nextLeaveGift(data)
+	local rewards = Config.LeaveGift and Config.LeaveGift.Rewards
+	if type(rewards) ~= "table" or #rewards == 0 then
+		return nil
+	end
+	return rewards[data.LeaveGiftIndex % #rewards + 1]
+end
+
+-- playedSeconds: how long the player has been in this server. Returns ok, message.
+function Progression.claimLeaveGift(data, now, playedSeconds)
+	local settings = Config.LeaveGift
+	local reward = Progression.nextLeaveGift(data)
+	if not settings or not reward then
+		return false, "No gift right now"
+	end
+	if now < data.LeaveGiftNext then
+		return false, "Come back later"
+	end
+	if playedSeconds < settings.MinPlaySeconds then
+		return false, "Play a little longer first"
+	end
+
+	local text = Progression.grantReward(data, reward)
+	if text == "" then
+		text = "Gift claimed"
+	end
+	data.LeaveGiftIndex = (data.LeaveGiftIndex + 1) % #settings.Rewards
+	data.LeaveGiftNext = now + settings.Cooldown
+	return true, "Free gift: " .. text
+end
+
+Progression.LEAVE_GIFT_FIELDS = { "Gems", "BonusBalls", "OwnedSkins", "OwnedFx", "Boosts", "LeaveGiftNext", "LeaveGiftIndex" }
+
 -- Season tiers ------------------------------------------------------------------
 
 -- Returns ok, message.
@@ -514,6 +553,8 @@ function Progression.normalize(data, now)
 	data.StreakDay = math.clamp(wholeNumber(data.StreakDay, 1), 1, #Config.DailyStreak)
 	data.MissionRerolls = wholeNumber(data.MissionRerolls, 0)
 	data.ExtraRerolls = wholeNumber(data.ExtraRerolls, 0)
+	data.LeaveGiftNext = wholeNumber(data.LeaveGiftNext, 0)
+	data.LeaveGiftIndex = wholeNumber(data.LeaveGiftIndex, 0)
 
 	-- Boost inventory: only known boosts with a whole, positive count.
 	local boosts = {}

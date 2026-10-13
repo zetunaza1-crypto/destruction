@@ -8,14 +8,28 @@
 
 	Layout is drawn on a 600x340 reference sheet. Every block carries a UIScale
 	that is refit whenever the screen changes size, so a 640x360 phone and a
-	1080p monitor get the same composition (touch targets stay >= 44px on phones).
+	1080p monitor get the same composition.
+
+	Safe area: the ScreenGui uses CoreUISafeInsets, so nothing we draw can sit
+	under Roblox's own top bar (menu / chat / "more" buttons, ~58px tall) or a
+	phone notch. Full-screen washes still bleed edge to edge (see `bleed`).
+	On a 640x360 phone that leaves about 640x302, so the sheet scales to ~0.89
+	and every tappable thing is drawn at least 50 units tall (>= 44px there).
+
+	Gamepad: while the last input is a controller, every screen puts the
+	selection on its main button (PLAY, PLAY AGAIN / REVIVE, CLAIM...), B closes
+	popovers, and small "A SELECT" style hints appear. The HUD clears the
+	selection so the controller's buttons go to the game instead of the UI.
 ]]
 
+local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
@@ -39,8 +53,11 @@ local HUD_SCALE = 0.85 -- HUD plates are drawn a bit smaller than menus
 local SHADOW = 4 -- hard shadow offset behind buttons
 local EDGE = 12 -- distance from the safe-area edge
 local LOW_BALLS = 5
-local TAB_H = 44
+local TAB_H = 50
 local FOOTER_H = 18
+local MENU_H = 340 -- height of the left menu column (the full reference sheet)
+local ZONE_CARD_Y = 0.3 -- zone / level card top, as a fraction of the screen (clear of the HUD plates)
+local BACK_ACTION = "ShatterRunUIBack" -- ContextActionService name for gamepad B (only bound while a popover is open)
 
 local ZONE_CARD_TIME = 1.6
 local LEVEL_CARD_TIME = 2.4
@@ -75,9 +92,13 @@ local PASS_INFO = {
 local BOOST_ORDER = Config.BOOST_ORDER or {}
 local MAX_PICKS = Config.MAX_BOOSTS_PER_RUN or 3
 local LOW_BALLS_OFFER = Config.LOW_BALLS_OFFER or 8
-local BOOST_CHIP_H = 36
-local BOOST_POP_H = 92
-local TOPUP_H = 48
+local BOOST_CHIP_H = 50
+local BOOST_CHIP_GAP = 1
+local BOOST_POP_H = 110
+local POP_CLOSE = 50 -- the popover's X is a 50x50 tap area in its top-right corner
+local TOPUP_H = 56
+local TOPUP_BUY_W = 84
+local TOPUP_CLOSE_W = 50
 local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
 
 local TOAST_KINDS = {
@@ -603,12 +624,18 @@ local FILLS = {
 --[[
 	Poster-style button: a face with a 2px ink outline sitting on a solid ink
 	block offset by SHADOW px. It presses down 2px while held.
+	The holder itself is the (invisible) button, so the tap area and the gamepad
+	selection cover the face *and* its shadow: a 50-tall button stays >= 44px
+	even on the smallest phone sheet.
 	opts: Name, Size, Position, AnchorPoint, LayoutOrder, Fill, Text, TextSize,
 	Align, Index (small label top-left), Sub (small second line), OnClick
 ]]
 local function hardButton(parent, opts)
-	local holder = new("Frame", {
+	local holder = new("TextButton", {
 		Name = opts.Name or "Button",
+		AutoButtonColor = false,
+		Text = "",
+		Selectable = true,
 		BackgroundTransparency = 1,
 		Size = opts.Size,
 		Position = opts.Position or UDim2.new(),
@@ -623,10 +650,8 @@ local function hardButton(parent, opts)
 		Size = UDim2.new(1, -SHADOW, 1, -SHADOW),
 		Parent = holder,
 	})
-	local face = new("TextButton", {
+	local face = new("Frame", {
 		Name = "Face",
-		AutoButtonColor = false,
-		Text = "",
 		BackgroundColor3 = PAPER,
 		Size = UDim2.new(1, -SHADOW, 1, -SHADOW),
 		Parent = holder,
@@ -709,14 +734,14 @@ local function hardButton(parent, opts)
 		end
 	end
 
-	face.MouseButton1Down:Connect(function()
+	holder.MouseButton1Down:Connect(function()
 		if button.enabled then
 			tween(face, 0.06, { Position = UDim2.fromOffset(2, 2) })
 		end
 	end)
-	face.MouseButton1Up:Connect(release)
-	face.MouseLeave:Connect(release)
-	face.Activated:Connect(function()
+	holder.MouseButton1Up:Connect(release)
+	holder.MouseLeave:Connect(release)
+	holder.Activated:Connect(function()
 		release()
 		if button.enabled and opts.OnClick then
 			opts.OnClick()
@@ -968,6 +993,157 @@ local function shieldGlyph(parent, size, position, color)
 	return holder
 end
 
+-- Gamepad helpers ------------------------------------------------------------------------
+
+-- "gamepad", "pointer" (mouse / keyboard / touch), or nil for inputs that say
+-- nothing about how the player is playing (gyro, focus, text input...).
+local function inputKind(inputType)
+	if string.sub(inputType.Name, 1, 7) == "Gamepad" then
+		return "gamepad"
+	end
+	if
+		inputType == Enum.UserInputType.Touch
+		or inputType == Enum.UserInputType.Keyboard
+		or inputType == Enum.UserInputType.MouseMovement
+		or inputType == Enum.UserInputType.MouseButton1
+		or inputType == Enum.UserInputType.MouseButton2
+		or inputType == Enum.UserInputType.MouseButton3
+		or inputType == Enum.UserInputType.MouseWheel
+	then
+		return "pointer"
+	end
+	return nil
+end
+
+local function gamepadAtStart()
+	local kind = inputKind(UserInputService:GetLastInputType())
+	if kind then
+		return kind == "gamepad" and UserInputService.GamepadEnabled
+	end
+	return GuiService:IsTenFootInterface() -- console with no input yet
+end
+
+-- Visible on screen: itself and every ancestor up to an enabled ScreenGui.
+local function onScreen(inst)
+	if inst == nil or inst.Parent == nil then
+		return false
+	end
+	local node = inst
+	while node do
+		if node:IsA("LayerCollector") then
+			return node.Enabled
+		end
+		if node:IsA("GuiObject") and not node.Visible then
+			return false
+		end
+		node = node.Parent
+	end
+	return false
+end
+
+-- The first selectable button under `container` that is showing, or nil.
+local function firstSelectable(container)
+	if container == nil then
+		return nil
+	end
+	for _, inst in container:GetDescendants() do
+		if inst:IsA("GuiButton") and inst.Selectable and onScreen(inst) then
+			return inst
+		end
+	end
+	return nil
+end
+
+-- Gamepad selection outline: a thick accent box with an ink hairline inside,
+-- sharp corners, a few px outside the selected button.
+local function selectionBox()
+	local box = Instance.new("Frame")
+	box.Name = "Selection"
+	box.BackgroundTransparency = 1
+	box.BorderSizePixel = 0
+	box.Position = UDim2.fromOffset(-5, -5)
+	box.Size = UDim2.new(1, 10, 1, 10)
+	local accentStroke = stroke(box, 3, accentColor)
+	local inner = new("Frame", {
+		Name = "Hairline",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(3, 3),
+		Size = UDim2.new(1, -6, 1, -6),
+		Parent = box,
+	})
+	stroke(inner, 1, INK)
+	return box, accentStroke
+end
+
+-- Small controller hint row: ink keycap + label per pair, e.g. { {"A", "SELECT"}, {"B", "BACK"} }.
+-- Hidden unless the player is on a gamepad (see _refreshHints).
+local function inputHint(parent, entries, props, alignment)
+	local merged = { Name = "InputHint", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), Visible = false }
+	for key, value in props do
+		merged[key] = value
+	end
+	merged.Parent = parent
+	local row = new("Frame", merged)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = alignment or Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 3),
+		Parent = row,
+	})
+	for i, pair in entries do
+		local cap = new("Frame", {
+			Name = "Key",
+			BackgroundColor3 = INK,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.new(0, 14, 1, 0),
+			LayoutOrder = i * 2 - 1,
+			Parent = row,
+		})
+		new("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3), Parent = cap })
+		text({
+			Text = pair[1],
+			TextSize = 8,
+			TextColor3 = PAPER,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.new(0, 8, 1, 0),
+			Parent = cap,
+		})
+		local word = text({
+			Name = "Action",
+			Text = pair[2],
+			TextSize = 8,
+			BackgroundColor3 = PAPER,
+			BackgroundTransparency = 0.1,
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.new(0, 8, 1, 0),
+			LayoutOrder = i * 2,
+			Parent = row,
+		})
+		new("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 5), Parent = word })
+	end
+	return row
+end
+
+-- Explicit gamepad neighbours for a grid of buttons (row-major, `columns` wide).
+-- Links left as nil fall back to Roblox's automatic choice.
+local function linkGrid(buttons, columns)
+	local count = #buttons
+	for i, button in buttons do
+		local column = (i - 1) % columns
+		button.NextSelectionLeft = if column > 0 then buttons[i - 1] else nil
+		button.NextSelectionRight = if column < columns - 1 and i < count then buttons[i + 1] else nil
+		button.NextSelectionUp = if i > columns then buttons[i - columns] else nil
+		local below = buttons[i + columns]
+		if below == nil and i + columns - column <= count then
+			below = buttons[count] -- short last row: drop to its last button
+		end
+		button.NextSelectionDown = below
+	end
+end
+
 -- Menu ---------------------------------------------------------------------------------
 
 function UI._buildMenu(self)
@@ -1017,7 +1193,7 @@ function UI._buildMenuLeft(self, root)
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, EDGE + 4, 0.5, 0),
-		Size = UDim2.fromOffset(256, 324),
+		Size = UDim2.fromOffset(256, MENU_H),
 		Parent = root,
 	})
 	fit(left)
@@ -1123,7 +1299,7 @@ function UI._buildMenuLeft(self, root)
 		TextSize = 26,
 		Align = Enum.TextXAlignment.Left,
 		Index = "A / START RUN / 0 M",
-		Position = UDim2.fromOffset(0, 218),
+		Position = UDim2.fromOffset(0, 232),
 		Size = UDim2.fromOffset(256, 54),
 		OnClick = function()
 			self:_fire("onPlay", 0, self:_pickedBoosts())
@@ -1140,8 +1316,8 @@ function UI._buildMenuLeft(self, root)
 		TextSize = 13,
 		Align = Enum.TextXAlignment.Left,
 		Index = "B / DAILY",
-		Position = UDim2.fromOffset(0, 276),
-		Size = UDim2.fromOffset(256, 48),
+		Position = UDim2.fromOffset(0, 290),
+		Size = UDim2.fromOffset(256, 50),
 		OnClick = function()
 			self:_openDaily()
 		end,
@@ -1188,7 +1364,7 @@ function UI._buildBoostPicker(self, left, y)
 		return
 	end
 	local width = 256
-	local gap = 4
+	local gap = BOOST_CHIP_GAP -- tight, so 5 chips stay >= 50 wide (44px on a phone)
 	local chipW = math.floor((width - gap * (count - 1)) / count)
 	local strip = new("Frame", {
 		Name = "Boosts",
@@ -1202,8 +1378,12 @@ function UI._buildBoostPicker(self, left, y)
 
 	for i, id in BOOST_ORDER do
 		if boostInfo(id) then
-			local holder = new("Frame", {
+			-- The holder is the button, so the whole chip (shadow included) is the tap / selection area.
+			local holder = new("TextButton", {
 				Name = id,
+				AutoButtonColor = false,
+				Text = "",
+				Selectable = true,
 				BackgroundTransparency = 1,
 				Position = UDim2.fromOffset((i - 1) * (chipW + gap), 0),
 				Size = UDim2.fromOffset(chipW, BOOST_CHIP_H),
@@ -1218,10 +1398,8 @@ function UI._buildBoostPicker(self, left, y)
 				Visible = false,
 				Parent = holder,
 			})
-			local face = new("TextButton", {
+			local face = new("Frame", {
 				Name = "Face",
-				AutoButtonColor = false,
-				Text = "",
 				BackgroundColor3 = PAPER,
 				Size = UDim2.new(1, -2, 1, -2),
 				Parent = holder,
@@ -1259,8 +1437,8 @@ function UI._buildBoostPicker(self, left, y)
 				Text = boostName(id),
 				Font = FONT_NUM,
 				TextXAlignment = Enum.TextXAlignment.Center,
-				Position = UDim2.fromOffset(2, 15),
-				Size = UDim2.new(1, -4, 0, 16),
+				Position = UDim2.fromOffset(2, 18),
+				Size = UDim2.new(1, -4, 0, 22),
 				Parent = face,
 			}), 8, 5)
 			local chip = {
@@ -1275,7 +1453,7 @@ function UI._buildBoostPicker(self, left, y)
 				plus = plus,
 				name = name,
 			}
-			face.Activated:Connect(function()
+			holder.Activated:Connect(function()
 				self:_tapBoostChip(chip)
 			end)
 			m.boostChips[id] = chip
@@ -1302,40 +1480,73 @@ function UI._buildBoostPop(self, left, chipY)
 		Parent = left,
 	})
 	frame.Active = true -- taps on the popover don't fall through
+	-- Gamepad selection stays inside the popover until it closes (B or X).
+	frame.SelectionGroup = true
+	frame.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
+	frame.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
+	frame.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
+	frame.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
 	pop.frame = frame
 	pop.y = chipY - 6
 	stroke(frame, 1.5)
 	cropMarks(frame, 6, 3)
 
-	local header = new("Frame", { Name = "Header", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 18), Parent = frame })
-	pop.title = text({ Text = "", TextSize = 8, TextColor3 = PAPER, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -96, 1, 0), Parent = header })
+	local header = new("Frame", { Name = "Header", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 24), Parent = frame })
+	pop.title = text({
+		Text = "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(8, 0),
+		Size = UDim2.new(1, -(POP_CLOSE + 68), 1, 0),
+		Parent = header,
+	})
 	setAccent(text({
 		Text = "BUY 1",
 		TextSize = 8,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.new(1, -90, 0, 0),
-		Size = UDim2.fromOffset(62, 18),
+		Position = UDim2.new(1, -(POP_CLOSE + 60), 0, 0),
+		Size = UDim2.fromOffset(54, 24),
 		Parent = header,
 	}), "TextColor3")
+	rule(header, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.6, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -POP_CLOSE, 0, 5), Size = UDim2.new(0, 1, 1, -10) })
+	-- The X is drawn in the header, but its tap area is a full 50x50 corner
+	-- (reaching down past the copy line, which stops short of it).
 	local close = new("TextButton", {
 		Name = "Close",
 		AutoButtonColor = false,
-		Text = "X",
-		Font = FONT_NUM,
-		TextSize = 9,
-		TextColor3 = PAPER,
+		Text = "",
+		Selectable = true,
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
-		Size = UDim2.fromOffset(24, 18),
-		Parent = header,
+		Size = UDim2.fromOffset(POP_CLOSE, POP_CLOSE),
+		ZIndex = 2,
+		Parent = frame,
 	})
-	rule(header, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.6, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -24, 0, 4), Size = UDim2.new(0, 1, 1, -8) })
+	text({
+		Text = "X",
+		Font = FONT_NUM,
+		TextSize = 10,
+		TextColor3 = PAPER,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.new(1, 0, 0, 24),
+		Parent = close,
+	})
 	close.Activated:Connect(function()
 		self:_closeBoostPop()
 	end)
+	pop.close = close
 
-	pop.copy = text({ Text = "", TextSize = 8, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(8, 21), Size = UDim2.new(1, -16, 0, 11), Parent = frame })
+	pop.copy = text({
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(8, 28),
+		Size = UDim2.new(1, -(POP_CLOSE + 12), 0, 11),
+		Parent = frame,
+	})
 
 	-- Leader line from the popover down to the chip it belongs to.
 	pop.pointer = rule(frame, { Name = "Pointer", Position = UDim2.new(0, 24, 1, 0), Size = UDim2.fromOffset(1, 6) })
@@ -1347,7 +1558,7 @@ function UI._buildBoostPop(self, left, chipY)
 		TextSize = 11,
 		Align = Enum.TextXAlignment.Left,
 		Index = "PAY / GEMS",
-		Position = UDim2.fromOffset(8, 36),
+		Position = UDim2.fromOffset(8, 54),
 		Size = UDim2.fromOffset(120, 50),
 		OnClick = function()
 			self:_buyBoostWithGems()
@@ -1360,7 +1571,7 @@ function UI._buildBoostPop(self, left, chipY)
 		TextSize = 11,
 		Align = Enum.TextXAlignment.Left,
 		Index = "PAY / ROBUX",
-		Position = UDim2.fromOffset(132, 36),
+		Position = UDim2.fromOffset(132, 54),
 		Size = UDim2.fromOffset(120, 50),
 		OnClick = function()
 			if pop.id then
@@ -1368,6 +1579,11 @@ function UI._buildBoostPop(self, left, chipY)
 			end
 		end,
 	})
+	pop.gems.holder.NextSelectionUp = close
+	pop.robux.holder.NextSelectionUp = close
+	pop.gems.holder.NextSelectionRight = pop.robux.holder
+	pop.robux.holder.NextSelectionLeft = pop.gems.holder
+	close.NextSelectionDown = pop.robux.holder
 end
 
 function UI._pickedBoosts(self)
@@ -1474,6 +1690,7 @@ function UI._openBoostPop(self, chip)
 	local id = productId(key)
 	pop.robux.holder.Visible = id ~= 0
 	pop.gems.holder.Size = if id ~= 0 then UDim2.fromOffset(120, 50) else UDim2.fromOffset(244, 50)
+	pop.close.NextSelectionDown = if id ~= 0 then pop.robux.holder else pop.gems.holder
 	pop.robux.setText("R$ --")
 	withPrice(id, Enum.InfoType.Product, function(price)
 		if pop.id == chip.id and pop.robux.label.Parent then
@@ -1484,7 +1701,10 @@ function UI._openBoostPop(self, chip)
 	pop.frame.Visible = true
 	pop.frame.Position = UDim2.fromOffset(0, pop.y + 8)
 	tween(pop.frame, 0.2, { Position = UDim2.fromOffset(0, pop.y) })
+	pop.returnTo = chip.holder
 	self:_refreshBoostPop()
+	self:_syncBack()
+	self:_focus(pop.gems.holder)
 end
 
 function UI._closeBoostPop(self)
@@ -1495,8 +1715,13 @@ function UI._closeBoostPop(self)
 	if self._topUp and self._topUp.host == pop.frame then
 		self:_hideTopUp()
 	end
+	local wasOpen = pop.frame.Visible
 	pop.id = nil
 	pop.frame.Visible = false
+	if wasOpen then
+		self:_syncBack()
+		self:_returnFocus(pop.frame, pop.returnTo)
+	end
 end
 
 -- Gem button: price, or how many gems are missing.
@@ -1638,13 +1863,14 @@ function UI._buildTopUp(self, root)
 	strip.Active = true
 	t.strip = strip
 	notch(strip, 8, 0, 0)
-	t.short = setAccent(text({ Text = "", TextSize = 8, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -124, 0, 10), Parent = strip }), "TextColor3")
+	local textW = -(12 + TOPUP_CLOSE_W + 2 + TOPUP_BUY_W + 8)
+	t.short = setAccent(text({ Text = "", TextSize = 8, Position = UDim2.fromOffset(12, 8), Size = UDim2.new(1, textW, 0, 10), Parent = strip }), "TextColor3")
 	t.offer = capText(text({
 		Text = "GET +" .. commas(product.Gems) .. " GEMS",
 		Font = FONT_NUM,
 		TextColor3 = PAPER,
-		Position = UDim2.fromOffset(12, 18),
-		Size = UDim2.new(1, -124, 0, 22),
+		Position = UDim2.fromOffset(12, 20),
+		Size = UDim2.new(1, textW, 0, 26),
 		Parent = strip,
 	}), 12, 7)
 	t.buy = hardButton(strip, {
@@ -1654,8 +1880,8 @@ function UI._buildTopUp(self, root)
 		TextSize = 11,
 		Sub = "",
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -28, 0.5, 2),
-		Size = UDim2.fromOffset(80, 42),
+		Position = UDim2.new(1, -(TOPUP_CLOSE_W + 2), 0.5, 2),
+		Size = UDim2.fromOffset(TOPUP_BUY_W, 50),
 		OnClick = function()
 			self:_fire("onBuyProduct", "GemTopUp")
 		end,
@@ -1663,7 +1889,7 @@ function UI._buildTopUp(self, root)
 	withPrice(id, Enum.InfoType.Product, function(price)
 		t.buy.sub.Text = "R$ " .. commas(price)
 	end)
-	rule(strip, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.7, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -26, 0, 8), Size = UDim2.new(0, 1, 1, -16) })
+	rule(strip, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.7, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -TOPUP_CLOSE_W, 0, 8), Size = UDim2.new(0, 1, 1, -16) })
 	local dismiss = new("TextButton", {
 		Name = "Dismiss",
 		AutoButtonColor = false,
@@ -1671,15 +1897,18 @@ function UI._buildTopUp(self, root)
 		Font = FONT_NUM,
 		TextSize = 10,
 		TextColor3 = PAPER,
+		Selectable = true,
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
-		Size = UDim2.new(0, 26, 1, 0),
+		Size = UDim2.new(0, TOPUP_CLOSE_W, 1, 0),
 		Parent = strip,
 	})
 	dismiss.Activated:Connect(function()
 		self:_hideTopUp()
 	end)
+	t.buy.holder.NextSelectionRight = dismiss
+	dismiss.NextSelectionLeft = t.buy.holder
 end
 
 -- Shows the top-up if the player is short for `price` by no more than the pack
@@ -1712,8 +1941,16 @@ function UI._offerTopUp(self, price, host)
 		tween(t.strip, 0.2, { Position = UDim2.new(0, 0, 0, -6) })
 	end
 	t.shown = nil
+	local selected = GuiService.SelectedObject
+	if selected == nil or not selected:IsDescendantOf(t.strip) then
+		t.returnTo = selected
+	end
 	t.strip.Visible = true
 	self:_refreshTopUp()
+	if t.strip.Visible then
+		self:_syncBack()
+		self:_focus(t.buy.holder)
+	end
 	return t.strip.Visible
 end
 
@@ -1736,9 +1973,14 @@ end
 function UI._hideTopUp(self)
 	local t = self._topUp
 	if t then
+		local wasOpen = t.strip.Visible
 		t.host = nil
 		t.price = nil
 		t.strip.Visible = false
+		if wasOpen then
+			self:_syncBack()
+			self:_returnFocus(t.strip, t.returnTo)
+		end
 	end
 end
 
@@ -1767,6 +2009,7 @@ function UI._buildMenuPanel(self, root)
 			Name = "Tab" .. name,
 			AutoButtonColor = false,
 			Text = "",
+			Selectable = true,
 			BackgroundColor3 = INK,
 			BackgroundTransparency = 1,
 			Position = UDim2.new((i - 1) / #names, 0, 0, 0),
@@ -1802,6 +2045,7 @@ function UI._buildMenuPanel(self, root)
 		local page = new("ScrollingFrame", {
 			Name = name .. "Page",
 			Active = true,
+			Selectable = false, -- gamepad selection goes to the buttons inside; the page scrolls to follow it
 			BackgroundTransparency = 1,
 			Position = UDim2.fromOffset(0, TAB_H + 1),
 			Size = UDim2.new(1, 0, 1, -(TAB_H + 1 + FOOTER_H)),
@@ -1828,12 +2072,17 @@ function UI._buildMenuPanel(self, root)
 		m.tabs[i] = { button = button, index = index, label = label, bar = bar, pip = pip, page = page, name = name }
 	end
 	rule(panel, { Position = UDim2.fromOffset(0, TAB_H) })
+	-- Gamepad: the tabs row is one straight line; LEFT off the first tab goes back to PLAY.
+	for i, tab in m.tabs do
+		tab.button.NextSelectionLeft = if i > 1 then m.tabs[i - 1].button else m.play and m.play.holder
+		tab.button.NextSelectionRight = if i < #m.tabs then m.tabs[i + 1].button else nil
+	end
 
 	-- Footer
 	local footer = new("Frame", { Name = "Footer", BackgroundTransparency = 1, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, FOOTER_H), Parent = panel })
 	rule(footer, { BackgroundTransparency = 0.5 })
 	m.footer = text({ Text = "SHEET 01 / " .. twoDigits(#names), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(9, 1), Size = UDim2.new(0.5, -9, 1, -1), Parent = footer })
-	text({
+	m.footerSpec = text({
 		Text = "SHATTER RUN / SPEC",
 		TextSize = 8,
 		TextColor3 = GREY,
@@ -1842,6 +2091,11 @@ function UI._buildMenuPanel(self, root)
 		Size = UDim2.new(0.5, -22, 1, -1),
 		Parent = footer,
 	})
+	-- Same spot, controller only.
+	m.footerHint = inputHint(footer, { { "A", "SELECT" }, { "B", "BACK" } }, {
+		Position = UDim2.new(0.4, 0, 0, 2),
+		Size = UDim2.new(0.6, -22, 1, -4),
+	}, Enum.HorizontalAlignment.Right)
 
 	-- 01 PLAY: global top runs + upgrades
 	local playPage = m.tabs[1].page
@@ -1885,15 +2139,19 @@ function UI._buildMenuPanel(self, root)
 	m.skinsRight = skinsRight
 	local grid = new("Frame", { Name = "Skins", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 11, Parent = shopPage })
 	new("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -4, 0, 160),
+		CellSize = UDim2.new(0.5, -4, 0, 162),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
 	})
 	m.skinCards = {}
+	local skinButtons = {}
 	for order, skin in Config.Skins do
-		m.skinCards[skin.Id] = self:_buildSkinCard(grid, skin, order)
+		local entry = self:_buildSkinCard(grid, skin, order)
+		m.skinCards[skin.Id] = entry
+		table.insert(skinButtons, entry.button.holder)
 	end
+	linkGrid(skinButtons, 2)
 
 	local _, fxRight = sectionHeader(shopPage, 12, "05.3", "SHATTER FX")
 	m.fxRight = fxRight
@@ -1908,14 +2166,28 @@ function UI._buildMenuPanel(self, root)
 	})
 	local fxGrid = new("Frame", { Name = "Fx", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 14, Parent = shopPage })
 	new("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -4, 0, 140),
+		CellSize = UDim2.new(0.5, -4, 0, 142),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = fxGrid,
 	})
 	m.fxCards = {}
+	local fxButtons = {}
 	for order, fx in Config.ShatterFx do
-		m.fxCards[fx.Id] = self:_buildFxCard(fxGrid, fx, order)
+		local entry = self:_buildFxCard(fxGrid, fx, order)
+		m.fxCards[fx.Id] = entry
+		table.insert(fxButtons, entry.button.holder)
+	end
+	linkGrid(fxButtons, 2)
+	-- Between the two grids: straight down from the last skins to the first effects and back.
+	if #skinButtons > 0 and #fxButtons > 0 then
+		local lastRowStart = #skinButtons - (#skinButtons - 1) % 2
+		for i = lastRowStart, #skinButtons do
+			skinButtons[i].NextSelectionDown = fxButtons[math.min(i - lastRowStart + 1, #fxButtons)]
+		end
+		for i = 1, math.min(2, #fxButtons) do
+			fxButtons[i].NextSelectionUp = skinButtons[math.min(lastRowStart + i - 1, #skinButtons)]
+		end
 	end
 end
 
@@ -2039,7 +2311,7 @@ function UI._buildFxCard(self, parent, fx, order)
 		Text = "BUY",
 		TextSize = 11,
 		Position = UDim2.fromOffset(6, 86),
-		Size = UDim2.new(1, -12, 0, 48),
+		Size = UDim2.new(1, -12, 0, 50),
 		OnClick = function()
 			self:_fxAction(entry)
 		end,
@@ -2096,7 +2368,7 @@ function UI._buildSkinCard(self, parent, skin, order)
 		Text = "BUY",
 		TextSize = 11,
 		Position = UDim2.fromOffset(6, 106),
-		Size = UDim2.new(1, -12, 0, 48),
+		Size = UDim2.new(1, -12, 0, 50),
 		OnClick = function()
 			self:_skinAction(entry)
 		end,
@@ -2150,6 +2422,12 @@ local function modalSheet(layer, name, width, height, index, title)
 		Parent = layer,
 	})
 	sheet.Active = true
+	-- Gamepad selection can't wander off the sheet to the menu underneath.
+	sheet.SelectionGroup = true
+	sheet.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
+	sheet.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
+	sheet.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
+	sheet.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
 	fit(sheet)
 	stroke(sheet, 1.5)
 	cropMarks(sheet, 10, 5)
@@ -2174,6 +2452,7 @@ function UI._buildModal(self, root)
 		Name = "Wash",
 		AutoButtonColor = false,
 		Text = "",
+		Selectable = false, -- tap-outside-to-close only; never a gamepad stop
 		BackgroundColor3 = PAPER,
 		BackgroundTransparency = 0.25,
 		Position = UDim2.fromOffset(-200, -200),
@@ -2200,12 +2479,18 @@ function UI._openModal(self, name)
 	for key, other in m.sheets do
 		other.Visible = key == name
 	end
+	local selected = GuiService.SelectedObject
+	if selected == nil or not selected:IsDescendantOf(m.modal) then
+		m.modalReturn = selected
+	end
 	m.modalOpen = name
 	m.modal.Visible = true
 	m.modalWash.BackgroundTransparency = 1
 	tween(m.modalWash, 0.25, { BackgroundTransparency = 0.25 })
 	sheet.Position = UDim2.new(0.5, 0, 0.5, 16)
 	tween(sheet, 0.3, { Position = UDim2.fromScale(0.5, 0.5) })
+	self:_syncBack()
+	self:_focus(self:_modalPrimary())
 end
 
 function UI._closeModal(self)
@@ -2215,6 +2500,20 @@ function UI._closeModal(self)
 	end
 	m.modalOpen = nil
 	m.modal.Visible = false
+	self:_syncBack()
+	self:_returnFocus(m.modal, m.modalReturn)
+end
+
+-- The button a popover's gamepad selection starts on.
+function UI._modalPrimary(self)
+	local m = self._menu
+	if m.modalOpen == "daily" then
+		local d = self._dailySheet
+		return if d.claim.enabled then d.claim.holder else d.close.holder
+	elseif m.modalOpen == "offer" then
+		return m.offerBuy and m.offerBuy.holder
+	end
+	return nil
 end
 
 function UI._openDaily(self)
@@ -2317,7 +2616,7 @@ end
 
 -- Shown inside the daily sheet only while a broken streak can still be saved.
 -- The sheet grows to make room; the claim row moves down under it.
-local SAVER_H = 50
+local SAVER_H = 58
 
 function UI._buildStreakSaver(self, sheet)
 	local d = self._dailySheet
@@ -2333,12 +2632,14 @@ function UI._buildStreakSaver(self, sheet)
 		Visible = false,
 		Parent = sheet,
 	})
+	-- Text block is vertically centred in the taller strip.
+	local textTop = math.floor((SAVER_H - 4 - 32) / 2)
 	hatch(saver, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
 	notch(saver, 8, 1, 0)
 	d.saverTitle = capText(setAccent(text({
 		Text = "",
 		Font = FONT_NUM,
-		Position = UDim2.fromOffset(18, 6),
+		Position = UDim2.fromOffset(18, textTop),
 		Size = UDim2.new(1, -118, 0, 20),
 		Parent = saver,
 	}), "TextColor3"), 12, 7)
@@ -2347,7 +2648,7 @@ function UI._buildStreakSaver(self, sheet)
 		TextSize = 7,
 		TextColor3 = PAPER,
 		TextTruncate = Enum.TextTruncate.AtEnd,
-		Position = UDim2.fromOffset(18, 28),
+		Position = UDim2.fromOffset(18, textTop + 22),
 		Size = UDim2.new(1, -118, 0, 10),
 		Parent = saver,
 	})
@@ -2358,12 +2659,13 @@ function UI._buildStreakSaver(self, sheet)
 		TextSize = 11,
 		Sub = "",
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -4, 0.5, 2),
-		Size = UDim2.fromOffset(92, 42),
+		Position = UDim2.new(1, -2, 0.5, 0),
+		Size = UDim2.fromOffset(92, 50),
 		OnClick = function()
 			self:_fire("onBuyProduct", "StreakSaver")
 		end,
 	})
+	d.saverBuy = buy
 	withPrice(id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -2500,6 +2802,7 @@ function UI._buildOfferSheet(self, layer)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
+	m.offerBuy = buy
 end
 
 -- Once per session, after the player's first run, if they haven't bought it.
@@ -2590,6 +2893,7 @@ function UI._rebuildMissions(self, force)
 		return
 	end
 	m.missionsKey = key
+	local focusPath = self:_captureFocus(m.missions)
 	clearRows(m.missions)
 	m.missionsRight.Text = rerolls .. (if rerolls == 1 then " REROLL" else " REROLLS") .. " LEFT"
 
@@ -2611,6 +2915,7 @@ function UI._rebuildMissions(self, force)
 		end
 	end
 	self:_setTabPip(TAB_MISSIONS, claimable > 0)
+	self:_restoreFocus(m.missions, focusPath, m.tabs[TAB_MISSIONS].button)
 end
 
 function UI._buildMissionRow(self, parent, index, mission, rerolls)
@@ -2685,7 +2990,7 @@ function UI._buildMissionRow(self, parent, index, mission, rerolls)
 			Sub = "SWAP MISSION",
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -6, 0.5, 0),
-			Size = UDim2.fromOffset(88, 48),
+			Size = UDim2.fromOffset(88, 50),
 			OnClick = function()
 				self:_missionAction("RerollMission", mission, button, "...")
 			end,
@@ -2701,7 +3006,7 @@ function UI._buildMissionRow(self, parent, index, mission, rerolls)
 			Sub = "R$ --",
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -6, 0.5, 0),
-			Size = UDim2.fromOffset(88, 48),
+			Size = UDim2.fromOffset(88, 50),
 			OnClick = function()
 				self:_fire("onBuyProduct", "ExtraReroll")
 			end,
@@ -2864,6 +3169,7 @@ function UI._buildSeasonPage(self, page)
 	local scroll = new("ScrollingFrame", {
 		Name = "Tiers",
 		Active = true,
+		Selectable = false,
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(42, 0),
 		Size = UDim2.new(1, -42, 1, 0),
@@ -2926,7 +3232,8 @@ end
 
 -- Rebuilds the 30-tier track only when tier, ownership or claims change.
 function UI._rebuildSeason(self, force)
-	local s = self._menu.season
+	local m = self._menu
+	local s = m.season
 	self:_refreshSeasonProgress()
 	local tier, _, _, maxTier = seasonProgress()
 	local premium = player:GetAttribute("SeasonPremium") == true
@@ -2940,7 +3247,9 @@ function UI._rebuildSeason(self, force)
 	s.unlock.Visible = not premium and product ~= nil and product.Id ~= 0
 	s.active.Visible = premium
 
+	local focusPath = self:_captureFocus(s.scroll)
 	clearRows(s.scroll)
+	local faces = { Free = {}, Premium = {} }
 	s.nextFill = nil
 	local claimable, firstClaimable = 0, nil
 	for t = 1, maxTier do
@@ -2982,9 +3291,11 @@ function UI._rebuildSeason(self, force)
 				claimable += 1
 				firstClaimable = firstClaimable or t
 			end
-			self:_buildSeasonCell(column, if trackName == "Free" then 23 else 81, trackName, t, reward, state)
+			faces[trackName][t] = self:_buildSeasonCell(column, if trackName == "Free" then 23 else 81, trackName, t, reward, state)
 		end
 	end
+	self:_linkSeasonTrack(faces, maxTier)
+	self:_restoreFocus(s.scroll, focusPath, m.tabs[TAB_SEASON].button)
 	self:_refreshSeasonProgress()
 	s.trackRight.Text = if claimable > 0 then claimable .. " TO CLAIM" else "SWIPE FOR ALL " .. maxTier .. " TIERS"
 	s.focusTier = firstClaimable or math.min(tier + 1, maxTier)
@@ -2998,7 +3309,7 @@ function UI._buildSeasonCell(self, column, y, trackName, tier, reward, state)
 		local blank = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, -3, 1, -3), Parent = holder })
 		stroke(blank, 1, INK, 0.85)
 		text({ Text = "--", TextSize = 9, TextColor3 = GREY, TextTransparency = 0.4, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = blank })
-		return
+		return nil
 	end
 	local claimable = state == "claimable"
 	local locked = state == "locked" or state == "premiumLocked"
@@ -3009,6 +3320,7 @@ function UI._buildSeasonCell(self, column, y, trackName, tier, reward, state)
 		Name = "Face",
 		AutoButtonColor = false,
 		Text = "",
+		Selectable = true,
 		BackgroundColor3 = PAPER,
 		BackgroundTransparency = if locked then 0.4 else 0,
 		Size = UDim2.new(1, -3, 1, -3),
@@ -3069,6 +3381,40 @@ function UI._buildSeasonCell(self, column, y, trackName, tier, reward, state)
 			self:toast("REACH TIER " .. tier .. " TO CLAIM", "info")
 		end
 	end)
+	return face
+end
+
+-- Gamepad: LEFT / RIGHT walk along a row (skipping empty slots), UP / DOWN hop
+-- between the free and premium rows. The track scrolls to follow the selection.
+function UI._linkSeasonTrack(self, faces, maxTier)
+	local function nearest(row, from, step)
+		local t = from + step
+		while t >= 1 and t <= maxTier do
+			if row[t] then
+				return row[t]
+			end
+			t += step
+		end
+		return nil
+	end
+	local function closest(row, t)
+		if row[t] then
+			return row[t]
+		end
+		return nearest(row, t, -1) or nearest(row, t, 1)
+	end
+	for trackName, row in faces do
+		local other = if trackName == "Free" then faces.Premium else faces.Free
+		for t, face in row do
+			face.NextSelectionLeft = nearest(row, t, -1)
+			face.NextSelectionRight = nearest(row, t, 1)
+			if trackName == "Free" then
+				face.NextSelectionDown = closest(other, t)
+			else
+				face.NextSelectionUp = closest(other, t)
+			end
+		end
+	end
 end
 
 function UI._claimSeasonTier(self, trackName, tier, statusLabel)
@@ -3340,6 +3686,7 @@ end
 
 function UI._rebuildPasses(self)
 	local m = self._menu
+	local focusPath = self:_captureFocus(m.passes)
 	clearRows(m.passes)
 	local shown = 0
 	for order, key in PASS_ORDER do
@@ -3390,10 +3737,12 @@ function UI._rebuildPasses(self)
 	end
 	m.passHeader.Visible = shown > 0
 	m.passes.Visible = shown > 0
+	self:_restoreFocus(m.passes, focusPath, m.tabs[1].button)
 end
 
 function UI._rebuildZones(self)
 	local m = self._menu
+	local focusPath = self:_captureFocus(m.zones)
 	clearRows(m.zones)
 	local reached = math.max(0, math.floor(tonumber(player:GetAttribute("Checkpoint")) or 0))
 	local unlocked = hasPass("Checkpoints")
@@ -3476,7 +3825,7 @@ function UI._rebuildZones(self)
 				TextSize = 12,
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.new(1, 0, 0.5, 0),
-				Size = UDim2.fromOffset(74, 48),
+				Size = UDim2.fromOffset(74, 50),
 				OnClick = function()
 					self:_fire("onPlay", i, self:_pickedBoosts())
 				end,
@@ -3488,6 +3837,7 @@ function UI._rebuildZones(self)
 		zoneRow(i, i > 0 and not unlocked, false)
 	end
 	zoneRow(reached + 1, true, true)
+	self:_restoreFocus(m.zones, focusPath, m.tabs[4].button)
 end
 
 function UI._refreshSkins(self)
@@ -3739,6 +4089,13 @@ function UI._buildHud(self)
 	h.streak = new("Frame", { Size = UDim2.fromScale(0, 1), Parent = track })
 	setAccent(h.streak, "BackgroundColor3")
 
+	-- Controller hint under the odometer during the first run ("R2 THROW").
+	h.throwHint = inputHint(plate, { { "R2", "THROW" } }, {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, 5),
+		Size = UDim2.new(1, 0, 0, 14),
+	})
+
 	-- Active boosts hang under the odometer (children of the plate, so they share its scale).
 	self:_buildBoostRail(plate)
 
@@ -3862,7 +4219,7 @@ function UI._buildBoostRail(self, plate)
 		Padding = UDim.new(0, 4),
 		Parent = rail,
 	})
-	local b = { items = {} }
+	local b = { items = {}, rail = rail }
 	h.boostRail = b
 
 	-- { id, small label, has a countdown bar }
@@ -4201,7 +4558,7 @@ function UI._buildGameOver(self)
 	list(actions, 6)
 
 	local revive = Config.Products.Revive
-	local reviveGroup = new("Frame", { Name = "Revive", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 64), LayoutOrder = 1, Visible = false, Parent = actions })
+	local reviveGroup = new("Frame", { Name = "Revive", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), LayoutOrder = 1, Visible = false, Parent = actions })
 	g.reviveButton = hardButton(reviveGroup, {
 		Name = "ReviveButton",
 		Fill = "danger",
@@ -4225,7 +4582,7 @@ function UI._buildGameOver(self)
 		g.reviveButton.sub.Text = "R$ " .. commas(price)
 	end)
 
-	hardButton(actions, {
+	g.playAgain = hardButton(actions, {
 		Name = "PlayAgain",
 		Fill = "accent",
 		Text = "PLAY AGAIN",
@@ -4236,12 +4593,12 @@ function UI._buildGameOver(self)
 			self:_fire("onPlayAgain", self:_pickedBoosts())
 		end,
 	})
-	hardButton(actions, {
+	g.menuButton = hardButton(actions, {
 		Name = "Menu",
 		Fill = "paper",
 		Text = "MENU",
 		TextSize = 12,
-		Size = UDim2.new(1, 0, 0, 48),
+		Size = UDim2.new(1, 0, 0, 50),
 		LayoutOrder = 3,
 		OnClick = function()
 			self:_fire("onMenu")
@@ -4264,7 +4621,7 @@ function UI._buildToasts(self)
 		Name = "ZoneCard",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.24),
+		Position = UDim2.fromScale(0.5, ZONE_CARD_Y),
 		Size = UDim2.fromOffset(360, 106),
 		GroupTransparency = 1,
 		Visible = false,
@@ -4316,11 +4673,11 @@ function UI._showZoneCard(self, value, heading, subline, duration)
 	z.title.Text = string.upper(value)
 	z.card.Visible = true
 	z.card.GroupTransparency = 1
-	z.card.Position = UDim2.new(0.5, 0, 0.24, 12)
+	z.card.Position = UDim2.new(0.5, 0, ZONE_CARD_Y, 12)
 	z.ruleLeft.Size = UDim2.fromOffset(0, 1)
 	z.ruleRight.Size = UDim2.fromOffset(0, 1)
 	z.bar.Size = UDim2.new(0, 0, 0, 5)
-	tween(z.card, 0.3, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, 0.24) })
+	tween(z.card, 0.3, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, ZONE_CARD_Y) })
 	tween(z.ruleLeft, 0.35, { Size = UDim2.fromOffset(120, 1) })
 	tween(z.ruleRight, 0.35, { Size = UDim2.fromOffset(120, 1) })
 	tween(z.bar, holdTime, { Size = UDim2.new(1, 0, 0, 5) }, Enum.EasingStyle.Linear)
@@ -4328,7 +4685,7 @@ function UI._showZoneCard(self, value, heading, subline, duration)
 		if z.token ~= token then
 			return
 		end
-		tween(z.card, 0.25, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, 0.24, -10) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		tween(z.card, 0.25, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, ZONE_CARD_Y, -10) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
 		task.delay(0.26, function()
 			if z.token == token then
 				z.card.Visible = false
@@ -4456,6 +4813,173 @@ function UI._refreshAll(self)
 	self:_refreshBoosts()
 end
 
+-- Gamepad selection -------------------------------------------------------------------
+-- Nothing here does anything unless the last input came from a controller.
+
+-- Puts the gamepad selection on `target` (a button that is on screen).
+function UI._focus(self, target)
+	if not self._gamepad or target == nil then
+		return
+	end
+	GuiService.SelectedObject = target
+	-- The engine can drop a selection made in the same frame something opens or
+	-- closes (B also clears it by default); put it back once things settle.
+	task.delay(0.05, function()
+		if self._gamepad and GuiService.SelectedObject == nil and onScreen(target) then
+			GuiService.SelectedObject = target
+		end
+	end)
+end
+
+-- The button a gamepad player should land on for whatever is showing, or nil
+-- during a run (so A / R2 go to the game, not the UI).
+function UI._primary(self)
+	local m = self._menu
+	if m.root.Visible then
+		if m.modalOpen then
+			return self:_modalPrimary()
+		end
+		local t = self._topUp
+		if t and t.strip.Visible then
+			return t.buy.holder
+		end
+		local pop = m.boostPop
+		if pop and pop.frame.Visible then
+			return pop.gems.holder
+		end
+		return m.play.holder
+	end
+	local g = self._over
+	if g.root.Visible then
+		return if g.reviveGroup.Visible then g.reviveButton.holder else g.playAgain.holder
+	end
+	return nil
+end
+
+-- After `container` closed: if the selection was in it (or got dropped), move it
+-- back to `target` (what opened it), or to the screen's main button.
+function UI._returnFocus(self, container, target)
+	if not self._gamepad then
+		return
+	end
+	local selected = GuiService.SelectedObject
+	if selected ~= nil and selected ~= container and not selected:IsDescendantOf(container) then
+		return -- the player had already moved on
+	end
+	if target and target.Selectable and onScreen(target) then
+		self:_focus(target)
+	else
+		self:_focus(self:_primary())
+	end
+end
+
+-- Rows get rebuilt when data changes (claiming a mission...). Remember where the
+-- selection was by name, so it can land in the same place afterwards.
+function UI._captureFocus(self, container)
+	local selected = GuiService.SelectedObject
+	if not self._gamepad or selected == nil or not selected:IsDescendantOf(container) then
+		return nil
+	end
+	local path = {}
+	local node = selected
+	while node and node ~= container do
+		table.insert(path, 1, node.Name)
+		node = node.Parent
+	end
+	return path
+end
+
+function UI._restoreFocus(self, container, path, fallback)
+	if path == nil or not self._gamepad then
+		return
+	end
+	local node = container
+	for _, name in path do
+		node = node and node:FindFirstChild(name)
+	end
+	if node and node:IsA("GuiButton") and node.Selectable and onScreen(node) then
+		self:_focus(node)
+		return
+	end
+	-- That button is gone (claimed...): the same row's other button, any row's, or the tab.
+	local row = container:FindFirstChild(path[1])
+	self:_focus(firstSelectable(row) or firstSelectable(container) or fallback)
+end
+
+function UI._popoverOpen(self)
+	local m = self._menu
+	if not m.root.Visible then
+		return false
+	end
+	local t = self._topUp
+	local pop = m.boostPop
+	return m.modalOpen ~= nil or (pop ~= nil and pop.frame.Visible) or (t ~= nil and t.strip.Visible)
+end
+
+-- Gamepad B closes the top-most popover. Bound only while one is open, so B is
+-- free for everything else the rest of the time.
+function UI._syncBack(self)
+	local open = self:_popoverOpen()
+	if open ~= (self._backBound == true) then
+		self._backBound = open
+		if open then
+			ContextActionService:BindActionAtPriority(BACK_ACTION, function(_, inputState)
+				if inputState == Enum.UserInputState.Begin then
+					self:_back()
+				end
+				return Enum.ContextActionResult.Sink
+			end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
+		else
+			ContextActionService:UnbindAction(BACK_ACTION)
+		end
+	end
+end
+
+function UI._back(self)
+	local m = self._menu
+	local t = self._topUp
+	if t and t.strip.Visible then
+		self:_hideTopUp()
+	elseif m.boostPop and m.boostPop.frame.Visible then
+		self:_closeBoostPop()
+	elseif m.modalOpen then
+		self:_closeModal()
+	end
+end
+
+-- Controller hints: menu footer, and "R2 THROW" under the balls during the first run.
+function UI._refreshHints(self)
+	local gamepad = self._gamepad == true
+	local m = self._menu
+	m.footerHint.Visible = gamepad
+	m.footerSpec.Visible = not gamepad
+	local h = self._hud
+	local throw = gamepad and h.layer.Visible and self._runsEnded == 0
+	h.throwHint.Visible = throw
+	if h.boostRail then
+		h.boostRail.rail.Position = UDim2.new(0.5, 0, 1, if throw then 22 else 6)
+	end
+end
+
+function UI._setGamepad(self, gamepad)
+	if gamepad == self._gamepad then
+		return
+	end
+	self._gamepad = gamepad
+	if gamepad then
+		if GuiService.SelectedObject == nil then
+			self:_focus(self:_primary())
+		end
+	else
+		-- Back on touch / mouse: don't leave a selection box hanging around.
+		local selected = GuiService.SelectedObject
+		if selected and selected:IsDescendantOf(self.gui) then
+			GuiService.SelectedObject = nil
+		end
+	end
+	self:_refreshHints()
+end
+
 -- Public API ---------------------------------------------------------------------------
 
 function UI.new(callbacks)
@@ -4466,6 +4990,8 @@ function UI.new(callbacks)
 	self._toastSerial = 0
 	self._connections = {}
 	self._menuOpens = 0
+	self._runsEnded = 0 -- game overs this session (the "R2 THROW" hint shows until the first)
+	self._gamepad = gamepadAtStart()
 
 	local playerGui = player:WaitForChild("PlayerGui")
 	local old = playerGui:FindFirstChild("ShatterRunUI")
@@ -4473,13 +4999,22 @@ function UI.new(callbacks)
 		old:Destroy()
 	end
 
+	-- CoreUISafeInsets: the usable area starts below Roblox's top bar and inside
+	-- the notch / home bar, so no text or button can end up under them.
+	-- Not clipping lets the full-screen washes (see `bleed`) still reach every edge.
 	self.gui = new("ScreenGui", {
 		Name = "ShatterRunUI",
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-		ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
+		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
+		ClipToDeviceSafeArea = false,
 		DisplayOrder = 10,
 	})
+
+	-- One blueprint selection box for every gamepad-selected button in PlayerGui.
+	local box, boxStroke = selectionBox()
+	self._selectionStroke = boxStroke
+	playerGui.SelectionImageObject = box
 
 	-- Back to front.
 	self:_buildMenu()
@@ -4596,10 +5131,43 @@ function UI.new(callbacks)
 		self:_rebuildTopRuns()
 	end)
 
+	-- Gamepad: follow the last input, and never leave a gamepad player with
+	-- nothing selected on a menu-type screen (B clears the selection by default).
+	connect(UserInputService.LastInputTypeChanged, function(inputType)
+		local kind = inputKind(inputType)
+		if kind then
+			self:_setGamepad(kind == "gamepad" and UserInputService.GamepadEnabled)
+		end
+	end)
+	connect(UserInputService.GamepadDisconnected, function()
+		if not UserInputService.GamepadEnabled then
+			self:_setGamepad(false)
+		end
+	end)
+	connect(GuiService:GetPropertyChangedSignal("SelectedObject"), function()
+		if GuiService.SelectedObject ~= nil or not self._gamepad then
+			return
+		end
+		local token = {}
+		self._refocusToken = token
+		task.delay(0.15, function()
+			if self._refocusToken == token and self._gamepad and GuiService.SelectedObject == nil then
+				local target = self:_primary()
+				if target and onScreen(target) then
+					GuiService.SelectedObject = target
+				end
+			end
+		end)
+	end)
+
 	connect(self.gui.Destroying, function()
 		self._alive = false
 		for _, connection in self._connections do
 			connection:Disconnect()
+		end
+		if self._backBound then
+			self._backBound = false
+			ContextActionService:UnbindAction(BACK_ACTION)
 		end
 	end)
 
@@ -4615,6 +5183,7 @@ function UI.new(callbacks)
 	end)
 
 	self:_refreshAll()
+	self:_refreshHints()
 	return self
 end
 
@@ -4636,6 +5205,8 @@ function UI:showMenu()
 	local play = m.play.face
 	play.Position = UDim2.fromOffset(2, 2)
 	tween(play, 0.3, { Position = UDim2.new() }, Enum.EasingStyle.Back)
+	self:_refreshHints()
+	self:_focus(self:_primary()) -- PLAY, or the starter offer if it just opened
 end
 
 function UI:showHud()
@@ -4652,6 +5223,10 @@ function UI:showHud()
 	self._menu.root.Visible = false
 	self._over.root.Visible = false
 	self._hud.layer.Visible = true
+	self:_syncBack()
+	self:_refreshHints()
+	-- No UI selection during a run, so the controller's buttons throw instead of clicking.
+	GuiService.SelectedObject = nil
 end
 
 function UI:setHud(state)
@@ -4797,6 +5372,9 @@ function UI:showGameOver(info)
 	self._hud.layer.Visible = false
 	self._menu.root.Visible = false
 	g.root.Visible = true
+	self._runsEnded += 1
+	self:_syncBack()
+	self:_refreshHints()
 
 	local meters = math.max(0, math.floor(tonumber(info.meters) or 0))
 	local best = math.max(meters, math.floor(tonumber(info.best) or 0))
@@ -4878,6 +5456,7 @@ function UI:showGameOver(info)
 		end)
 		countdown:Play()
 	end
+	self:_focus(self:_primary()) -- REVIVE while it's on offer, else PLAY AGAIN
 end
 
 function UI:hideRevive()
@@ -4887,7 +5466,11 @@ function UI:hideRevive()
 	if countdown then
 		countdown:Cancel()
 	end
+	local wasVisible = g.reviveGroup.Visible
 	g.reviveGroup.Visible = false
+	if wasVisible and g.root.Visible then
+		self:_returnFocus(g.reviveGroup, g.playAgain.holder)
+	end
 end
 
 function UI:toast(value, kind)
@@ -4967,6 +5550,9 @@ function UI:setTheme(theme)
 		return
 	end
 	accentColor = theme.Accent
+	if self._selectionStroke then
+		self._selectionStroke.Color = accentColor
+	end
 	for inst, prop in accentTargets do
 		if inst.Parent == nil then
 			accentTargets[inst] = nil

@@ -10,8 +10,17 @@
 	a short card explains it once, ever. Seen tips are saved on the server.
 
 	Drawn in the game's blueprint style: paper card, ink outline, hard shadow.
+
+	Layout follows UI.luau: the ScreenGui uses CoreUISafeInsets (nothing under
+	Roblox's top bar or a notch). The SKIP button sits under the HUD's distance
+	plate; the card sits under the balls plate when the screen is tall enough,
+	otherwise (phones) at the bottom between the corner buttons, so it never
+	covers the middle of the screen where the targets are.
+	On a controller, Y skips (and SKIP is selectable like any other button).
 ]]
 
+local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -37,9 +46,55 @@ local TIP_SECONDS = 3.2
 local TIP_SCAN_INTERVAL = 0.25
 local TIP_DISTANCE = 45
 
-local isTouch = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+-- Mirrors of UI.luau's HUD layout numbers (600x340 sheet, HUD plates at 0.85),
+-- so the card and SKIP button can sit just under the HUD plates.
+local REF_W, REF_H = 600, 340
+local SCALE_MIN, SCALE_MAX = 0.8, 2
+local HUD_SCALE = 0.85
+local EDGE = 12
+local HUD_TOP = EDGE - 4
+local BALLS_BLOCK_H = 144 -- balls plate + controller hint + boost rail
+local DISTANCE_PLATE_H = 62
+local CORNER_BUTTON_W = 122 -- ball pack (bottom-right) / shield (bottom-left)
+local CARD_H = 74
+local CARD_SHADOW = 5
+local SKIP_ACTION = "ShatterRunSkipTutorial"
+
+-- How the player is playing right now: "gamepad", "touch" or "mouse".
+-- Asked at lesson time (not at load), so plugging in a controller mid-session counts.
+local function inputKind()
+	local last = UserInputService:GetLastInputType()
+	if string.sub(last.Name, 1, 7) == "Gamepad" then
+		return "gamepad"
+	elseif last == Enum.UserInputType.Touch then
+		return "touch"
+	elseif
+		last == Enum.UserInputType.Keyboard
+		or last == Enum.UserInputType.MouseMovement
+		or last == Enum.UserInputType.MouseButton1
+		or last == Enum.UserInputType.MouseButton2
+		or last == Enum.UserInputType.MouseWheel
+	then
+		return "mouse"
+	end
+	-- No telling input yet (or gyro etc.): guess from the device.
+	if GuiService:IsTenFootInterface() then
+		return "gamepad"
+	elseif UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		return "touch"
+	end
+	return "mouse"
+end
+
+local THROW_TITLES = { gamepad = "PRESS R2 TO THROW", touch = "TAP TO THROW", mouse = "CLICK TO THROW" }
+
 local LESSONS = {
-	{ title = if isTouch then "TAP TO THROW" else "CLICK TO THROW", body = "AIM AT THE GLASS AND SMASH IT" },
+	{
+		title = function()
+			return THROW_TITLES[inputKind()]
+		end,
+		body = "AIM AT THE GLASS AND SMASH IT",
+	},
 	{ title = "HIT THE CRYSTAL", body = "EVERY CRYSTAL GIVES YOU +" .. Config.CRYSTAL_REWARD .. " BALLS" },
 	{ title = "DON'T CRASH!", body = "FLYING INTO GLASS COSTS " .. Config.CRASH_PENALTY .. " BALLS - BREAK IT FIRST" },
 }
@@ -56,6 +111,9 @@ local tipCooldown = 0
 local tipScan = 0
 local tipToken
 local cardHoldUntil = 0 -- os.clock() time until which the card must stay up
+local cardRest = UDim2.new(0.5, 0, 0, 92) -- where the card sits (set by layoutUi)
+local cardSlide = -22 -- it slides in from this many px above (top) or below (bottom)
+local skipBound = false
 
 -- UI -------------------------------------------------------------------------
 
@@ -75,12 +133,70 @@ local function new(className, props, children)
 	return instance
 end
 
+-- Puts the SKIP button under the distance plate and the card where it covers
+-- the least: under the balls plate when there is room, else at the bottom.
+local function layoutUi()
+	local size = gui.AbsoluteSize
+	if size.X < 1 or size.Y < 1 then
+		return
+	end
+	local sheet = math.clamp(math.min(size.X / REF_W, size.Y / REF_H), SCALE_MIN, SCALE_MAX)
+	local hud = sheet * HUD_SCALE
+
+	skipButton.Position = UDim2.new(1, -EDGE, 0, math.floor(HUD_TOP + DISTANCE_PLATE_H * hud + 8))
+
+	local top = math.floor(HUD_TOP + BALLS_BLOCK_H * hud + 10)
+	local width
+	if top + CARD_H <= size.Y * 0.4 then
+		width = math.clamp(size.X * 0.7, 260, 460)
+		card.AnchorPoint = Vector2.new(0.5, 0)
+		cardRest = UDim2.new(0.5, 0, 0, top)
+		cardSlide = -22
+	else
+		local corner = EDGE + CORNER_BUTTON_W * sheet + 8
+		width = math.clamp(size.X - corner * 2 - CARD_SHADOW, 240, 460)
+		card.AnchorPoint = Vector2.new(0.5, 1)
+		cardRest = UDim2.new(0.5, 0, 1, -(EDGE + CARD_SHADOW))
+		cardSlide = 22
+	end
+	card.Size = UDim2.fromOffset(math.floor(width), CARD_H)
+	card.Position = cardRest
+end
+
+local function refreshSkipLabel()
+	if skipButton then
+		skipButton.Text = if inputKind() == "gamepad" then "Y  SKIP TUTORIAL" else "SKIP TUTORIAL"
+	end
+end
+
+-- SKIP is shown (and Y bound to it) only while the tutorial is running and not paused.
+local function setSkipShown(shown)
+	skipButton.Visible = shown
+	if shown then
+		refreshSkipLabel()
+	end
+	if shown ~= skipBound then
+		skipBound = shown
+		if shown then
+			ContextActionService:BindAction(SKIP_ACTION, function(_, inputState)
+				if inputState == Enum.UserInputState.Begin then
+					Tutorial.finish(true)
+				end
+				return Enum.ContextActionResult.Sink
+			end, false, Enum.KeyCode.ButtonY)
+		else
+			ContextActionService:UnbindAction(SKIP_ACTION)
+		end
+	end
+end
+
 local function buildUi()
+	-- CoreUISafeInsets keeps the card and SKIP clear of Roblox's top bar and notches.
 	gui = new("ScreenGui", {
 		Name = "TutorialHints",
 		ResetOnSpawn = false,
 		DisplayOrder = 20,
-		ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
+		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
 	-- The pointer covers the whole screen (no insets), so its coordinates are
@@ -93,23 +209,21 @@ local function buildUi()
 		Parent = player:WaitForChild("PlayerGui"),
 	})
 
-	-- Instruction card: top center, clear of the middle of the screen.
+	-- Instruction card: placed by layoutUi, clear of the middle of the screen.
 	local holder = new("Frame", {
 		Name = "Card",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 92),
-		Size = UDim2.new(0.7, 0, 0, 74),
+		Position = cardRest,
+		Size = UDim2.fromOffset(400, CARD_H),
 		BackgroundTransparency = 1,
 		Active = false,
 		Visible = false,
 		Parent = gui,
-	}, {
-		new("UISizeConstraint", { MaxSize = Vector2.new(460, 74), MinSize = Vector2.new(260, 64) }),
 	})
 	-- Hard ink shadow, then the paper card on top.
 	new("Frame", {
 		Name = "Shadow",
-		Position = UDim2.fromOffset(5, 5),
+		Position = UDim2.fromOffset(CARD_SHADOW, CARD_SHADOW),
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = INK,
 		BorderSizePixel = 0,
@@ -171,23 +285,38 @@ local function buildUi()
 		new("UIStroke", { Thickness = 4, Color = ACCENT }),
 	})
 
+	-- 150x44: a full-size tap target; selectable so a controller can reach it too
+	-- (it uses the blueprint selection box UI.luau sets on PlayerGui).
 	skipButton = new("TextButton", {
 		Name = "Skip",
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 56),
-		Size = UDim2.fromOffset(120, 40),
+		Position = UDim2.new(1, -EDGE, 0, 70),
+		Size = UDim2.fromOffset(150, 44),
 		BackgroundColor3 = PAPER,
 		BorderSizePixel = 0,
 		AutoButtonColor = true,
+		Selectable = true,
 		Font = Enum.Font.RobotoMono,
 		Text = "SKIP TUTORIAL",
 		TextColor3 = INK,
-		TextSize = 13,
+		TextScaled = true,
 		Visible = false,
 		Parent = gui,
-	}, { new("UIStroke", { Thickness = 2, Color = INK, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) })
+	}, {
+		new("UIStroke", { Thickness = 2, Color = INK, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
+		new("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8 }),
+		new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+	})
 	skipButton.Activated:Connect(function()
 		Tutorial.finish(true)
+	end)
+
+	layoutUi()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutUi)
+	UserInputService.LastInputTypeChanged:Connect(function()
+		if skipButton.Visible then
+			refreshSkipLabel()
+		end
 	end)
 end
 
@@ -197,8 +326,8 @@ local function showCard(title, body, color)
 	card.Paper.Accent.BackgroundColor3 = color or ACCENT
 	if not card.Visible then
 		card.Visible = true
-		card.Position = UDim2.new(0.5, 0, 0, 70)
-		TweenService:Create(card, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Position = UDim2.new(0.5, 0, 0, 92) }):Play()
+		card.Position = cardRest + UDim2.fromOffset(0, cardSlide)
+		TweenService:Create(card, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Position = cardRest }):Play()
 	end
 end
 
@@ -242,7 +371,7 @@ function Tutorial.start(trackBuilder)
 	active = true
 	step = 1
 	scale = 1
-	skipButton.Visible = true
+	setSkipShown(true)
 end
 
 function Tutorial.isActive()
@@ -256,7 +385,7 @@ function Tutorial.finish(skipped)
 	active = false
 	finishedThisSession = true
 	scale = 1
-	skipButton.Visible = false
+	setSkipShown(false)
 	ring.Visible = false
 	remember("FinishTutorial")
 
@@ -275,7 +404,7 @@ function Tutorial.setPaused(paused)
 	if not gui or not active then
 		return
 	end
-	skipButton.Visible = not paused
+	setSkipShown(not paused)
 	if paused then
 		hideCard()
 	end
@@ -313,7 +442,8 @@ function Tutorial.update(dt, cameraZ)
 		if ahead > 0 and ahead < SLOW_DISTANCE then
 			showing = true
 			local lesson = LESSONS[step]
-			showCard(lesson.title, lesson.body, if step == 3 then DANGER else ACCENT)
+			local title = if type(lesson.title) == "function" then lesson.title() else lesson.title
+			showCard(title, lesson.body, if step == 3 then DANGER else ACCENT)
 
 			-- Ease toward almost-frozen; fully slow once close.
 			local t = math.clamp((SLOW_DISTANCE - ahead) / (SLOW_DISTANCE - FROZEN_DISTANCE), 0, 1)
@@ -410,7 +540,7 @@ function Tutorial.reset()
 	tipToken = nil
 	if gui then
 		hideCard()
-		skipButton.Visible = false
+		setSkipShown(false)
 	end
 end
 

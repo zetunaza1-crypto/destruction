@@ -16,16 +16,20 @@
 	  DoubleGems - handled by the server, only shown here
 ]]
 
+local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local GamepadAim = require(script.Parent.GamepadAim)
+local LeaveGift = require(script.Parent.LeaveGift)
 local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
@@ -60,6 +64,16 @@ local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
 local WHITE = Color3.new(1, 1, 1)
 local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local BASE_SATURATION = 0 -- zone grading already sets saturation; this layer stays neutral
+
+-- Roblox's own UI we hide (the game has its own leaderboard, and the player
+-- list would cover the distance readout). Chat stays on.
+local HIDDEN_CORE_GUI = {
+	Enum.CoreGuiType.Backpack,
+	Enum.CoreGuiType.Health,
+	Enum.CoreGuiType.PlayerList,
+	Enum.CoreGuiType.EmotesMenu,
+}
+local CORE_GUI_ATTEMPTS = 10
 
 local RunController = {}
 
@@ -149,6 +163,8 @@ local function applyTheme(zone)
 	local theme = TrackBuilder.themeFor(zone * Config.ROOMS_PER_CHECKPOINT)
 	LightingFx.applyTheme(theme)
 	ui:setTheme(theme)
+	GamepadAim.setAccent(theme.Accent)
+	LeaveGift.setAccent(theme.Accent)
 end
 
 -- Balls ----------------------------------------------------------------------
@@ -378,13 +394,15 @@ local function spawnBall(origin, velocity, mega, preSweep)
 	part.CFrame = CFrame.new(ball.position)
 end
 
-local function throw(screenPosition)
+-- Throws along a ray from the camera (see throw / throwAtViewport below).
+-- Returns true if a ball was thrown.
+local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 then
-		return
+		return false
 	end
 	local now = os.clock()
 	if now - lastThrow < Config.THROW_COOLDOWN then
-		return
+		return false
 	end
 	lastThrow = now
 	balls -= 1
@@ -397,7 +415,6 @@ local function throw(screenPosition)
 	-- Giant balls end up a bit further out so they don't fill the screen.
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
-	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
@@ -414,6 +431,25 @@ local function throw(screenPosition)
 
 	Sounds.play("Throw", 0.95 + math.random() * 0.1)
 	updateHud()
+	return true
+end
+
+-- Mouse / touch: input.Position is measured below the Roblox top bar, which is
+-- what ScreenPointToRay expects.
+local function throw(screenPosition)
+	if state ~= "Running" then
+		return false
+	end
+	return throwAlong(camera:ScreenPointToRay(screenPosition.X, screenPosition.Y))
+end
+
+-- Gamepad crosshair: its position is in full-screen (viewport) pixels, which
+-- is what ViewportPointToRay expects.
+local function throwAtViewport(viewportPosition)
+	if state ~= "Running" then
+		return false
+	end
+	return throwAlong(camera:ViewportPointToRay(viewportPosition.X, viewportPosition.Y))
 end
 
 -- Boosts ---------------------------------------------------------------------
@@ -867,6 +903,7 @@ local function step(dt)
 	camera.FieldOfView = 70 + (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * 15
 
 	updateBoostHud()
+	GamepadAim.update(dt, state == "Running")
 end
 
 -- Purchases ------------------------------------------------------------------
@@ -976,6 +1013,37 @@ end
 
 -- Startup --------------------------------------------------------------------
 
+-- SetCoreGuiEnabled can fail if called before Roblox's UI has loaded, so retry a few times.
+local function hideCoreGui()
+	for _ = 1, CORE_GUI_ATTEMPTS do
+		local allHidden = true
+		for _, coreGuiType in HIDDEN_CORE_GUI do
+			local ok = pcall(StarterGui.SetCoreGuiEnabled, StarterGui, coreGuiType, false)
+			if not ok then
+				allHidden = false
+			end
+		end
+		if allHidden then
+			return
+		end
+		task.wait(1)
+	end
+end
+
+-- Controller throw buttons: R2 (the trigger) or A, aimed with the crosshair.
+-- A also presses UI buttons, so it only throws when no button is selected.
+local function onGamepadThrowButton(keyCode, gameProcessed)
+	if state ~= "Running" or GuiService.MenuIsOpen then
+		return
+	end
+	if keyCode == Enum.KeyCode.ButtonA and (gameProcessed or GuiService.SelectedObject ~= nil) then
+		return
+	end
+	if throwAtViewport(GamepadAim.viewportPosition()) then
+		GamepadAim.pulse()
+	end
+end
+
 local function disableCharacterControls()
 	local playerScripts = player:WaitForChild("PlayerScripts")
 	local ok, playerModule = pcall(function()
@@ -987,6 +1055,18 @@ local function disableCharacterControls()
 end
 
 function RunController.start()
+	task.spawn(hideCoreGui)
+	GamepadAim.start()
+	LeaveGift.start({
+		claim = function()
+			return shopRequest("ClaimLeaveGift")
+		end,
+		-- Never pops up in the middle of a run (it waits for the menu / game over).
+		canShow = function()
+			return state ~= "Running"
+		end,
+	})
+
 	ui = UI.new({
 		-- boostIds: boosts picked in the menu (may be empty).
 		onPlay = function(checkpoint, boostIds)
@@ -1038,6 +1118,11 @@ function RunController.start()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		local keyCode = input.KeyCode
+		if keyCode == Enum.KeyCode.ButtonR2 or keyCode == Enum.KeyCode.ButtonA then
+			onGamepadThrowButton(keyCode, gameProcessed)
+			return
+		end
 		if gameProcessed then
 			return
 		end

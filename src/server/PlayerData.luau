@@ -70,6 +70,10 @@ local DEFAULT_DATA = {
 	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
 	TutorialDone = false, -- finished or skipped the first-run tutorial
 	Hints = {}, -- first-time tips already shown (keys of Config.Hints)
+
+	-- "Wait! Free gift" (Config.LeaveGift)
+	LeaveGiftNext = 0, -- os.time() when the gift can be claimed again
+	LeaveGiftIndex = 0, -- which Config.LeaveGift.Rewards entry is next (counts from 0, cycles)
 }
 
 -- player -> {
