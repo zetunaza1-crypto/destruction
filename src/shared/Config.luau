@@ -14,7 +14,8 @@ Config.TRACK_ORIGIN = Vector3.new(0, 500, 0)
 Config.CORRIDOR_WIDTH = 20
 Config.CORRIDOR_HEIGHT = 14
 Config.ROOM_LENGTH = 80
-Config.ROOMS_AHEAD = 5 -- how many rooms are built in front of the camera
+Config.ROOMS_AHEAD = 3 -- how many rooms are built in front of the camera (the fog hides the far end)
+Config.ROOM_BUILD_BUDGET = 0.003 -- seconds per frame spent building rooms ahead (spread over frames)
 Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
 Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
 Config.CAMERA_HEIGHT = 6
@@ -36,6 +37,7 @@ Config.BALL_SPEED = 160
 Config.BALL_GRAVITY = 30
 Config.BALL_RADIUS = 0.6
 Config.BALL_LIFETIME = 3
+Config.MAX_LIVE_BALLS = 40 -- oldest balls disappear past this (keeps phones smooth)
 
 -- Rewards --------------------------------------------------------------------
 Config.GEMS_PER_METER = 0.1
@@ -359,6 +361,7 @@ Config.ZonePatterns = {
 -- Glass breaking ---------------------------------------------------------------
 Config.SHARD_RAYS = 8 -- cracks spreading from the impact (more = finer shards, slower)
 Config.SHARD_LIFETIME = 2.5
+Config.MAX_LIVE_SHARDS = 240 -- above this many flying shard parts, new breaks use fewer, simpler shards
 
 Config.GLASS_COLOR = Color3.fromRGB(200, 235, 255)
 Config.CRYSTAL_COLOR = Color3.fromRGB(60, 140, 255)

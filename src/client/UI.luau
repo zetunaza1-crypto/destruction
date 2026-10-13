@@ -3105,7 +3105,7 @@ end
 -- Missions reset + season end countdowns (ticked once a second while the menu is open).
 function UI._refreshCountdowns(self)
 	local m = self._menu
-	local now = os.time()
+	local now = math.floor(workspace:GetServerTimeNow()) -- server clock, not the device clock
 	local reset = tonumber(player:GetAttribute("MissionsReset"))
 	if reset and reset > now then
 		m.missionsReset.Text = "NEW MISSIONS IN " .. clock(reset - now)
@@ -3161,7 +3161,7 @@ end
 
 -- Streak state as the UI shows it. Claiming after StreakExpires restarts at day 1.
 local function dailyState()
-	local now = os.time()
+	local now = math.floor(workspace:GetServerTimeNow()) -- server clock, not the device clock
 	local nextDaily = tonumber(player:GetAttribute("NextDaily"))
 	local expires = tonumber(player:GetAttribute("StreakExpires"))
 	local day = math.clamp(math.floor(attrNumber("StreakDay", 1)), 1, #Config.DailyStreak)
