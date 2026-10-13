@@ -44,13 +44,13 @@ function Models.place(name, parent, cframe, options)
 
 	local model = template:Clone()
 	local style = ModelStyles[name] or {}
-	local kind = options.kind or "Wall"
+	local kind = options.kind or (if style.Breakable then "Prop" else "Wall")
 
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
 			local role = roleOf(part)
 			local roleStyle = style[role]
-			if roleStyle then
+			if type(roleStyle) == "table" and roleStyle.Material then
 				part.Color = roleStyle.Color
 				part.Material = roleStyle.Material
 				part.Transparency = roleStyle.Transparency
@@ -69,17 +69,27 @@ function Models.place(name, parent, cframe, options)
 		model:SetAttribute("Breakable", true)
 	end
 
-	if options.scale and options.scale ~= 1 then
-		model:ScaleTo(options.scale)
+	-- Imported FBX units can come in at the wrong scale; fit the model to its
+	-- true height from the manifest, then apply any extra scale asked for.
+	local scale = options.scale or 1
+	if style.Size then
+		local _, importedSize = model:GetBoundingBox()
+		if importedSize.Y > 0.01 then
+			scale *= style.Size.Y / importedSize.Y
+		end
+	end
+	if math.abs(scale - 1) > 0.001 then
+		model:ScaleTo(model:GetScale() * scale)
 	end
 
 	-- Line the chosen anchor point of the bounding box up with `cframe`.
 	model:PivotTo(CFrame.new(model:GetPivot().Position) * cframe.Rotation)
 	local boxCFrame, boxSize = model:GetBoundingBox()
 	local anchorOffset = Vector3.zero
-	if options.anchor == "floor" then
+	local anchor = options.anchor or style.Anchor
+	if anchor == "floor" then
 		anchorOffset = Vector3.new(0, boxSize.Y / 2, 0)
-	elseif options.anchor == "ceiling" then
+	elseif anchor == "ceiling" then
 		anchorOffset = Vector3.new(0, -boxSize.Y / 2, 0)
 	end
 	local target = cframe.Position + anchorOffset

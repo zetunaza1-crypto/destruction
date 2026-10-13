@@ -1,0 +1,835 @@
+{
+  "Crystal": {
+    "file": "Crystal.fbx",
+    "size": [
+      1.1,
+      1.6,
+      1.1
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "All"
+    ],
+    "triangles": 32,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          60,
+          140,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.25,
+        "meshName": "Crystal_Glass",
+        "triangles": 32
+      }
+    }
+  },
+  "GlassVase": {
+    "file": "GlassVase.fbx",
+    "size": [
+      1.72,
+      2.62,
+      1.72
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Lab",
+      "Temple"
+    ],
+    "triangles": 520,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          200,
+          235,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.45,
+        "meshName": "GlassVase_Glass",
+        "triangles": 520
+      }
+    }
+  },
+  "GlassBottle": {
+    "file": "GlassBottle.fbx",
+    "size": [
+      0.7,
+      1.5,
+      0.7
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Lab",
+      "Greenhouse"
+    ],
+    "triangles": 412,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          150,
+          220,
+          190
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.4,
+        "meshName": "GlassBottle_Glass",
+        "triangles": 352
+      },
+      "Wood": {
+        "suggestedColor": [
+          185,
+          145,
+          100
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "GlassBottle_Wood",
+        "triangles": 60
+      }
+    }
+  },
+  "GlassUrn": {
+    "file": "GlassUrn.fbx",
+    "size": [
+      2.36,
+      3.0,
+      1.99
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Temple"
+    ],
+    "triangles": 1504,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          255,
+          200,
+          140
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.4,
+        "meshName": "GlassUrn_Glass",
+        "triangles": 736
+      },
+      "Metal": {
+        "suggestedColor": [
+          225,
+          170,
+          60
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "GlassUrn_Metal",
+        "triangles": 768
+      }
+    }
+  },
+  "GlassLantern": {
+    "file": "GlassLantern.fbx",
+    "size": [
+      1.1,
+      1.96,
+      0.95
+    ],
+    "anchor": "ceiling",
+    "breakable": true,
+    "zones": [
+      "Temple",
+      "Greenhouse"
+    ],
+    "triangles": 352,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          255,
+          225,
+          170
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.5,
+        "meshName": "GlassLantern_Glass",
+        "triangles": 24
+      },
+      "Metal": {
+        "suggestedColor": [
+          55,
+          52,
+          50
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "GlassLantern_Metal",
+        "triangles": 292
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          170,
+          60
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "GlassLantern_Neon",
+        "triangles": 36
+      }
+    }
+  },
+  "Flask": {
+    "file": "Flask.fbx",
+    "size": [
+      1.4,
+      1.85,
+      1.4
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Lab"
+    ],
+    "triangles": 560,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          215,
+          240,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.6,
+        "meshName": "Flask_Glass",
+        "triangles": 400
+      },
+      "Neon": {
+        "suggestedColor": [
+          90,
+          200,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.1,
+        "meshName": "Flask_Neon",
+        "triangles": 160
+      }
+    }
+  },
+  "TestTubeRack": {
+    "file": "TestTubeRack.fbx",
+    "size": [
+      2.6,
+      1.52,
+      0.9
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Lab"
+    ],
+    "triangles": 1232,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          215,
+          240,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.55,
+        "meshName": "TestTubeRack_Glass",
+        "triangles": 672
+      },
+      "Wood": {
+        "suggestedColor": [
+          165,
+          115,
+          70
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "TestTubeRack_Wood",
+        "triangles": 176
+      },
+      "Neon": {
+        "suggestedColor": [
+          120,
+          245,
+          150
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.1,
+        "meshName": "TestTubeRack_Neon",
+        "triangles": 384
+      }
+    }
+  },
+  "GlassOrb": {
+    "file": "GlassOrb.fbx",
+    "size": [
+      2.34,
+      1.8,
+      2.25
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Void"
+    ],
+    "triangles": 724,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          200,
+          170,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.5,
+        "meshName": "GlassOrb_Glass",
+        "triangles": 320
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          230,
+          80
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "GlassOrb_Neon",
+        "triangles": 20
+      },
+      "Metal": {
+        "suggestedColor": [
+          210,
+          200,
+          230
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "GlassOrb_Metal",
+        "triangles": 384
+      }
+    }
+  },
+  "NeonTube": {
+    "file": "NeonTube.fbx",
+    "size": [
+      3.1,
+      1.88,
+      0.47
+    ],
+    "anchor": "wall",
+    "breakable": true,
+    "zones": [
+      "Neon"
+    ],
+    "triangles": 672,
+    "parts": {
+      "Neon": {
+        "suggestedColor": [
+          255,
+          90,
+          170
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "NeonTube_Neon",
+        "triangles": 396
+      },
+      "Metal": {
+        "suggestedColor": [
+          60,
+          60,
+          72
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "NeonTube_Metal",
+        "triangles": 276
+      }
+    }
+  },
+  "Pillar": {
+    "file": "Pillar.fbx",
+    "size": [
+      2.5,
+      14.0,
+      2.5
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Temple"
+    ],
+    "triangles": 982,
+    "parts": {
+      "Stone": {
+        "suggestedColor": [
+          235,
+          215,
+          180
+        ],
+        "suggestedMaterial": "Sandstone",
+        "transparency": 0.0,
+        "meshName": "Pillar_Stone",
+        "triangles": 598
+      },
+      "Metal": {
+        "suggestedColor": [
+          230,
+          160,
+          50
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Pillar_Metal",
+        "triangles": 384
+      }
+    }
+  },
+  "Brazier": {
+    "file": "Brazier.fbx",
+    "size": [
+      2.73,
+      4.3,
+      2.64
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Temple"
+    ],
+    "triangles": 1092,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          150,
+          100,
+          60
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Brazier_Metal",
+        "triangles": 772
+      },
+      "Stone": {
+        "suggestedColor": [
+          55,
+          42,
+          38
+        ],
+        "suggestedMaterial": "Slate",
+        "transparency": 0.0,
+        "meshName": "Brazier_Stone",
+        "triangles": 140
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          150,
+          40
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "Brazier_Neon",
+        "triangles": 180
+      }
+    }
+  },
+  "Planter": {
+    "file": "Planter.fbx",
+    "size": [
+      4.0,
+      1.21,
+      1.6
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Greenhouse"
+    ],
+    "triangles": 416,
+    "parts": {
+      "Wood": {
+        "suggestedColor": [
+          125,
+          88,
+          58
+        ],
+        "suggestedMaterial": "WoodPlanks",
+        "transparency": 0.0,
+        "meshName": "Planter_Wood",
+        "triangles": 308
+      },
+      "Body": {
+        "suggestedColor": [
+          70,
+          50,
+          35
+        ],
+        "suggestedMaterial": "Ground",
+        "transparency": 0.0,
+        "meshName": "Planter_Body",
+        "triangles": 12
+      },
+      "Metal": {
+        "suggestedColor": [
+          70,
+          75,
+          80
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Planter_Metal",
+        "triangles": 96
+      }
+    }
+  },
+  "Plant": {
+    "file": "Plant.fbx",
+    "size": [
+      2.55,
+      2.31,
+      2.51
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Greenhouse"
+    ],
+    "triangles": 726,
+    "parts": {
+      "Plant": {
+        "suggestedColor": [
+          70,
+          170,
+          90
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Plant_Plant",
+        "triangles": 648
+      },
+      "Wood": {
+        "suggestedColor": [
+          95,
+          75,
+          45
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "Plant_Wood",
+        "triangles": 78
+      }
+    }
+  },
+  "HangingVine": {
+    "file": "HangingVine.fbx",
+    "size": [
+      1.61,
+      5.43,
+      1.33
+    ],
+    "anchor": "ceiling",
+    "breakable": false,
+    "zones": [
+      "Greenhouse"
+    ],
+    "triangles": 1134,
+    "parts": {
+      "Plant": {
+        "suggestedColor": [
+          65,
+          165,
+          85
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "HangingVine_Plant",
+        "triangles": 696
+      },
+      "Wood": {
+        "suggestedColor": [
+          75,
+          100,
+          50
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "HangingVine_Wood",
+        "triangles": 438
+      }
+    }
+  },
+  "LabBench": {
+    "file": "LabBench.fbx",
+    "size": [
+      6.0,
+      3.0,
+      3.0
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Lab"
+    ],
+    "triangles": 380,
+    "parts": {
+      "Stone": {
+        "suggestedColor": [
+          45,
+          50,
+          62
+        ],
+        "suggestedMaterial": "Slate",
+        "transparency": 0.0,
+        "meshName": "LabBench_Stone",
+        "triangles": 44
+      },
+      "Body": {
+        "suggestedColor": [
+          238,
+          241,
+          247
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "LabBench_Body",
+        "triangles": 276
+      },
+      "Metal": {
+        "suggestedColor": [
+          175,
+          182,
+          195
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "LabBench_Metal",
+        "triangles": 60
+      }
+    }
+  },
+  "ServerRack": {
+    "file": "ServerRack.fbx",
+    "size": [
+      3.0,
+      7.0,
+      2.0
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Neon",
+      "Lab"
+    ],
+    "triangles": 1148,
+    "parts": {
+      "Body": {
+        "suggestedColor": [
+          32,
+          35,
+          46
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "ServerRack_Body",
+        "triangles": 188
+      },
+      "Metal": {
+        "suggestedColor": [
+          95,
+          100,
+          115
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "ServerRack_Metal",
+        "triangles": 528
+      },
+      "Neon": {
+        "suggestedColor": [
+          90,
+          200,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "ServerRack_Neon",
+        "triangles": 432
+      }
+    }
+  },
+  "CeilingLight": {
+    "file": "CeilingLight.fbx",
+    "size": [
+      4.0,
+      0.91,
+      1.4
+    ],
+    "anchor": "ceiling",
+    "breakable": false,
+    "zones": [
+      "Lab",
+      "Neon"
+    ],
+    "triangles": 196,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          205,
+          210,
+          220
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "CeilingLight_Metal",
+        "triangles": 184
+      },
+      "Neon": {
+        "suggestedColor": [
+          245,
+          250,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "CeilingLight_Neon",
+        "triangles": 12
+      }
+    }
+  },
+  "PipeRun": {
+    "file": "PipeRun.fbx",
+    "size": [
+      10.12,
+      1.04,
+      1.13
+    ],
+    "anchor": "wall",
+    "breakable": false,
+    "zones": [
+      "Lab",
+      "Neon"
+    ],
+    "triangles": 1168,
+    "parts": {
+      "Body": {
+        "suggestedColor": [
+          200,
+          205,
+          215
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "PipeRun_Body",
+        "triangles": 56
+      },
+      "Metal": {
+        "suggestedColor": [
+          95,
+          100,
+          110
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "PipeRun_Metal",
+        "triangles": 1112
+      }
+    }
+  },
+  "Vent": {
+    "file": "Vent.fbx",
+    "size": [
+      2.4,
+      2.4,
+      0.22
+    ],
+    "anchor": "wall",
+    "breakable": false,
+    "zones": [
+      "Lab",
+      "Neon"
+    ],
+    "triangles": 368,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          170,
+          176,
+          186
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Vent_Metal",
+        "triangles": 356
+      },
+      "Body": {
+        "suggestedColor": [
+          24,
+          26,
+          32
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Vent_Body",
+        "triangles": 12
+      }
+    }
+  },
+  "Crate": {
+    "file": "Crate.fbx",
+    "size": [
+      3.02,
+      3.02,
+      3.02
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "All"
+    ],
+    "triangles": 1112,
+    "parts": {
+      "Wood": {
+        "suggestedColor": [
+          140,
+          95,
+          55
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "Crate_Wood",
+        "triangles": 748
+      },
+      "Body": {
+        "suggestedColor": [
+          195,
+          155,
+          105
+        ],
+        "suggestedMaterial": "WoodPlanks",
+        "transparency": 0.0,
+        "meshName": "Crate_Body",
+        "triangles": 12
+      },
+      "Metal": {
+        "suggestedColor": [
+          70,
+          72,
+          80
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Crate_Metal",
+        "triangles": 352
+      }
+    }
+  }
+}

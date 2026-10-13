@@ -1,6 +1,154 @@
 --[[
-	Default color/material per model part role (filled in from assets/models/manifest.json).
-	ModelStyles[ModelName][Role] = { Color, Material, Transparency }
+	Default look and true size of each Blender model, generated from
+	assets/models/manifest.json. Roles match part names (<Model>_<Role>).
+	ModelStyles[Model] = { Size = Vector3 (studs), Anchor, Breakable, [Role] = { Color, Material, Transparency } }
 ]]
 
-return {}
+return {
+	Crystal = {
+		Size = Vector3.new(1.1, 1.6, 1.1),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(60, 140, 255), Material = Enum.Material.Glass, Transparency = 0.25 },
+	},
+	GlassVase = {
+		Size = Vector3.new(1.72, 2.62, 1.72),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(200, 235, 255), Material = Enum.Material.Glass, Transparency = 0.45 },
+	},
+	GlassBottle = {
+		Size = Vector3.new(0.7, 1.5, 0.7),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(150, 220, 190), Material = Enum.Material.Glass, Transparency = 0.4 },
+		Wood = { Color = Color3.fromRGB(185, 145, 100), Material = Enum.Material.Wood, Transparency = 0.0 },
+	},
+	GlassUrn = {
+		Size = Vector3.new(2.36, 3.0, 1.99),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(255, 200, 140), Material = Enum.Material.Glass, Transparency = 0.4 },
+		Metal = { Color = Color3.fromRGB(225, 170, 60), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	GlassLantern = {
+		Size = Vector3.new(1.1, 1.96, 0.95),
+		Anchor = "ceiling",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(255, 225, 170), Material = Enum.Material.Glass, Transparency = 0.5 },
+		Metal = { Color = Color3.fromRGB(55, 52, 50), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 170, 60), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	Flask = {
+		Size = Vector3.new(1.4, 1.85, 1.4),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(215, 240, 255), Material = Enum.Material.Glass, Transparency = 0.6 },
+		Neon = { Color = Color3.fromRGB(90, 200, 255), Material = Enum.Material.Neon, Transparency = 0.1 },
+	},
+	TestTubeRack = {
+		Size = Vector3.new(2.6, 1.52, 0.9),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(215, 240, 255), Material = Enum.Material.Glass, Transparency = 0.55 },
+		Wood = { Color = Color3.fromRGB(165, 115, 70), Material = Enum.Material.Wood, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(120, 245, 150), Material = Enum.Material.Neon, Transparency = 0.1 },
+	},
+	GlassOrb = {
+		Size = Vector3.new(2.34, 1.8, 2.25),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(200, 170, 255), Material = Enum.Material.Glass, Transparency = 0.5 },
+		Neon = { Color = Color3.fromRGB(255, 230, 80), Material = Enum.Material.Neon, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(210, 200, 230), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	NeonTube = {
+		Size = Vector3.new(3.1, 1.88, 0.47),
+		Anchor = "wall",
+		Breakable = true,
+		Neon = { Color = Color3.fromRGB(255, 90, 170), Material = Enum.Material.Neon, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(60, 60, 72), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	Pillar = {
+		Size = Vector3.new(2.5, 14.0, 2.5),
+		Anchor = "floor",
+		Breakable = false,
+		Stone = { Color = Color3.fromRGB(235, 215, 180), Material = Enum.Material.Sandstone, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(230, 160, 50), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	Brazier = {
+		Size = Vector3.new(2.73, 4.3, 2.64),
+		Anchor = "floor",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(150, 100, 60), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Stone = { Color = Color3.fromRGB(55, 42, 38), Material = Enum.Material.Slate, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 150, 40), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	Planter = {
+		Size = Vector3.new(4.0, 1.21, 1.6),
+		Anchor = "floor",
+		Breakable = false,
+		Wood = { Color = Color3.fromRGB(125, 88, 58), Material = Enum.Material.WoodPlanks, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(70, 50, 35), Material = Enum.Material.Ground, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(70, 75, 80), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	Plant = {
+		Size = Vector3.new(2.55, 2.31, 2.51),
+		Anchor = "floor",
+		Breakable = false,
+		Plant = { Color = Color3.fromRGB(70, 170, 90), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Wood = { Color = Color3.fromRGB(95, 75, 45), Material = Enum.Material.Wood, Transparency = 0.0 },
+	},
+	HangingVine = {
+		Size = Vector3.new(1.61, 5.43, 1.33),
+		Anchor = "ceiling",
+		Breakable = false,
+		Plant = { Color = Color3.fromRGB(65, 165, 85), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Wood = { Color = Color3.fromRGB(75, 100, 50), Material = Enum.Material.Wood, Transparency = 0.0 },
+	},
+	LabBench = {
+		Size = Vector3.new(6.0, 3.0, 3.0),
+		Anchor = "floor",
+		Breakable = false,
+		Stone = { Color = Color3.fromRGB(45, 50, 62), Material = Enum.Material.Slate, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(238, 241, 247), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(175, 182, 195), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	ServerRack = {
+		Size = Vector3.new(3.0, 7.0, 2.0),
+		Anchor = "floor",
+		Breakable = false,
+		Body = { Color = Color3.fromRGB(32, 35, 46), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(95, 100, 115), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(90, 200, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	CeilingLight = {
+		Size = Vector3.new(4.0, 0.91, 1.4),
+		Anchor = "ceiling",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(205, 210, 220), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(245, 250, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	PipeRun = {
+		Size = Vector3.new(10.12, 1.04, 1.13),
+		Anchor = "wall",
+		Breakable = false,
+		Body = { Color = Color3.fromRGB(200, 205, 215), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(95, 100, 110), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	Vent = {
+		Size = Vector3.new(2.4, 2.4, 0.22),
+		Anchor = "wall",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(170, 176, 186), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(24, 26, 32), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+	},
+	Crate = {
+		Size = Vector3.new(3.02, 3.02, 3.02),
+		Anchor = "floor",
+		Breakable = false,
+		Wood = { Color = Color3.fromRGB(140, 95, 55), Material = Enum.Material.Wood, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(195, 155, 105), Material = Enum.Material.WoodPlanks, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(70, 72, 80), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+}
