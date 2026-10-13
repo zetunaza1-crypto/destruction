@@ -7,11 +7,19 @@
 	  sources and lets decorations cast shadows, so nothing looks flat.
 	Requires Lighting.Technology = Future in the place (set in place.project.json).
 	Everything here runs on the player's own device only.
+
+	Graphics setting (Settings.graphicsLevel(), changes apply right away):
+	  High - everything above.
+	  Low  - no room lights, no shadows at all, softer bloom and sun rays.
+	         Switching to Low also switches off lights/shadows in rooms already
+	         built; switching back to High lights them up again.
 ]]
 
 local Lighting = game:GetService("Lighting")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+
+local Settings = require(script.Parent.Settings)
 
 local LightingFx = {}
 
@@ -23,6 +31,12 @@ local SHADOW_CASTER_MAX_SIZE = 15 -- the room shell (80 studs long) never casts
 local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) never cast either
 -- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
 local TOUCH_ONLY = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Low graphics: lighter glow effects.
+local LOW_BLOOM_INTENSITY = 0.5 -- multiplier
+local LOW_BLOOM_SIZE = 0.7 -- multiplier
+local HIGH_SUNRAYS = 0.04
+local LOW_SUNRAYS = 0.015
 
 -- Per zone style. Colors are Color3, numbers are the Lighting/effect properties.
 local PRESETS = {
@@ -92,9 +106,39 @@ local atmosphere
 local grade
 local bloom
 local sunRays
+local currentTheme = nil
+local bloomTween = nil -- the zone fade, cancelled if the graphics level changes mid-fade
+local low = Settings.graphicsLevel() == "Low"
+
+-- Rooms that went through lightRoom: roomFolder -> { theme, lights = { PointLight }, casters = { BasePart } }.
+-- Weak keys: a room deleted behind the camera just drops out.
+local rooms = setmetatable({}, { __mode = "k" })
 
 local function presetFor(theme)
 	return PRESETS[theme and theme.Style or "Lab"] or PRESETS.Lab
+end
+
+function LightingFx.isLow()
+	return low
+end
+
+local function bloomGoal(preset)
+	if not low then
+		return preset.Bloom
+	end
+	return {
+		Intensity = preset.Bloom.Intensity * LOW_BLOOM_INTENSITY,
+		Size = preset.Bloom.Size * LOW_BLOOM_SIZE,
+		Threshold = preset.Bloom.Threshold,
+	}
+end
+
+-- Global switches that depend on the graphics level.
+local function applyQuality()
+	Lighting.GlobalShadows = not low
+	if sunRays then
+		sunRays.Intensity = if low then LOW_SUNRAYS else HIGH_SUNRAYS
+	end
 end
 
 -- Replaces whatever the place had (the Baseplate template ships its own
@@ -112,7 +156,6 @@ function LightingFx.setup()
 		end
 	end
 
-	Lighting.GlobalShadows = true
 	Lighting.ShadowSoftness = 0.25
 	Lighting.EnvironmentDiffuseScale = 1 -- PBR ambient from the sky
 	Lighting.EnvironmentSpecularScale = 1 -- reflections on glass, metal, marble
@@ -127,10 +170,10 @@ function LightingFx.setup()
 	bloom.Parent = Lighting
 
 	sunRays = Instance.new("SunRaysEffect")
-	sunRays.Intensity = 0.04
 	sunRays.Spread = 0.6
 	sunRays.Parent = Lighting
 
+	applyQuality()
 	LightingFx.applyTheme(nil, true)
 end
 
@@ -139,16 +182,25 @@ function LightingFx.applyTheme(theme, instant)
 	if not atmosphere then
 		return
 	end
+	currentTheme = theme
 	local preset = presetFor(theme)
 
 	local fogColor = if theme then theme.Fog else Color3.fromRGB(215, 230, 245)
 	local function set(object, goal)
+		if object == bloom and bloomTween then
+			bloomTween:Cancel()
+			bloomTween = nil
+		end
 		if instant then
 			for property, value in goal do
 				object[property] = value
 			end
 		else
-			TweenService:Create(object, FADE, goal):Play()
+			local fade = TweenService:Create(object, FADE, goal)
+			fade:Play()
+			if object == bloom then
+				bloomTween = fade
+			end
 		end
 	end
 
@@ -168,13 +220,27 @@ function LightingFx.applyTheme(theme, instant)
 		Decay = fogColor:Lerp(Color3.new(0, 0, 0), 0.35),
 	})
 	set(grade, preset.Grade)
-	set(bloom, preset.Bloom)
+	set(bloom, bloomGoal(preset))
 end
 
--- Turns the room's biggest glowing parts into real lights and lets decorations
--- cast shadows. Call after the room (and its decorations) are built.
-function LightingFx.lightRoom(roomFolder, theme)
-	local preset = presetFor(theme)
+-- Switches a lit room's lights and shadows off (Low graphics).
+local function darkenRoom(record)
+	for _, light in record.lights do
+		light:Destroy()
+	end
+	for _, part in record.casters do
+		if part.Parent then
+			part.CastShadow = false
+		end
+	end
+	table.clear(record.lights)
+	table.clear(record.casters)
+	record.lit = false
+end
+
+-- Adds the real lights and shadows to a room (High graphics).
+local function lightUp(roomFolder, record)
+	local preset = presetFor(record.theme)
 	local glowing = {}
 	for _, part in roomFolder:GetDescendants() do
 		if not part:IsA("BasePart") then
@@ -195,6 +261,7 @@ function LightingFx.lightRoom(roomFolder, theme)
 			and part.Transparency < 0.5
 		then
 			part.CastShadow = true
+			table.insert(record.casters, part)
 		end
 	end
 
@@ -218,14 +285,73 @@ function LightingFx.lightRoom(roomFolder, theme)
 		end
 		if not tooClose then
 			local light = Instance.new("PointLight")
+			light.Name = "RoomLight"
 			light.Color = entry.part.Color
 			light.Brightness = preset.LightBrightness
 			light.Range = preset.LightRange
 			light.Shadows = not TOUCH_ONLY and #lit < SHADOW_LIGHTS_PER_ROOM
 			light.Parent = entry.part
 			table.insert(lit, entry.part)
+			table.insert(record.lights, light)
+		end
+	end
+	record.lit = true
+end
+
+-- Turns the room's biggest glowing parts into real lights and lets decorations
+-- cast shadows. Call after the room (and its decorations) are built.
+-- On Low graphics it only remembers the room (so switching to High can light it).
+function LightingFx.lightRoom(roomFolder, theme)
+	local record = rooms[roomFolder]
+	if not record then
+		record = { theme = theme, lights = {}, casters = {}, lit = false }
+		rooms[roomFolder] = record
+	end
+	record.theme = theme
+	if low then
+		if record.lit then
+			darkenRoom(record)
+		end
+	elseif not record.lit then
+		lightUp(roomFolder, record)
+	end
+end
+
+-- Graphics setting changed: re-apply everything to match.
+local function onGraphicsChanged()
+	local nowLow = Settings.graphicsLevel() == "Low"
+	if nowLow == low then
+		return
+	end
+	low = nowLow
+	applyQuality()
+	if bloom then
+		if bloomTween then
+			bloomTween:Cancel()
+			bloomTween = nil
+		end
+		local preset = presetFor(currentTheme)
+		for property, value in bloomGoal(preset) do
+			bloom[property] = value
+		end
+	end
+	for roomFolder, record in rooms do
+		if not roomFolder.Parent then
+			rooms[roomFolder] = nil
+		elseif low then
+			if record.lit then
+				darkenRoom(record)
+			end
+		elseif not record.lit then
+			lightUp(roomFolder, record)
 		end
 	end
 end
+
+Settings.changed:Connect(function(key)
+	if key == "graphics" then
+		onGraphicsChanged()
+	end
+end)
 
 return LightingFx

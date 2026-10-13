@@ -10,6 +10,10 @@
 	  3. "Lights" - real lights and shadows (needs the decorations to exist)
 	The room the camera is about to enter is always finished right away, even
 	if that goes over the budget.
+
+	Low graphics (Settings): rooms ahead are built in thinner slices per frame
+	(LOW_BUILD_BUDGET) so weak phones don't hitch, and the "Lights" step adds no
+	lights or shadows (see LightingFx).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,6 +29,7 @@ local HEIGHT = Config.CORRIDOR_HEIGHT
 local LENGTH = Config.ROOM_LENGTH
 local ORIGIN = Config.TRACK_ORIGIN
 local EYE_Y = ORIGIN.Y + Config.CAMERA_HEIGHT
+local LOW_BUILD_BUDGET = Config.ROOM_BUILD_BUDGET * 0.6 -- seconds per frame on Low graphics
 
 local TrackBuilder = {}
 TrackBuilder.__index = TrackBuilder
@@ -484,7 +489,8 @@ function TrackBuilder:update(cameraZ, dt)
 
 	-- Everything further away: only while this frame's time budget lasts.
 	local queue = self.buildQueue
-	while queue[1] and os.clock() - started < Config.ROOM_BUILD_BUDGET do
+	local budget = if LightingFx.isLow() then LOW_BUILD_BUDGET else Config.ROOM_BUILD_BUDGET
+	while queue[1] and os.clock() - started < budget do
 		self:runBuildStep(table.remove(queue, 1))
 	end
 

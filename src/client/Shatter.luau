@@ -16,6 +16,9 @@
 
 	Shatter.glass / Shatter.prop take an optional shatter effect (an entry of
 	Config.ShatterFx) that tints the shards. nil or "Classic" = normal glass.
+
+	Low graphics (Settings): half the shard budget, fewer cracks per pane,
+	fewer prop pieces and no glitter at all. Applies to the next break.
 ]]
 
 local Debris = game:GetService("Debris")
@@ -23,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Settings = require(script.Parent.Settings)
 
 local Shatter = {}
 
@@ -31,6 +35,16 @@ local TAU = math.pi * 2
 local GRAVITY_BOOST = Vector3.new(0, -12, 0) -- shards look heavier with a small downward kick
 local SMALL_PANE_AREA = 20 -- panes smaller than this (square studs) use few cracks
 local FEW_RAYS = 5
+local LOW_MAX_RAYS = 7 -- Low graphics: at most this many cracks per pane
+local LOW_PROP_PIECES = 5 -- Low graphics: at most this many shards per prop part
+
+-- Low graphics (kept up to date when the setting changes).
+local low = Settings.graphicsLevel() == "Low"
+Settings.changed:Connect(function(key)
+	if key == "graphics" then
+		low = Settings.graphicsLevel() == "Low"
+	end
+end)
 
 -- Shard budget ------------------------------------------------------------------
 
@@ -58,13 +72,17 @@ local function addLive(count, lifetime)
 end
 
 local function overBudget()
-	return liveShards() >= Config.MAX_LIVE_SHARDS
+	local budget = if low then Config.MAX_LIVE_SHARDS // 2 else Config.MAX_LIVE_SHARDS
+	return liveShards() >= budget
 end
 
 -- Effects -------------------------------------------------------------------
 
 -- A short burst of glitter at the impact point.
 local function sparkle(position, color, amount, parent)
+	if low then
+		return -- Low graphics: no glitter
+	end
 	local holder = Instance.new("Part")
 	holder.Anchored = true
 	holder.CanCollide = false
@@ -325,6 +343,9 @@ function Shatter.glass(panel, hitPoint, push, parent, fx)
 	local area = size.X * size.Y
 	local busy = overBudget()
 	local rays = math.clamp(Config.SHARD_RAYS + math.floor(area / 120), 5, 12)
+	if low then
+		rays = math.min(rays, LOW_MAX_RAYS)
+	end
 	if busy or area < SMALL_PANE_AREA then
 		rays = FEW_RAYS
 	end
@@ -378,7 +399,8 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 	for _, piece in pieces do
 		local size = piece.Size
 		local volume = size.X * size.Y * size.Z
-		local count = math.clamp(math.floor(volume / 1.5), 3, if busy then 3 else 10)
+		local most = if busy then 3 elseif low then LOW_PROP_PIECES else 10
+		local count = math.clamp(math.floor(volume / 1.5), 3, most)
 		local reach = math.max(size.X, size.Y, size.Z) * 2
 		for _ = 1, count do
 			local shard = makePiece("WedgePart", styledTemplate(piece, fx))

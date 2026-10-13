@@ -20,6 +20,11 @@
 	selection on its main button (PLAY, PLAY AGAIN / REVIVE, CLAIM...), B closes
 	popovers, and small "A SELECT" style hints appear. The HUD clears the
 	selection so the controller's buttons go to the game instead of the UI.
+
+	Settings (gear button on the menu and the run report): sliders, toggles and
+	a segmented control that write straight to Settings.luau, which every other
+	module listens to. The UI itself follows "flashes" (no red flash / pulsing
+	alarm / shield burst when off) and "shake" (no HUD shake when off).
 ]]
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -32,6 +37,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Settings = require(script.Parent.Settings)
 
 local player = Players.LocalPlayer
 
@@ -100,6 +106,20 @@ local TOPUP_H = 56
 local TOPUP_BUY_W = 84
 local TOPUP_CLOSE_W = 50
 local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
+
+-- Settings sheet (drawn on the same 600x340 sheet as everything else).
+local SETTINGS_W = 520
+local SETTINGS_HEADER = 24
+local SETTINGS_BODY_H = 296 -- everything under the header; the body scrolls if the screen is shorter
+local SETTINGS_ROW = 50 -- every control is a full 50-unit touch target
+local SETTINGS_LABEL_W = 96 -- label column on the left of sliders / graphics
+local SETTINGS_PCT_W = 52 -- "100%" readout on the right of sliders
+local SETTINGS_GEAR_W = 62 -- the gear button next to DAILY / MENU
+local SETTINGS_ACTION = "ShatterRunSettingsAdjust" -- gamepad left/right on a slider (only bound while open)
+local SLIDER_STEP = 0.1 -- one D-pad press
+local SLIDER_REPEAT_DELAY = 0.4 -- holding the D-pad / stick: first repeat...
+local SLIDER_REPEAT_EVERY = 0.12 -- ...then this often
+local STICK_THRESHOLD = 0.6
 
 local TOAST_KINDS = {
 	boost = { tag = "BOOSTS ACTIVE", accent = true },
@@ -993,6 +1013,32 @@ local function shieldGlyph(parent, size, position, color)
 	return holder
 end
 
+-- Settings mark: a sharp-cornered cog. Four bars make eight teeth, two squares
+-- make the octagonal body, and a paper square punches the hole.
+local function gearGlyph(parent, size, position, color, holeColor)
+	local holder = new("Frame", {
+		Name = "Gear",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.fromOffset(size, size),
+		Parent = parent,
+	})
+	local center = UDim2.fromScale(0.5, 0.5)
+	local half = Vector2.new(0.5, 0.5)
+	local tooth = math.max(2, math.floor(size * 0.24 + 0.5))
+	for _, rotation in { 0, 45, 90, 135 } do
+		new("Frame", { BackgroundColor3 = color, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(size, tooth), Rotation = rotation, Parent = holder })
+	end
+	local body = math.floor(size * 0.7 + 0.5)
+	for _, rotation in { 0, 45 } do
+		new("Frame", { BackgroundColor3 = color, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(body, body), Rotation = rotation, Parent = holder })
+	end
+	local hole = math.max(2, math.floor(size * 0.28 + 0.5))
+	new("Frame", { Name = "Hole", BackgroundColor3 = holeColor or PAPER, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(hole, hole), Rotation = 45, Parent = holder })
+	return holder
+end
+
 -- Gamepad helpers ------------------------------------------------------------------------
 
 -- "gamepad", "pointer" (mouse / keyboard / touch), or nil for inputs that say
@@ -1309,6 +1355,7 @@ function UI._buildMenuLeft(self, root)
 	m.play = play
 
 	-- DAILY: opens the 7-day streak sheet. The pips on the right show the streak at a glance.
+	-- It shares the bottom row with the SETTINGS gear, so PLAY stays the one big button.
 	local daily = hardButton(left, {
 		Name = "Daily",
 		Fill = "paper",
@@ -1317,7 +1364,7 @@ function UI._buildMenuLeft(self, root)
 		Align = Enum.TextXAlignment.Left,
 		Index = "B / DAILY",
 		Position = UDim2.fromOffset(0, 290),
-		Size = UDim2.fromOffset(256, 50),
+		Size = UDim2.fromOffset(256 - SETTINGS_GEAR_W, 50),
 		OnClick = function()
 			self:_openDaily()
 		end,
@@ -1348,6 +1395,36 @@ function UI._buildMenuLeft(self, root)
 		m.dailyPips[day] = { frame = pip, stroke = pipStroke }
 	end
 	m.daily = daily
+
+	local gear = self:_gearButton(left, {
+		Position = UDim2.fromOffset(256 - SETTINGS_GEAR_W, 290),
+	})
+	m.settingsButton = gear
+	daily.holder.NextSelectionRight = gear.holder
+	gear.holder.NextSelectionLeft = daily.holder
+	gear.holder.NextSelectionUp = play.holder
+end
+
+-- The SETTINGS gear: a small square hard button (50 tall, like everything tappable).
+function UI._gearButton(self, parent, opts)
+	local button
+	button = hardButton(parent, {
+		Name = "Settings",
+		Fill = "paper",
+		Text = "",
+		Index = "SETTINGS",
+		Position = opts.Position,
+		AnchorPoint = opts.AnchorPoint,
+		LayoutOrder = opts.LayoutOrder,
+		Size = UDim2.fromOffset(SETTINGS_GEAR_W, 50),
+		OnClick = function()
+			self:_openSettings(button.holder)
+		end,
+	})
+	button.index.TextXAlignment = Enum.TextXAlignment.Center
+	capText(button.index, 8, 5)
+	button.gear = gearGlyph(button.face, 18, UDim2.new(0.5, 0, 0.5, 5), INK, PAPER)
+	return button
 end
 
 -- Boost picker ------------------------------------------------------------------------------
@@ -4394,7 +4471,9 @@ function UI._setLow(self, low)
 	end
 	h.plateStroke.Color = if low then DANGER else INK
 	h.alarm.BackgroundTransparency = 1
-	if low then
+	if low and Settings.get("flashes") == false then
+		h.alarm.BackgroundTransparency = 0.85 -- steady tint instead of a blinking alarm
+	elseif low then
 		h.pulse = TweenService:Create(
 			h.alarm,
 			TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
@@ -4593,17 +4672,693 @@ function UI._buildGameOver(self)
 			self:_fire("onPlayAgain", self:_pickedBoosts())
 		end,
 	})
-	g.menuButton = hardButton(actions, {
+	-- MENU and the SETTINGS gear share the last row.
+	local menuRow = new("Frame", { Name = "MenuRow", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 50), LayoutOrder = 3, Parent = actions })
+	g.menuButton = hardButton(menuRow, {
 		Name = "Menu",
 		Fill = "paper",
 		Text = "MENU",
 		TextSize = 12,
-		Size = UDim2.new(1, 0, 0, 50),
-		LayoutOrder = 3,
+		Size = UDim2.new(1, -SETTINGS_GEAR_W, 1, 0),
 		OnClick = function()
 			self:_fire("onMenu")
 		end,
 	})
+	g.settingsButton = self:_gearButton(menuRow, {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+	})
+	g.menuButton.holder.NextSelectionRight = g.settingsButton.holder
+	g.settingsButton.holder.NextSelectionLeft = g.menuButton.holder
+	g.settingsButton.holder.NextSelectionUp = g.playAgain.holder
+end
+
+-- Settings ------------------------------------------------------------------------------
+-- One sheet over whatever is showing (menu or run report). Every control writes
+-- straight to Settings, and everything is redrawn from Settings.changed, so a
+-- value changed anywhere (or loaded from the account a moment late) shows here.
+--
+-- Body (under the 24-unit header), top to bottom:
+--   01 MUSIC slider / 02 SOUND FX slider (full width, 50 tall)
+--   graphics hint line, then 03 GRAPHICS  AUTO | LOW | HIGH
+--   04 VIBRATION | 05 CAMERA SHAKE | 06 FLASHES toggles
+--   note (or controller hints) and CLOSE
+-- On a short screen the sheet is cut to fit and the body scrolls.
+
+local GRAPHICS_LABELS = { Auto = "AUTO", Low = "LOW", High = "HIGH" }
+local SETTINGS_TOGGLES = {
+	{ key = "vibration", label = "04 / VIBRATION" },
+	{ key = "shake", label = "05 / CAMERA SHAKE" },
+	{ key = "flashes", label = "06 / FLASHES" },
+}
+
+-- Small index + name block on the left of a settings row (sliders, graphics).
+local function settingsLabel(face, index, label)
+	local chip = new("Frame", { Position = UDim2.fromOffset(8, 7), Size = UDim2.fromOffset(5, 5), Parent = face })
+	setAccent(chip, "BackgroundColor3")
+	text({ Text = index, TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(17, 4), Size = UDim2.fromOffset(40, 10), Parent = face })
+	capText(text({
+		Text = label,
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(8, 17),
+		Size = UDim2.fromOffset(SETTINGS_LABEL_W - 14, 24),
+		Parent = face,
+	}), 11, 6)
+end
+
+function UI._buildSettings(self)
+	local s = { sliders = {}, toggles = {}, toggleList = {}, segments = {}, open = false }
+	self._settings = s
+
+	local layer = new("Frame", { Name = "Settings", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, Parent = self.gui })
+	s.layer = layer
+	local wash = new("TextButton", {
+		Name = "Wash",
+		AutoButtonColor = false,
+		Text = "",
+		Selectable = false, -- tap-outside-to-close only; never a gamepad stop
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.25,
+		Position = UDim2.fromOffset(-200, -200),
+		Size = UDim2.new(1, 400, 1, 400),
+		Parent = layer,
+	})
+	wash.Activated:Connect(function()
+		self:_closeSettings()
+	end)
+	s.wash = wash
+	blueprintGrid(layer, 12, 8, 0.9)
+
+	local sheet, right = modalSheet(layer, "Sheet", SETTINGS_W, SETTINGS_HEADER + SETTINGS_BODY_H, "08", "SETTINGS")
+	sheet.Visible = true -- the layer shows / hides it
+	right.Text = "SAVED TO YOUR ACCOUNT"
+	s.sheet = sheet
+
+	local body = new("ScrollingFrame", {
+		Name = "Body",
+		Active = true,
+		Selectable = false, -- gamepad selection goes to the controls; the body scrolls to follow it
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, SETTINGS_HEADER),
+		Size = UDim2.new(1, 0, 1, -SETTINGS_HEADER),
+		CanvasSize = UDim2.fromOffset(0, SETTINGS_BODY_H),
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = INK,
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		Parent = sheet,
+	})
+	s.body = body
+
+	self:_buildSettingsSlider(body, "music", "01", "MUSIC", 6)
+	self:_buildSettingsSlider(body, "sfx", "02", "SOUND FX", 60)
+
+	text({
+		Text = "LOW = SMOOTHER ON OLD PHONES",
+		TextSize = 9,
+		Position = UDim2.fromOffset(12, 114),
+		Size = UDim2.new(0.55, -12, 0, 12),
+		Parent = body,
+	})
+	s.graphicsAuto = text({
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(0.55, 0, 0, 114),
+		Size = UDim2.new(0.45, -12, 0, 12),
+		Parent = body,
+	})
+	self:_buildSettingsSegments(body, 128)
+
+	local toggleRow = new("Frame", {
+		Name = "Toggles",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 184),
+		Size = UDim2.new(1, -24, 0, SETTINGS_ROW),
+		Parent = body,
+	})
+	for order, spec in SETTINGS_TOGGLES do
+		self:_buildSettingsToggle(toggleRow, spec.key, spec.label, order)
+	end
+
+	-- Bottom row: a note (touch / mouse) or controller hints, and CLOSE.
+	s.note = text({
+		Text = "CHANGES APPLY RIGHT AWAY",
+		TextSize = 8,
+		TextColor3 = GREY,
+		Position = UDim2.fromOffset(12, 258),
+		Size = UDim2.new(1, -190, 0, 12),
+		Parent = body,
+	})
+	s.hint = inputHint(body, { { "D-PAD", "ADJUST" }, { "B", "CLOSE" } }, {
+		Position = UDim2.fromOffset(12, 257),
+		Size = UDim2.new(1, -190, 0, 14),
+	}, Enum.HorizontalAlignment.Left)
+	s.close = hardButton(body, {
+		Name = "Close",
+		Fill = "accent",
+		Text = "CLOSE",
+		TextSize = 13,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 240),
+		Size = UDim2.fromOffset(150, SETTINGS_ROW),
+		OnClick = function()
+			self:_closeSettings()
+		end,
+	})
+
+	-- Gamepad neighbours: straight lines down the sheet. Sliders have nothing to
+	-- their left or right (they are full width and the sheet stops selection at
+	-- its edges), so left / right on a slider only ever changes its value.
+	-- Edges point at the control itself, so selection stays put there instead
+	-- of jumping diagonally (and a slider never loses the selection sideways,
+	-- even if the engine also reads the D-pad we sink).
+	local music, sfx = s.sliders.music.holder, s.sliders.sfx.holder
+	for _, holder in { music, sfx } do
+		holder.NextSelectionLeft = holder
+		holder.NextSelectionRight = holder
+	end
+	music.NextSelectionUp = music
+	music.NextSelectionDown = sfx
+	sfx.NextSelectionUp = music
+	sfx.NextSelectionDown = s.segments[1] and s.segments[1].button -- then follows the chosen option
+	local toggles = s.toggleList
+	for i, segment in s.segments do
+		local button = segment.button
+		button.NextSelectionUp = sfx
+		button.NextSelectionLeft = if i > 1 then s.segments[i - 1].button else button
+		button.NextSelectionRight = if i < #s.segments then s.segments[i + 1].button else button
+		local below = toggles[math.min(i, #toggles)]
+		button.NextSelectionDown = below and below.button.holder
+	end
+	for i, entry in toggles do
+		local holder = entry.button.holder
+		local above = s.segments[math.min(i, #s.segments)]
+		holder.NextSelectionUp = above and above.button
+		holder.NextSelectionLeft = if i > 1 then toggles[i - 1].button.holder else holder
+		holder.NextSelectionRight = if i < #toggles then toggles[i + 1].button.holder else holder
+		holder.NextSelectionDown = s.close.holder
+	end
+	local close = s.close.holder
+	close.NextSelectionUp = if #toggles > 0 then toggles[#toggles].button.holder else sfx
+	close.NextSelectionDown = close
+	close.NextSelectionLeft = close
+	close.NextSelectionRight = close
+
+	-- Dragging keeps following the finger / mouse even when it leaves the row.
+	table.insert(self._connections, UserInputService.InputChanged:Connect(function(input)
+		local drag = s.drag
+		if drag and (input == drag.input or (drag.mouse and input.UserInputType == Enum.UserInputType.MouseMovement)) then
+			self:_slideTo(drag.slider, input.Position.X)
+		end
+	end))
+	table.insert(self._connections, UserInputService.InputEnded:Connect(function(input)
+		local drag = s.drag
+		if drag and (input == drag.input or (drag.mouse and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+			self:_endSliderDrag(drag)
+		end
+	end))
+
+	self:_refreshSettings()
+end
+
+-- A full-width slider row: label | ruler track with accent fill and ink thumb | percent.
+-- Touch / mouse: press anywhere on the track (or just beside it) and drag.
+-- Gamepad: select the row, then left / right steps 10% (see _onSettingsAdjust).
+function UI._buildSettingsSlider(self, parent, key, index, label, y)
+	local s = self._settings
+	local holder = new("TextButton", {
+		Name = key,
+		AutoButtonColor = false,
+		Text = "",
+		Selectable = true,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.new(1, -24, 0, SETTINGS_ROW),
+		Parent = parent,
+	})
+	local face = new("Frame", { Name = "Face", BackgroundColor3 = PAPER, Size = UDim2.fromScale(1, 1), Parent = holder })
+	stroke(face, 1, INK, 0.5)
+	settingsLabel(face, index, label)
+	rule(face, { Position = UDim2.fromOffset(SETTINGS_LABEL_W, 8), Size = UDim2.new(0, 1, 1, -16), BackgroundTransparency = 0.6 })
+	rule(face, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(SETTINGS_PCT_W + 4), 0, 8), Size = UDim2.new(0, 1, 1, -16), BackgroundTransparency = 0.6 })
+
+	local trackLeft = SETTINGS_LABEL_W + 18
+	local trackRight = SETTINGS_PCT_W + 22
+	local track = new("Frame", {
+		Name = "Track",
+		BackgroundColor3 = INK,
+		BackgroundTransparency = 0.82,
+		Position = UDim2.fromOffset(trackLeft, 19),
+		Size = UDim2.new(1, -(trackLeft + trackRight), 0, 6),
+		Parent = face,
+	})
+	local fill = new("Frame", { Name = "Fill", Size = UDim2.fromScale(0, 1), Parent = track })
+	setAccent(fill, "BackgroundColor3")
+	-- Ruler ticks every 10% (one D-pad step), longer at 0 / 50 / 100.
+	for i = 0, 10 do
+		local major = i % 5 == 0
+		rule(track, {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(i / 10, 0, 1, 5),
+			Size = UDim2.fromOffset(1, if major then 7 else 4),
+			BackgroundTransparency = if major then 0.2 else 0.5,
+		})
+	end
+	local thumb = new("Frame", {
+		Name = "Thumb",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromOffset(12, 24),
+		Parent = track,
+	})
+	rule(thumb, { BackgroundColor3 = PAPER, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 2, 1, -10) })
+	local bump = new("UIScale", { Parent = thumb })
+	local pct = capText(text({
+		Text = "",
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 0),
+		Size = UDim2.new(0, SETTINGS_PCT_W - 8, 1, 0),
+		Parent = face,
+	}), 13, 7)
+
+	local slider = { key = key, holder = holder, track = track, fill = fill, thumb = thumb, bump = bump, pct = pct }
+	s.sliders[key] = slider
+
+	holder.InputBegan:Connect(function(input)
+		local kind = input.UserInputType
+		if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
+			return
+		end
+		if s.drag or not s.open then
+			return -- one finger at a time
+		end
+		local left, width = track.AbsolutePosition.X, track.AbsoluteSize.X
+		local margin = 20 * effectiveScale(track)
+		local x = input.Position.X
+		if width < 1 or x < left - margin or x > left + width + margin then
+			return -- a tap on the label or the readout doesn't move the slider
+		end
+		self:_beginSliderDrag(slider, input)
+	end)
+	return slider
+end
+
+-- 03 GRAPHICS: label cell + AUTO | LOW | HIGH on one hard-shadowed strip. Each
+-- option's tap area is the full 50 units (face and shadow), like hardButton.
+function UI._buildSettingsSegments(self, parent, y)
+	local s = self._settings
+	local strip = new("Frame", {
+		Name = "Graphics",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.new(1, -24, 0, SETTINGS_ROW),
+		Parent = parent,
+	})
+	new("Frame", { Name = "Shadow", BackgroundColor3 = INK, Position = UDim2.fromOffset(SHADOW, SHADOW), Size = UDim2.new(1, -SHADOW, 1, -SHADOW), Parent = strip })
+	local face = new("Frame", { Name = "Face", BackgroundColor3 = PAPER, Size = UDim2.new(1, -SHADOW, 1, -SHADOW), Parent = strip })
+	stroke(face, 2)
+	settingsLabel(face, "03", "GRAPHICS")
+	rule(face, { Position = UDim2.fromOffset(SETTINGS_LABEL_W, 0), Size = UDim2.new(0, 1, 1, 0) })
+
+	local options = new("Frame", {
+		Name = "Options",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(SETTINGS_LABEL_W + 1, 0),
+		Size = UDim2.new(1, -(SETTINGS_LABEL_W + 1 + SHADOW), 1, 0),
+		Parent = strip,
+	})
+	local count = #Config.GRAPHICS_OPTIONS
+	for i, option in Config.GRAPHICS_OPTIONS do
+		local button = new("TextButton", {
+			Name = option,
+			AutoButtonColor = false,
+			Text = "",
+			Selectable = true,
+			BackgroundTransparency = 1,
+			Position = UDim2.fromScale((i - 1) / count, 0),
+			Size = UDim2.fromScale(1 / count, 1),
+			Parent = options,
+		})
+		local fill = new("Frame", { Name = "Fill", BackgroundColor3 = INK, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, -SHADOW), Parent = button })
+		if i > 1 then
+			rule(button, { Size = UDim2.new(0, 1, 1, -SHADOW), BackgroundTransparency = 0.5 })
+		end
+		local label = capText(text({
+			Text = GRAPHICS_LABELS[option] or string.upper(option),
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(4, 0),
+			Size = UDim2.new(1, -8, 1, -SHADOW),
+			Parent = button,
+		}), 12, 7)
+		local bar = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, -SHADOW), Size = UDim2.new(1, 0, 0, 3), Visible = false, Parent = button })
+		setAccent(bar, "BackgroundColor3")
+		button.Activated:Connect(function()
+			Settings.set("graphics", option)
+		end)
+		table.insert(s.segments, { option = option, button = button, fill = fill, label = label, bar = bar })
+	end
+end
+
+-- An ON / OFF hard button with a small switch drawn on its right.
+function UI._buildSettingsToggle(self, row, key, label, order)
+	local s = self._settings
+	local count = #SETTINGS_TOGGLES
+	local button = hardButton(row, {
+		Name = key,
+		Fill = "paper",
+		Text = "ON",
+		TextSize = 12,
+		Align = Enum.TextXAlignment.Left,
+		Index = label,
+		Position = UDim2.new((order - 1) / count, (order - 1) * 2, 0, 0),
+		Size = UDim2.new(1 / count, -4, 1, 0),
+		OnClick = function()
+			Settings.set(key, Settings.get(key) ~= true)
+		end,
+	})
+	button.label.Size = UDim2.new(1, -58, 1, -11)
+	local switch = new("Frame", {
+		Name = "Switch",
+		BackgroundColor3 = PAPER,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 5),
+		Size = UDim2.fromOffset(32, 16),
+		Parent = button.face,
+	})
+	stroke(switch, 1.5)
+	local knob = new("Frame", {
+		Name = "Knob",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 2, 0.5, 0),
+		Size = UDim2.fromOffset(13, 10),
+		Parent = switch,
+	})
+	local entry = { key = key, button = button, switch = switch, knob = knob }
+	s.toggles[key] = entry
+	table.insert(s.toggleList, entry)
+	return entry
+end
+
+-- Fits the sheet to the safe area (called on every resize). Phones in landscape
+-- get the full 340-unit sheet height, so it fits without scrolling; anything
+-- shorter cuts the sheet and lets the body scroll. Crop marks only show when
+-- there is room for them outside the sheet.
+function UI._layoutSettings(self)
+	local s = self._settings
+	if not s then
+		return
+	end
+	local size = self.gui.AbsoluteSize
+	if size.X < 1 or size.Y < 1 or currentScale <= 0 then
+		return
+	end
+	local availW = size.X / currentScale
+	local availH = size.Y / currentScale
+	local width = math.floor(math.min(SETTINGS_W, availW - 8))
+	local height = math.floor(math.min(SETTINGS_HEADER + SETTINGS_BODY_H, availH - 8))
+	height = math.max(height, SETTINGS_HEADER + SETTINGS_ROW)
+	s.sheet.Size = UDim2.fromOffset(width, height)
+	local roomy = availH >= height + 30 and availW >= width + 30
+	for _, child in s.sheet:GetChildren() do
+		if child.Name == "Crop" and child:IsA("GuiObject") then
+			child.Visible = roomy
+		end
+	end
+end
+
+-- Redraws every control from Settings (cheap; runs on every change).
+function UI._refreshSettings(self)
+	local s = self._settings
+	if not s then
+		return
+	end
+	local values = Settings.all()
+	local instant = s.drag ~= nil or not s.open
+	for key, slider in s.sliders do
+		self:_showSliderValue(slider, values[key], instant)
+	end
+	for _, entry in s.toggleList do
+		local on = values[entry.key] == true
+		entry.button.setText(if on then "ON" else "OFF")
+		entry.button.label.TextColor3 = if on then INK else GREY
+		entry.knob.AnchorPoint = Vector2.new(if on then 1 else 0, 0.5)
+		entry.knob.Position = if on then UDim2.new(1, -2, 0.5, 0) else UDim2.new(0, 2, 0.5, 0)
+		entry.switch.BackgroundColor3 = if on then INK else PAPER
+		if on then
+			setAccent(entry.knob, "BackgroundColor3")
+		else
+			clearAccent(entry.knob)
+			entry.knob.BackgroundColor3 = INK
+		end
+	end
+	for _, segment in s.segments do
+		local active = segment.option == values.graphics
+		segment.fill.BackgroundTransparency = if active then 0 else 1
+		segment.label.TextColor3 = if active then PAPER else INK
+		segment.bar.Visible = active
+		if active and s.sliders.sfx then
+			s.sliders.sfx.holder.NextSelectionDown = segment.button
+		end
+	end
+	local ok, level = pcall(Settings.graphicsLevel)
+	s.graphicsAuto.Text = if values.graphics == "Auto" and ok and type(level) == "string"
+		then "AUTO = " .. string.upper(level) .. " ON THIS DEVICE"
+		else ""
+end
+
+function UI._showSliderValue(self, slider, value, instant)
+	value = math.clamp(tonumber(value) or 0, 0, 1)
+	local percent = math.floor(value * 100 + 0.5)
+	slider.pct.Text = if percent == 0 then "OFF" else percent .. "%"
+	for _, running in slider.tweens or {} do
+		running:Cancel()
+	end
+	slider.tweens = nil
+	local fillSize = UDim2.fromScale(value, 1)
+	local thumbPosition = UDim2.fromScale(value, 0.5)
+	if instant then
+		slider.fill.Size = fillSize
+		slider.thumb.Position = thumbPosition
+	else
+		slider.tweens = {
+			tween(slider.fill, 0.12, { Size = fillSize }),
+			tween(slider.thumb, 0.12, { Position = thumbPosition }),
+		}
+	end
+end
+
+function UI._slideTo(self, slider, x)
+	local track = slider.track
+	local width = track.AbsoluteSize.X
+	if width < 1 then
+		return
+	end
+	local value = math.clamp((x - track.AbsolutePosition.X) / width, 0, 1)
+	Settings.set(slider.key, math.floor(value * 100 + 0.5) / 100)
+end
+
+function UI._beginSliderDrag(self, slider, input)
+	local s = self._settings
+	local drag = { slider = slider, input = input, mouse = input.UserInputType == Enum.UserInputType.MouseButton1 }
+	s.drag = drag
+	s.body.ScrollingEnabled = false -- the finger moves the slider, not the page
+	self:_stopHold()
+	drag.changed = input.Changed:Connect(function()
+		local state = input.UserInputState
+		if state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+			self:_endSliderDrag(drag)
+		end
+	end)
+	slider.bump.Scale = 1.2
+	self:_slideTo(slider, input.Position.X)
+end
+
+function UI._endSliderDrag(self, drag)
+	local s = self._settings
+	drag = drag or s.drag
+	if drag == nil or s.drag ~= drag then
+		return
+	end
+	s.drag = nil
+	if drag.changed then
+		drag.changed:Disconnect()
+	end
+	s.body.ScrollingEnabled = true
+	tween(drag.slider.bump, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+end
+
+-- The slider the gamepad selection is on, or nil.
+function UI._selectedSlider(self)
+	local s = self._settings
+	local selected = GuiService.SelectedObject
+	if not s or not s.open or selected == nil then
+		return nil
+	end
+	for _, slider in s.sliders do
+		if slider.holder == selected then
+			return slider
+		end
+	end
+	return nil
+end
+
+-- One gamepad step: to the next 10% mark in that direction (63% -> 70% / 60%).
+function UI._stepSlider(self, slider, dir)
+	local value = math.clamp(tonumber(Settings.get(slider.key)) or 0, 0, 1)
+	local target
+	if dir > 0 then
+		target = math.floor(value * 10 + 1e-6) / 10 + SLIDER_STEP
+	else
+		target = math.ceil(value * 10 - 1e-6) / 10 - SLIDER_STEP
+	end
+	target = math.clamp(math.floor(target * 100 + 0.5) / 100, 0, 1)
+	if target ~= value then
+		Settings.set(slider.key, target)
+		slider.bump.Scale = 1.25
+		tween(slider.bump, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+end
+
+-- Holding the D-pad (or the stick) keeps stepping after a short pause.
+function UI._startHold(self, source, dir)
+	local s = self._settings
+	local slider = self:_selectedSlider()
+	if slider == nil then
+		self:_stopHold(source)
+		return false
+	end
+	local hold = { source = source, dir = dir }
+	s.hold = hold
+	self:_stepSlider(slider, dir)
+	task.delay(SLIDER_REPEAT_DELAY, function()
+		while s.hold == hold and s.open do
+			local current = self:_selectedSlider()
+			if current == nil then
+				break
+			end
+			self:_stepSlider(current, dir)
+			task.wait(SLIDER_REPEAT_EVERY)
+		end
+	end)
+	return true
+end
+
+function UI._stopHold(self, source)
+	local s = self._settings
+	if s and s.hold and (source == nil or s.hold.source == source) then
+		s.hold = nil
+	end
+end
+
+-- Gamepad left / right while the sheet is open. On a slider the D-pad is
+-- sunk (so it changes the value instead of moving the selection); anywhere else
+-- it passes through to normal navigation. Up / down are never bound, so they
+-- always move between rows. The stick always passes through: on a slider the
+-- navigation has nowhere to go sideways anyway.
+function UI._onSettingsAdjust(self, inputState, input)
+	local s = self._settings
+	if not s or not s.open then
+		return Enum.ContextActionResult.Pass
+	end
+	if input.KeyCode == Enum.KeyCode.Thumbstick1 then
+		local position = input.Position
+		local dir = 0
+		local ended = inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel
+		if not ended and math.abs(position.X) > STICK_THRESHOLD and math.abs(position.X) > math.abs(position.Y) then
+			dir = if position.X > 0 then 1 else -1
+		end
+		local holding = s.hold and s.hold.source == "stick" and s.hold.dir or 0
+		if dir == 0 then
+			self:_stopHold("stick")
+		elseif dir ~= holding then
+			self:_startHold("stick", dir)
+		end
+		return Enum.ContextActionResult.Pass
+	end
+	local dir = if input.KeyCode == Enum.KeyCode.DPadLeft then -1 else 1
+	if inputState == Enum.UserInputState.Begin then
+		if self:_startHold(input.KeyCode, dir) then
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	elseif inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel then
+		local held = s.hold ~= nil and s.hold.source == input.KeyCode
+		self:_stopHold(input.KeyCode)
+		return if held then Enum.ContextActionResult.Sink else Enum.ContextActionResult.Pass
+	end
+	return Enum.ContextActionResult.Pass
+end
+
+function UI._bindSettingsAdjust(self, on)
+	local s = self._settings
+	if on == (s.adjustBound == true) then
+		return
+	end
+	s.adjustBound = on
+	if on then
+		ContextActionService:BindActionAtPriority(SETTINGS_ACTION, function(_, inputState, input)
+			return self:_onSettingsAdjust(inputState, input)
+		end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadRight, Enum.KeyCode.Thumbstick1)
+	else
+		ContextActionService:UnbindAction(SETTINGS_ACTION)
+	end
+end
+
+-- Opens the sheet over the menu or the run report. `opener` gets the gamepad
+-- selection back when it closes.
+function UI._openSettings(self, opener)
+	local s = self._settings
+	if not s or s.open or self._hud.layer.Visible then
+		return
+	end
+	s.open = true
+	s.returnTo = opener or GuiService.SelectedObject
+	s.layer.Visible = true
+	self:_layoutSettings()
+	self:_refreshSettings()
+	s.body.CanvasPosition = Vector2.zero
+	s.wash.BackgroundTransparency = 1
+	tween(s.wash, 0.25, { BackgroundTransparency = 0.25 })
+	s.sheet.Position = UDim2.new(0.5, 0, 0.5, 16)
+	tween(s.sheet, 0.3, { Position = UDim2.fromScale(0.5, 0.5) })
+	-- The gear on the button turns a quarter (it looks the same at rest).
+	local face = opener and opener:FindFirstChild("Face")
+	local gear = face and face:FindFirstChild("Gear")
+	if gear and gear:IsA("GuiObject") then
+		gear.Rotation = 0
+		tween(gear, 0.45, { Rotation = 90 }, Enum.EasingStyle.Back)
+	end
+	self:_bindSettingsAdjust(true)
+	self:_syncBack()
+	self:_refreshHints()
+	self:_focus(s.sliders.music.holder)
+end
+
+-- `quiet`: the screen underneath is changing anyway, so don't move the selection.
+function UI._closeSettings(self, quiet)
+	local s = self._settings
+	if not s or not s.open then
+		return
+	end
+	s.open = false
+	self:_endSliderDrag()
+	self:_stopHold()
+	s.layer.Visible = false
+	self:_bindSettingsAdjust(false)
+	self:_syncBack()
+	self:_refreshHints()
+	local returnTo = s.returnTo
+	s.returnTo = nil
+	if not quiet then
+		self:_returnFocus(s.layer, returnTo)
+	end
 end
 
 -- Toasts and zone card ------------------------------------------------------------------
@@ -4750,6 +5505,17 @@ function UI._buildFx(self)
 	})
 	local ringStroke = stroke(ring, 3, color, 1)
 	self._shieldFlash = { ring = ring, ringStroke = ringStroke, last = 0 }
+
+	-- With flashes off, a hit shows as a thin red line around the screen that
+	-- fades out, instead of the full red wash.
+	local edge = new("Frame", {
+		Name = "DamageEdge",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(2, 2),
+		Size = UDim2.new(1, -4, 1, -4),
+		Parent = layer,
+	})
+	self._damageEdge = stroke(edge, 3, DANGER, 1)
 end
 
 function UI._shake(self, target, strength)
@@ -4834,6 +5600,10 @@ end
 -- The button a gamepad player should land on for whatever is showing, or nil
 -- during a run (so A / R2 go to the game, not the UI).
 function UI._primary(self)
+	local settings = self._settings
+	if settings and settings.open then
+		return settings.sliders.music.holder
+	end
 	local m = self._menu
 	if m.root.Visible then
 		if m.modalOpen then
@@ -4907,6 +5677,10 @@ function UI._restoreFocus(self, container, path, fallback)
 end
 
 function UI._popoverOpen(self)
+	local settings = self._settings
+	if settings and settings.open then
+		return true -- over the menu or the run report
+	end
 	local m = self._menu
 	if not m.root.Visible then
 		return false
@@ -4938,7 +5712,9 @@ end
 function UI._back(self)
 	local m = self._menu
 	local t = self._topUp
-	if t and t.strip.Visible then
+	if self._settings and self._settings.open then
+		self:_closeSettings() -- always the top-most sheet
+	elseif t and t.strip.Visible then
 		self:_hideTopUp()
 	elseif m.boostPop and m.boostPop.frame.Visible then
 		self:_closeBoostPop()
@@ -4953,6 +5729,11 @@ function UI._refreshHints(self)
 	local m = self._menu
 	m.footerHint.Visible = gamepad
 	m.footerSpec.Visible = not gamepad
+	local s = self._settings
+	if s then
+		s.hint.Visible = gamepad
+		s.note.Visible = not gamepad
+	end
 	local h = self._hud
 	local throw = gamepad and h.layer.Visible and self._runsEnded == 0
 	h.throwHint.Visible = throw
@@ -5020,6 +5801,7 @@ function UI.new(callbacks)
 	self:_buildMenu()
 	self:_buildHud()
 	self:_buildGameOver()
+	self:_buildSettings()
 	self:_buildToasts()
 	self:_buildFx()
 	self:_selectTab(1)
@@ -5043,6 +5825,7 @@ function UI.new(callbacks)
 			end
 		end
 		textCaps = live
+		self:_layoutSettings()
 	end
 	refit()
 
@@ -5131,6 +5914,25 @@ function UI.new(callbacks)
 		self:_rebuildTopRuns()
 	end)
 
+	-- Settings apply live: redraw the sheet, and follow flashes / shake in the HUD.
+	connect(Settings.changed, function(key)
+		self:_refreshSettings()
+		local h = self._hud
+		if key == "flashes" then
+			if h.low then
+				self:_setLow(true) -- pulsing alarm <-> steady tint
+			end
+			if Settings.get("flashes") == false then
+				for _, frame in self._vignette do
+					frame.BackgroundTransparency = 1
+				end
+			end
+		elseif key == "shake" and Settings.get("shake") == false then
+			self._shakeToken = nil
+			h.root.Position = UDim2.new()
+		end
+	end)
+
 	-- Gamepad: follow the last input, and never leave a gamepad player with
 	-- nothing selected on a menu-type screen (B clears the selection by default).
 	connect(UserInputService.LastInputTypeChanged, function(inputType)
@@ -5168,6 +5970,10 @@ function UI.new(callbacks)
 		if self._backBound then
 			self._backBound = false
 			ContextActionService:UnbindAction(BACK_ACTION)
+		end
+		if self._settings and self._settings.adjustBound then
+			self._settings.adjustBound = false
+			ContextActionService:UnbindAction(SETTINGS_ACTION)
 		end
 	end)
 
@@ -5210,6 +6016,7 @@ function UI:showMenu()
 end
 
 function UI:showHud()
+	self:_closeSettings(true)
 	self:hideRevive()
 	self:_closeModal()
 	-- A run is starting (or resuming): picks were handed over with onPlay.
@@ -5349,11 +6156,13 @@ function UI:flashShield()
 		return
 	end
 	f.last = now
-	f.ring.Visible = true
-	f.ring.Size = UDim2.fromOffset(60, 60)
-	f.ringStroke.Transparency = 0
-	tween(f.ring, 0.45, { Size = UDim2.fromOffset(420, 420) })
-	tween(f.ringStroke, 0.45, { Transparency = 1 })
+	if Settings.get("flashes") ~= false then
+		f.ring.Visible = true
+		f.ring.Size = UDim2.fromOffset(60, 60)
+		f.ringStroke.Transparency = 0
+		tween(f.ring, 0.45, { Size = UDim2.fromOffset(420, 420) })
+		tween(f.ringStroke, 0.45, { Transparency = 1 })
+	end
 	-- setBoosts keeps the shield plate up for a beat, reading USED.
 	local rail = self._hud.boostRail
 	if rail then
@@ -5369,6 +6178,7 @@ end
 function UI:showGameOver(info)
 	info = info or {}
 	local g = self._over
+	self:_closeSettings(true)
 	self._hud.layer.Visible = false
 	self._menu.root.Visible = false
 	g.root.Visible = true
@@ -5537,12 +6347,24 @@ function UI:toast(value, kind)
 	end)
 end
 
+-- Respects the player's settings: "flashes" off swaps the red wash for a thin
+-- fading red edge, "shake" off keeps the HUD still.
 function UI:flashDamage()
-	for _, frame in self._vignette do
-		frame.BackgroundTransparency = 0.05
-		tween(frame, 0.45, { BackgroundTransparency = 1 })
+	if Settings.get("flashes") == false then
+		local edge = self._damageEdge
+		if edge then
+			edge.Transparency = 0.3
+			tween(edge, 0.7, { Transparency = 1 }, Enum.EasingStyle.Sine)
+		end
+	else
+		for _, frame in self._vignette do
+			frame.BackgroundTransparency = 0.05
+			tween(frame, 0.45, { BackgroundTransparency = 1 })
+		end
 	end
-	self:_shake(self._hud.root, 7)
+	if Settings.get("shake") ~= false then
+		self:_shake(self._hud.root, 7)
+	end
 end
 
 function UI:setTheme(theme)

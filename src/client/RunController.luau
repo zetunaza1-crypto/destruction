@@ -14,6 +14,11 @@
 	  MegaBall   - the next few throws are giant balls that smash through everything
 	  SlowMo     - the world (camera, balls) runs slower for a few seconds
 	  DoubleGems - handled by the server, only shown here
+
+	Game feel (section "Feel" below): hit-stop (a split-second freeze) on big
+	smashes, a field-of-view punch on every smash, a kick + shake on crashes, a
+	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
+	Camera effects follow Settings "shake", the shield tint follows "flashes".
 ]]
 
 local GuiService = game:GetService("GuiService")
@@ -29,11 +34,13 @@ local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GamepadAim = require(script.Parent.GamepadAim)
+local Haptics = require(script.Parent.Haptics)
 local LeaveGift = require(script.Parent.LeaveGift)
 local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
 local LightingFx = require(script.Parent.LightingFx)
+local Settings = require(script.Parent.Settings)
 local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
 
@@ -64,6 +71,26 @@ local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
 local WHITE = Color3.new(1, 1, 1)
 local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local BASE_SATURATION = 0 -- zone grading already sets saturation; this layer stays neutral
+
+-- Feel
+local BASE_FOV = 70
+local SPEED_FOV = 15 -- extra field of view at top speed
+local HITSTOP_TIME = 0.06 -- seconds the world freezes on a big smash
+local HITSTOP_BIG_TIME = 0.07 -- mega ball breaking several things at once
+local HITSTOP_MAX = 0.1 -- a burst of big smashes never freezes longer than this in total...
+local HITSTOP_COOLDOWN = 0.35 -- ...and the next freeze waits this long after one ends
+local HITSTOP_SCALE = 0.03 -- world speed while frozen (not quite 0, so it never looks stuck)
+local BIG_PANE_AREA = 150 -- panes at least this big (square studs) count as a big smash (full walls)
+local FOV_PUNCH_SHATTER = 3
+local FOV_PUNCH_BIG = 5
+local FOV_PUNCH_CRASH = 6
+local FOV_PUNCH_MAX = 7
+local FOV_PUNCH_RETURN = 15 -- how fast the punch eases back (gone after ~0.2 s)
+local KICK_RETURN = 12 -- how fast camera kicks / recoil settle
+local THROW_RECOIL = math.rad(0.5) -- camera tips up this much on a throw
+local CRASH_KICK = math.rad(3.5) -- camera snaps up this much on a crash...
+local CRASH_ROLL = math.rad(2.5) -- ...and tilts sideways up to this much
+local KICK_MAX = math.rad(6)
 
 -- Roblox's own UI we hide (the game has its own leaderboard, and the player
 -- list would cover the distance readout). Chat stays on.
@@ -110,6 +137,17 @@ local boost = { shield = 0, magnet = 0, slowmo = 0, megaball = 0, doubleGems = f
 local timeScale = 1 -- 1 = normal speed, lower while SlowMo is on
 local slowLook = 0 -- how much of the slow-mo color effect is showing (0..1)
 local magnetized = {} -- crystals currently flying to the camera
+
+-- Feel (see the "Feel" section)
+local hitStopLeft = 0 -- real seconds of freeze still to go
+local hitStopUsed = 0 -- seconds frozen in the current burst (capped at HITSTOP_MAX)
+local hitStopCooldown = 0
+local lastTutorialScale = 1 -- the tutorial's slow-down last frame (no hit-stop while it slows time)
+local fovPunch = 0 -- extra degrees of field of view, easing back to 0
+local kickPitch = 0 -- radians, camera tipped up (recoil / crash), easing back to 0
+local kickRoll = 0 -- radians, camera tilted sideways (crash), easing back to 0
+local shakeOn = Settings.get("shake") ~= false
+local flashesOn = Settings.get("flashes") ~= false
 local runSerial = 0 -- RunStarted events sent; the server echoes it with BoostsActivated
 
 -- Helpers --------------------------------------------------------------------
@@ -166,6 +204,86 @@ local function applyTheme(zone)
 	GamepadAim.setAccent(theme.Accent)
 	LeaveGift.setAccent(theme.Accent)
 end
+
+-- Feel -----------------------------------------------------------------------
+
+-- Freezes the world for a split second (balls, camera, crystals). Real-time
+-- things (boost timers, the UI, the tutorial) keep going. Several big smashes
+-- in a row never add up to more than HITSTOP_MAX, and never while the tutorial
+-- is slowing time down.
+local function hitStop(duration)
+	if state ~= "Running" or hitStopCooldown > 0 or lastTutorialScale < 0.999 then
+		return
+	end
+	local extra = math.min(duration - hitStopLeft, HITSTOP_MAX - hitStopUsed)
+	if extra > 0 then
+		hitStopLeft += extra
+		hitStopUsed += extra
+	end
+end
+
+-- Counts the freeze down in real time. Returns the world speed multiplier.
+local function tickHitStop(dt)
+	if hitStopLeft > 0 then
+		hitStopLeft -= dt
+		if hitStopLeft <= 0 then
+			hitStopLeft = 0
+			hitStopUsed = 0
+			hitStopCooldown = HITSTOP_COOLDOWN
+		end
+		return HITSTOP_SCALE
+	end
+	hitStopCooldown = math.max(0, hitStopCooldown - dt)
+	return 1
+end
+
+-- Camera effects (all skipped when the player turned camera shake off).
+local function punchFov(amount)
+	if shakeOn then
+		fovPunch = math.min(FOV_PUNCH_MAX, math.max(fovPunch, amount))
+	end
+end
+
+local function kickCamera(pitch, roll)
+	if shakeOn then
+		kickPitch = math.clamp(kickPitch + pitch, -KICK_MAX, KICK_MAX)
+		kickRoll = math.clamp(kickRoll + roll, -KICK_MAX, KICK_MAX)
+	end
+end
+
+local function shakeCamera(amount)
+	if shakeOn then
+		shake = math.max(shake, amount)
+	end
+end
+
+local function resetFeel()
+	hitStopLeft, hitStopUsed, hitStopCooldown = 0, 0, 0
+	fovPunch, kickPitch, kickRoll, shake = 0, 0, 0, 0
+end
+
+-- One smash's feedback. big = full wall, mega multi-break or door burst.
+local function smashFeedback(big)
+	if big then
+		hitStop(HITSTOP_TIME)
+		punchFov(FOV_PUNCH_BIG)
+		Haptics.play("bigShatter")
+	else
+		punchFov(FOV_PUNCH_SHATTER)
+		Haptics.play("shatter")
+	end
+end
+
+Settings.changed:Connect(function(key, value)
+	if key == "shake" then
+		shakeOn = value ~= false
+		if not shakeOn then
+			fovPunch, kickPitch, kickRoll, shake = 0, 0, 0, 0
+		end
+	elseif key == "flashes" then
+		flashesOn = value ~= false
+	end
+end)
 
 -- Balls ----------------------------------------------------------------------
 
@@ -224,13 +342,23 @@ local function collectCrystal(crystal)
 		Tutorial.tip("Multiball")
 	end
 	Sounds.play("Crystal", 1 + math.min(streak, 10) * 0.03)
+	Haptics.play("crystal")
 	updateHud()
 end
 
 -- fx: the player's shatter effect (only for balls they throw), nil = plain glass.
-local function smashGlass(glass, hitPoint, push, fx)
+-- feedback: true for the player's own smashes (punch, vibration, hit-stop on big
+-- panes); crashes and revives have their own feedback.
+-- Returns true when it was a big pane.
+local function smashGlass(glass, hitPoint, push, fx, feedback)
+	local size = glass.Size
+	local big = glass:GetAttribute("Pattern") == "FullWall" or size.X * size.Y >= BIG_PANE_AREA
 	Shatter.glass(glass, hitPoint, push, shardFolder, fx)
 	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
+	if feedback then
+		smashFeedback(big)
+	end
+	return big
 end
 
 -- Bounces a ball off a wall/floor/door it just touched. Returns the rest of
@@ -246,6 +374,8 @@ end
 -- hits everything its whole body touches. It smashes glass and decorations,
 -- collects crystals and opens doors without slowing down; only walls stop it.
 local function stepMegaBall(ball, travel)
+	local broken = 0 -- glass / props smashed this frame
+	local bigHit = false
 	for _ = 1, MEGA_STEPS do
 		local distance = travel.Magnitude
 		if distance < 1e-3 then
@@ -266,10 +396,14 @@ local function stepMegaBall(ball, travel)
 
 		if kind == "Glass" then
 			runStats.glass += 1
-			smashGlass(part, hit.Position, direction * MEGA_PUSH, runFx)
+			broken += 1
+			if smashGlass(part, hit.Position, direction * MEGA_PUSH, runFx, false) then
+				bigHit = true
+			end
 			travel = direction * remaining
 		elseif kind == "Prop" then
 			runStats.props += 1
+			broken += 1
 			Tutorial.tip("Props")
 			Shatter.prop(part, hit.Position, direction * MEGA_PUSH, shardFolder, runFx)
 			Sounds.play("Shatter", 0.8 + math.random() * 0.2)
@@ -285,10 +419,20 @@ local function stepMegaBall(ball, travel)
 				track:openDoor(door)
 				Sounds.play("Checkpoint")
 				ball.position += direction * remaining
+				bigHit = true
 				break
 			end
 			travel = bounce(ball, hit, remaining)
 		end
+	end
+
+	-- One feedback per frame for everything this giant ball broke.
+	if bigHit or broken >= 2 then
+		hitStop(if broken >= 2 then HITSTOP_BIG_TIME else HITSTOP_TIME)
+		punchFov(FOV_PUNCH_BIG)
+		Haptics.play("bigShatter")
+	elseif broken == 1 then
+		smashFeedback(false)
 	end
 end
 
@@ -328,7 +472,7 @@ local function stepBall(ball, dt)
 
 		if kind == "Glass" then
 			runStats.glass += 1
-			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx)
+			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
 			travel = ball.velocity.Unit * remaining * 0.7
 		elseif kind == "Prop" then
@@ -337,6 +481,7 @@ local function stepBall(ball, dt)
 			Tutorial.tip("Props")
 			Shatter.prop(hit.Instance, hit.Position, ball.velocity.Unit, shardFolder, runFx)
 			Sounds.play("Shatter", 1.1 + math.random() * 0.3)
+			smashFeedback(false)
 			ball.velocity *= 0.85
 			travel = ball.velocity.Unit * remaining * 0.85
 		elseif kind == "Crystal" then
@@ -345,6 +490,7 @@ local function stepBall(ball, dt)
 		elseif kind == "Button" then
 			track:openDoor(track:doorFor(hit.Instance))
 			Sounds.play("Checkpoint")
+			smashFeedback(false)
 			ball.velocity = -ball.velocity * 0.4
 			travel = ball.velocity.Unit * remaining * 0.4
 		else
@@ -430,6 +576,8 @@ local function throwAlong(ray)
 	end
 
 	Sounds.play("Throw", 0.95 + math.random() * 0.1)
+	Haptics.play("throw")
+	kickCamera(THROW_RECOIL, 0)
 	updateHud()
 	return true
 end
@@ -588,7 +736,8 @@ end
 -- Shield boost used up: a burst of blue shards around the view and a quick tint.
 local function shieldBreak()
 	Shatter.shieldBreak(camera.CFrame, SHIELD.Color, shardFolder, FORWARD * speed * timeScale)
-	if colorCorrection then
+	-- The blue tint is a full-screen flash: skipped when flashes are turned off.
+	if colorCorrection and flashesOn then
 		colorCorrection.TintColor = WHITE:Lerp(SHIELD.Color, 0.6)
 		TweenService:Create(colorCorrection, SHIELD_FLASH, { TintColor = WHITE }):Play()
 	end
@@ -650,9 +799,14 @@ local function crash(hazard)
 		smashGlass(hazard, cameraPosition(), FORWARD)
 	end
 
+	local roll = (if math.random() < 0.5 then -1 else 1) * CRASH_ROLL
+
 	-- Crashing while learning is free.
 	if Tutorial.crashIsFree() then
-		shake = 0.2
+		shakeCamera(0.2)
+		kickCamera(CRASH_KICK * 0.6, roll * 0.6)
+		punchFov(FOV_PUNCH_SHATTER)
+		Haptics.play("crash")
 		Sounds.play("Crash")
 		return
 	end
@@ -660,7 +814,10 @@ local function crash(hazard)
 	-- Shield boost: this crash is free (no balls lost, multiball kept).
 	if boost.shield > 0 then
 		boost.shield -= 1
-		shake = 0.2
+		shakeCamera(0.2)
+		kickCamera(CRASH_KICK * 0.5, roll * 0.5)
+		punchFov(FOV_PUNCH_BIG)
+		Haptics.play("bigShatter")
 		shieldBreak()
 		return
 	end
@@ -668,7 +825,10 @@ local function crash(hazard)
 	balls = math.max(0, balls - Config.CRASH_PENALTY)
 	multiball = minimumMultiball()
 	streak = 0
-	shake = 0.35
+	shakeCamera(0.35)
+	kickCamera(CRASH_KICK, roll)
+	punchFov(FOV_PUNCH_CRASH)
+	Haptics.play("crash")
 	Sounds.play("Crash")
 	ui:flashDamage()
 	updateHud()
@@ -712,6 +872,7 @@ local function resetWorld(checkpoint, tutorial)
 	end
 	clearBalls()
 	resetBoosts()
+	resetFeel()
 
 	world = Instance.new("Folder")
 	world.Name = "LocalRun"
@@ -854,8 +1015,11 @@ local function step(dt)
 		tickBoosts(dt)
 		-- The tutorial slows time while it waits for the player to act.
 		local tutorialScale = Tutorial.update(dt, cameraZ)
-		worldDt = dt * timeScale * tutorialScale
-		ballDt = dt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED)
+		lastTutorialScale = tutorialScale
+		-- Hit-stop: a split-second freeze after a big smash.
+		local freeze = tickHitStop(dt)
+		worldDt = dt * timeScale * tutorialScale * freeze
+		ballDt = dt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
 		Tutorial.scanForTips(dt, cameraZ, track)
 
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
@@ -889,9 +1053,15 @@ local function step(dt)
 		updateHud()
 	end
 
-	-- Camera: gentle sway, wider view at high speed, shake on crash.
+	-- Camera: gentle sway, wider view at high speed, plus the feel effects
+	-- (shake on crash, kick / recoil, field-of-view punch). Real time, so they
+	-- still settle during slow-mo and hit-stop.
 	menuTime += dt
 	shake = math.max(0, shake - dt)
+	local settle = 1 - math.exp(-KICK_RETURN * dt)
+	kickPitch -= kickPitch * settle
+	kickRoll -= kickRoll * settle
+	fovPunch -= fovPunch * (1 - math.exp(-FOV_PUNCH_RETURN * dt))
 	local sway = Vector3.new(math.sin(menuTime * 0.7) * 0.15, math.sin(menuTime * 1.3) * 0.1, 0)
 	local jitter = Vector3.zero
 	if shake > 0 then
@@ -899,8 +1069,10 @@ local function step(dt)
 	end
 	local position = cameraPosition() + sway + jitter
 	camera.CameraType = Enum.CameraType.Scriptable
-	camera.CFrame = CFrame.lookAt(position, position + FORWARD)
-	camera.FieldOfView = 70 + (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * 15
+	camera.CFrame = CFrame.lookAt(position, position + FORWARD) * CFrame.Angles(kickPitch, 0, kickRoll)
+	camera.FieldOfView = BASE_FOV
+		+ (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * SPEED_FOV
+		+ fovPunch
 
 	updateBoostHud()
 	GamepadAim.update(dt, state == "Running")
@@ -1110,6 +1282,8 @@ function RunController.start()
 			end
 			if event.type == "BoostsActivated" then
 				onBoostsActivated(event)
+			elseif event.type == "LevelUp" then
+				Haptics.play("levelUp")
 			end
 			if ui.showProgress then
 				ui:showProgress(event)

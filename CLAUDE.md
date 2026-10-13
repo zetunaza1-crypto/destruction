@@ -26,7 +26,7 @@ The owner works from cloud sessions only (no local Rojo/Studio connection). Afte
 No Roblox runtime here. Syntax-check Luau with `luau-compile <file>` (download from github.com/luau-lang/luau releases if missing). Test gameplay in Roblox Studio via `rojo serve`.
 
 ## Status
-Built: 5 themed zones with detailed decor + breakable props, realistic glass shattering, Future lighting with per-zone presets and room lights, levels/XP, daily missions, 7-day streak, season pass (free + premium), boosts (Shield, Magnet, Mega Ball, Slow-Mo, 2x Gems), skins + shatter FX shop, gem packs, starter pack, impulse buys, leave gift, first-run tutorial + one-time tips, gamepad aiming/navigation, mobile-safe UI, anti-cheat (RoomReached validation), coalesced saves + autosave.
+Built: 5 themed zones with detailed decor + breakable props, realistic glass shattering, Future lighting with per-zone presets and room lights, levels/XP, daily missions, 7-day streak, season pass (free + premium), boosts (Shield, Magnet, Mega Ball, Slow-Mo, 2x Gems), skins + shatter FX shop, gem packs, starter pack, impulse buys, leave gift, first-run tutorial + one-time tips, settings menu (volume, vibration, graphics Auto/Low/High, shake, flashes), haptics + hit-stop/camera punch, gamepad aiming/navigation, mobile-safe UI, anti-cheat (RoomReached validation), coalesced saves + autosave.
 Store art: assets/images (Blender renders). Audio: assets/sounds (ElevenLabs). Models: assets/models (Blender FBX, not yet uploaded).
 
 ## Next session (needs ROBLOX_API_KEY)

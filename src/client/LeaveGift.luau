@@ -22,6 +22,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Haptics = require(script.Parent.Haptics)
 local Sounds = require(script.Parent.Sounds)
 
 local player = Players.LocalPlayer
@@ -258,6 +259,7 @@ local function show()
 	refit()
 
 	-- Punchy pop-in: overshoot, a little wobble, then shards everywhere.
+	-- The backdrop only ever fades in once (no flashing, see Settings "flashes").
 	wash.BackgroundTransparency = 1
 	tween(wash, 0.25, { BackgroundTransparency = 0.3 })
 	popScale.Scale = 0.3
@@ -266,6 +268,7 @@ local function show()
 	pop.Rotation = -6
 	tween(pop, 0.5, { Rotation = 0 }, Enum.EasingStyle.Elastic)
 	Sounds.play("Gift")
+	Haptics.play("crystal") -- a soft nudge: "look at this"
 	burst(SHARDS)
 
 	-- The CLAIM button breathes to draw the eye.
@@ -299,6 +302,7 @@ local function claim()
 	if ok then
 		-- The server's "Reward" toast says what was given.
 		claimLabel.Text = "CLAIMED!"
+		Haptics.play("gift")
 		burst(SHARDS)
 		task.delay(0.7, hide)
 	else
