@@ -20,10 +20,12 @@
 	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
 	Camera effects follow Settings "shake", the shield tint follows "flashes".
 
-	The ball in your hand (HeldBall.luau): the equipped ball sits in the bottom
-	corner of the view. A throw launches from there toward the aim point (what
-	the screen ray hits), steered so it lands exactly where you aimed even with
-	the camera's forward speed added. Then the next ball pops back in. Each hit
+	Your arms (Viewmodel.luau): your avatar's arms come up from the bottom
+	corners of the view, each hand holding the equipped ball. Throws alternate
+	right, left, right, left; a multiball throw uses both hands at once. A throw
+	launches from the hand toward the aim point (what the screen ray hits),
+	steered so it lands exactly where you aimed even with the camera's forward
+	speed added. Then that hand grabs a new ball from the pocket. Each hit
 	splashes the skin's colors (Shatter.skinBurst).
 
 	Destruction: balls knock solid decorations loose (Shatter.knockLoose) and kick
@@ -50,7 +52,6 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local BallFx = require(script.Parent.BallFx)
 local GamepadAim = require(script.Parent.GamepadAim)
 local Haptics = require(script.Parent.Haptics)
-local HeldBall = require(script.Parent.HeldBall)
 local LeaveGift = require(script.Parent.LeaveGift)
 local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
@@ -60,6 +61,7 @@ local PerfOverlay = require(script.Parent.PerfOverlay)
 local Settings = require(script.Parent.Settings)
 local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
+local Viewmodel = require(script.Parent.Viewmodel)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local player = Players.LocalPlayer
@@ -79,7 +81,7 @@ local MEGA_KNOCK_REACH = 1 -- mega balls knock loose everything within their rad
 local MEGA_STRENGTH = 1.5 -- ...and knock it harder
 local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
--- Throwing from the hand (HeldBall.luau)
+-- Throwing from the hands (Viewmodel.luau)
 local AIM_RANGE = 120 -- studs: you aim at what the screen ray hits within this, else this far along it
 local HAND_MIN_AIM = 8 -- aim points closer than this are thrown from the middle of the view instead
 local HAND_BLEND_TIME = 0.15 -- seconds a mega ball's drawing takes to join its real path from the hand
@@ -660,8 +662,19 @@ local function velocityAlong(direction, carry)
 	return direction * (along + math.sqrt(math.max(0, along * along - carry:Dot(carry) + speedSquared)))
 end
 
+-- Where a normal ball thrown from a hand starts: the ball in that hand, unless
+-- something sits between your eye and the hand (it would be skipped) or the
+-- target is right in front of you (a throw from the corner would go sideways).
+-- nil = throw from the middle of the view instead, as always.
+local function handLaunchPoint(spot, ray, mega, aimFar)
+	if spot and not mega and aimFar and workspace:Raycast(ray.Origin, spot - ray.Origin, raycastParams) == nil then
+		return spot
+	end
+	return nil
+end
+
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
--- The ball launches from the one in your hand (HeldBall) toward the aim point.
+-- The ball launches from the one in your hand (Viewmodel) toward the aim point.
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
 	if state ~= "Running" or balls <= 0 or promptFrozen() then
@@ -684,20 +697,14 @@ local function throwAlong(ray)
 
 	local aimDirection = ray.Direction.Unit
 	local aimPoint = aimPointFor(ray)
-	local hand = HeldBall.launch() -- nil when no ball is showing in the hand
-	-- Normal balls start at the hand, unless something sits between your eye and
-	-- the hand (it would be skipped) or the target is right in front of you (a
-	-- throw from the corner would go sideways): then from the middle, as always.
-	local fromHand = nil
-	if
-		hand
-		and not mega
-		and (aimPoint - ray.Origin).Magnitude >= HAND_MIN_AIM
-		and workspace:Raycast(ray.Origin, hand - ray.Origin, raycastParams) == nil
-	then
-		fromHand = hand
-	end
-	local handDirection = if fromHand then (aimPoint - fromHand).Unit else aimDirection
+	local aimFar = (aimPoint - ray.Origin).Magnitude >= HAND_MIN_AIM
+	-- The hand whose turn it is throws; with multiball the other hand throws
+	-- too (if it has a ball). Spots are nil for a hand that isn't showing.
+	local firstSpot, secondSpot, firstSide, bothHands = Viewmodel.launch(multiball >= 2)
+	local firstFrom = handLaunchPoint(firstSpot, ray, mega, aimFar)
+	local secondFrom = handLaunchPoint(secondSpot, ray, mega, aimFar)
+	local firstDirection = if firstFrom then (aimPoint - firstFrom).Unit else aimDirection
+	local secondDirection = if secondFrom then (aimPoint - secondFrom).Unit else aimDirection
 
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
@@ -706,15 +713,23 @@ local function throwAlong(ray)
 	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
-		local fan = CFrame.fromAxisAngle(Vector3.yAxis, (i - (multiball + 1) / 2) * 0.05)
+		local offset = i - (multiball + 1) / 2
+		local fan = CFrame.fromAxisAngle(Vector3.yAxis, offset * 0.05)
 		local lite = i ~= hero
+		-- Both hands throwing: the balls fanning right come from the right hand,
+		-- the ones fanning left from the left hand, the middle one from the first.
+		local fanSide = if offset < 0 then 1 else -1
+		local useSecond = bothHands and offset ~= 0 and fanSide ~= firstSide
+		local handSpot = if useSecond then secondSpot else firstSpot
+		local fromHand = if useSecond then secondFrom else firstFrom
+		local handDirection = if useSecond then secondDirection else firstDirection
 		if mega then
 			-- Giant balls are still swept from the camera: a sphere cast can't hit
 			-- what it already overlaps at its start, and a giant ball starting at
 			-- the hand would already be touching glass right next to it. Only the
 			-- drawing starts at the hand.
 			local direction = fan:VectorToWorldSpace(aimDirection)
-			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, hand)
+			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot)
 		elseif fromHand then
 			local direction = fan:VectorToWorldSpace(handDirection)
 			spawnBall(fromHand, velocityAlong(direction, carry), false, nil, lite, trailScale)
@@ -1053,7 +1068,7 @@ local function resetWorld(checkpoint, tutorial)
 	shardFolder = Instance.new("Folder")
 	shardFolder.Name = "Effects"
 	shardFolder.Parent = world
-	HeldBall.attach(world)
+	Viewmodel.attach(world)
 
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
 	track = TrackBuilder.new(world, firstRoom, tutorial)
@@ -1100,10 +1115,10 @@ local function returnUnusedBoosts()
 	end)
 end
 
--- The equipped ball: in your hand, on the HUD swatch and in the hit splashes.
+-- The equipped ball: in your hands, on the HUD swatch and in the hit splashes.
 local function applyEquippedSkin()
 	local skinId = player:GetAttribute("EquippedSkin")
-	HeldBall.setSkin(skinId)
+	Viewmodel.setSkin(skinId)
 	runSkinStyle = BallFx.impactStyle(skinId)
 	if ui and ui.setBallSkin then
 		ui:setBallSkin(Config.getSkin(skinId).Id)
@@ -1228,6 +1243,8 @@ local function reportRoom(roomIndex)
 end
 
 local menuTime = 0
+-- What Viewmodel.update needs (one table reused every frame).
+local viewState = { show = false, balls = 0, mega = false, avoid = nil, avoidRadius = nil, speedShare = 0, worldRate = 1 }
 
 local function step(dt)
 	-- worldDt: game time, slower than real time while SlowMo is on.
@@ -1301,9 +1318,16 @@ local function step(dt)
 		+ (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * SPEED_FOV
 		+ fovPunch
 
-	-- The ball in your hand follows the camera that was just placed.
+	-- Your arms and the balls in your hands follow the camera that was just placed.
 	local avoid, avoidRadius = Tutorial.pointerTarget()
-	HeldBall.update(dt, state == "Running" and balls > 0, boost.megaball > 0, avoid, avoidRadius)
+	viewState.show = state == "Running"
+	viewState.balls = balls
+	viewState.mega = boost.megaball > 0
+	viewState.avoid = avoid
+	viewState.avoidRadius = avoidRadius
+	viewState.speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
+	viewState.worldRate = if state == "Running" and dt > 0 then worldDt / dt else 0
+	Viewmodel.update(dt, viewState)
 
 	updateBoostHud()
 	GamepadAim.update(dt, state == "Running")
@@ -1562,6 +1586,7 @@ function RunController.start()
 	task.spawn(hideCoreGui)
 	PerfOverlay.start(Shatter.liveCount)
 	GamepadAim.start()
+	Viewmodel.start()
 	LeaveGift.start({
 		claim = function()
 			return shopRequest("ClaimLeaveGift")

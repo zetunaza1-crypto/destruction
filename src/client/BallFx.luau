@@ -28,11 +28,12 @@
 	BallFx.hasMesh(skinId) -- the Blender model has loaded
 	BallFx.preview(skinId, diameter) -> { model, mesh, step(t), destroy() }
 		Anchored copy for the shop's ViewportFrame. step(os.clock()) animates it.
-	BallFx.held(skinId, diameter) -> { root, mesh, skinId, place(cframe, scale, t), destroy() }
-		The ball in the player's hand (HeldBall.luau). Same look and animation as a
-		thrown ball, with its particles but no trail / light. All parts are anchored
-		and moved together with one BulkMoveTo per frame (it follows the camera).
+	BallFx.held(skinId, diameter, particleScale?) -> { root, mesh, skinId, place(cframe, scale, t), destroy() }
+		A ball in one of the player's hands (HeldBall.luau). Same look and animation
+		as a thrown ball, with its particles but no trail / light. All parts are
+		anchored and moved together with one BulkMoveTo per frame (it follows the camera).
 		diameter = how big it's drawn across (studs); place() scales it (pop-in, mega).
+		particleScale (default 1): extra particle-rate multiplier (two hands = two balls).
 	BallFx.impactStyle(skinId) -> { id, color, color2, rainbow, premium }
 		The skin's colors for Shatter.skinBurst (the splash where a ball hits).
 
@@ -784,7 +785,7 @@ end
 -- Every part is anchored and placed directly each frame (one BulkMoveTo), so it
 -- sticks to the camera exactly, with no physics or weld lag at full speed.
 
-function BallFx.held(skinId, diameter)
+function BallFx.held(skinId, diameter, particleScale)
 	local skin = Config.getSkin(skinId)
 	local held = { skinId = skin.Id, mesh = false }
 	local low = graphicsLevel() == "Low"
@@ -831,7 +832,7 @@ function BallFx.held(skinId, diameter)
 			elseif item:IsA("ParticleEmitter") then
 				local index = tonumber(string.match(item.Name, "%d+")) or 1
 				item.LockedToPart = true
-				item.Rate *= HELD_PARTICLE_SCALE * (if low then LOW_PARTICLE_SCALE else 1)
+				item.Rate *= HELD_PARTICLE_SCALE * (particleScale or 1) * (if low then LOW_PARTICLE_SCALE else 1)
 				item.Enabled = not low or index == 1
 			end
 		end
