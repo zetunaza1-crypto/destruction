@@ -157,6 +157,9 @@ Config.ShatterFx = {
 	{ Id = "Gold", Name = "Gold", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 200, 50), Metal = true },
 	{ Id = "Rainbow", Name = "Rainbow", Price = 0, Source = "SEASON PASS", Rainbow = true, Neon = true },
 	{ Id = "Supernova", Name = "Supernova", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 240, 200), Neon = true, Sparkle = true },
+	-- Endless distance milestones (Config.ZoneRewards).
+	{ Id = "Endless", Name = "Endless", Price = 0, Source = "REACH ZONE 15", Color = Color3.fromRGB(70, 230, 255), Neon = true, Sparkle = true },
+	{ Id = "Starfall", Name = "Starfall", Price = 0, Source = "REACH ZONE 30", Color = Color3.fromRGB(255, 215, 90), Neon = true, Sparkle = true },
 }
 
 function Config.getFx(fxId)
@@ -189,6 +192,9 @@ Config.Skins = {
 	{ Id = "Shatterborn", Name = "Shatterborn", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
 	-- Free reward for reaching ZONE 10 (Config.ZoneRewards): a rainbow glass ball.
 	{ Id = "PrismShard", Name = "Prism Shard", Price = 0, Source = "REACH ZONE 10", Color = Color3.fromRGB(235, 225, 255), Material = Enum.Material.Glass, Rainbow = true, Trail = Color3.fromRGB(200, 160, 255) },
+	-- Endless distance milestones (Config.ZoneRewards): only the best players have these.
+	{ Id = "Afterburn", Name = "Afterburn", Price = 0, Source = "REACH ZONE 20", Color = Color3.fromRGB(255, 120, 30), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 200, 60) },
+	{ Id = "Infinity", Name = "Infinity", Price = 0, Source = "REACH ZONE 50", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.ForceField, Rainbow = true, Trail = Color3.fromRGB(255, 255, 255) },
 	-- Premium balls: Robux only (Config.Products.Ball<Id>), never sold for gems.
 	-- Robux = price shown if the live price can't be loaded. Each one is an animated
 	-- Blender model (Config.BallModels, styled by Shared.BallStyles). Until that's
@@ -543,7 +549,28 @@ Config.ZoneRewards = {
 	[8] = { Gems = 600, Boost = "MegaBall" },
 	[9] = { Gems = 800, Boost = "DoubleGems" },
 	[10] = { Gems = 1000, Skin = "PrismShard" },
+	-- Endless milestones: the zones keep coming after ZONE 10, and so do rewards.
+	-- (One zone = Config.checkpointMeters(1), about 373 m: ZONE 20 is about 7,500 m.)
+	[12] = { Gems = 1200, Boost = "Shield" },
+	[15] = { Gems = 1500, Fx = "Endless" },
+	[20] = { Gems = 2000, Skin = "Afterburn" },
+	[25] = { Gems = 2500, Boost = "MegaBall" },
+	[30] = { Gems = 3000, Fx = "Starfall" },
+	[40] = { Gems = 4000, Boost = "DoubleGems" },
+	[50] = { Gems = 5000, Skin = "Infinity" },
 }
+
+-- The first zone after `zone` with a first-time reward, and that reward
+-- (nil once there are no more).
+function Config.nextZoneReward(zone)
+	local best = nil
+	for rewardZone in Config.ZoneRewards do
+		if rewardZone > zone and (best == nil or rewardZone < best) then
+			best = rewardZone
+		end
+	end
+	return best, if best then Config.ZoneRewards[best] else nil
+end
 
 -- Smoothness (frame budgets) ---------------------------------------------------
 -- Every heavy job is cut into small slices so no single frame does big work.

@@ -342,6 +342,9 @@ Config.ShatterFx = {
 	{ Id = "Gold", Name = "Gold", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 200, 50), Metal = true },
 	{ Id = "Rainbow", Name = "Rainbow", Price = 0, Source = "SEASON PASS", Rainbow = true, Neon = true },
 	{ Id = "Supernova", Name = "Supernova", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 240, 200), Neon = true, Sparkle = true },
+	-- Endless distance milestones (Config.ZoneRewards).
+	{ Id = "Endless", Name = "Endless", Price = 0, Source = "REACH ZONE 15", Color = Color3.fromRGB(70, 230, 255), Neon = true, Sparkle = true },
+	{ Id = "Starfall", Name = "Starfall", Price = 0, Source = "REACH ZONE 30", Color = Color3.fromRGB(255, 215, 90), Neon = true, Sparkle = true },
 }
 
 function Config.getFx(fxId)
@@ -374,6 +377,9 @@ Config.Skins = {
 	{ Id = "Shatterborn", Name = "Shatterborn", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
 	-- Free reward for reaching ZONE 10 (Config.ZoneRewards): a rainbow glass ball.
 	{ Id = "PrismShard", Name = "Prism Shard", Price = 0, Source = "REACH ZONE 10", Color = Color3.fromRGB(235, 225, 255), Material = Enum.Material.Glass, Rainbow = true, Trail = Color3.fromRGB(200, 160, 255) },
+	-- Endless distance milestones (Config.ZoneRewards): only the best players have these.
+	{ Id = "Afterburn", Name = "Afterburn", Price = 0, Source = "REACH ZONE 20", Color = Color3.fromRGB(255, 120, 30), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 200, 60) },
+	{ Id = "Infinity", Name = "Infinity", Price = 0, Source = "REACH ZONE 50", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.ForceField, Rainbow = true, Trail = Color3.fromRGB(255, 255, 255) },
 	-- Premium balls: Robux only (Config.Products.Ball<Id>), never sold for gems.
 	-- Robux = price shown if the live price can't be loaded. Each one is an animated
 	-- Blender model (Config.BallModels, styled by Shared.BallStyles). Until that's
@@ -728,7 +734,28 @@ Config.ZoneRewards = {
 	[8] = { Gems = 600, Boost = "MegaBall" },
 	[9] = { Gems = 800, Boost = "DoubleGems" },
 	[10] = { Gems = 1000, Skin = "PrismShard" },
+	-- Endless milestones: the zones keep coming after ZONE 10, and so do rewards.
+	-- (One zone = Config.checkpointMeters(1), about 373 m: ZONE 20 is about 7,500 m.)
+	[12] = { Gems = 1200, Boost = "Shield" },
+	[15] = { Gems = 1500, Fx = "Endless" },
+	[20] = { Gems = 2000, Skin = "Afterburn" },
+	[25] = { Gems = 2500, Boost = "MegaBall" },
+	[30] = { Gems = 3000, Fx = "Starfall" },
+	[40] = { Gems = 4000, Boost = "DoubleGems" },
+	[50] = { Gems = 5000, Skin = "Infinity" },
 }
+
+-- The first zone after `zone` with a first-time reward, and that reward
+-- (nil once there are no more).
+function Config.nextZoneReward(zone)
+	local best = nil
+	for rewardZone in Config.ZoneRewards do
+		if rewardZone > zone and (best == nil or rewardZone < best) then
+			best = rewardZone
+		end
+	end
+	return best, if best then Config.ZoneRewards[best] else nil
+end
 
 -- Smoothness (frame budgets) ---------------------------------------------------
 -- Every heavy job is cut into small slices so no single frame does big work.
@@ -3518,6 +3545,9 @@ function Progression.normalize(data, now)
 	data.ZonesRewarded = zonesRewarded
 
 	Progression.migrateZoneLength(data)
+	-- Milestones added to Config.ZoneRewards after a player already flew past
+	-- them are given now (each zone only ever once, see grantZoneRewards).
+	Progression.grantZoneRewards(data, 0, wholeNumber(data.Checkpoint, 0))
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)
@@ -9408,6 +9438,7 @@ local lastThrow = 0
 local lastRoom = 0
 local lastReportedRoom = 0 -- last room index sent to the server with RoomReached
 local startCheckpoint = 0
+local rewardedUpTo = 0 -- highest zone this account had reached when the run started
 local shake = 0
 local activeBalls = {}
 local reportedMeters = 0
@@ -10485,6 +10516,8 @@ local function startRun(checkpoint, boostIds)
 	end
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
 	startCheckpoint = checkpoint
+	-- Zone rewards up to here are already earned (anything further is new on this run).
+	rewardedUpTo = player:GetAttribute("Checkpoint") or 0
 
 	returnUnusedBoosts() -- PLAY AGAIN from the game over screen
 	unusedBoostsSent = false
@@ -10581,7 +10614,13 @@ local function onRoomEntered(room)
 	if room > 0 and room % Config.ROOMS_PER_CHECKPOINT == 0 then
 		local zone = room // Config.ROOMS_PER_CHECKPOINT
 		applyTheme(zone)
-		ui:toast(string.format("ZONE %02d", zone), "checkpoint")
+		-- First time this far: the zone card shows the reward (the server gives it at run end).
+		local reward = if zone > rewardedUpTo then Config.ZoneRewards[zone] else nil
+		if reward then
+			ui:showZoneReward(zone, reward)
+		else
+			ui:toast(string.format("ZONE %02d", zone), "checkpoint")
+		end
 		Sounds.play("Checkpoint")
 	end
 end
@@ -14318,6 +14357,7 @@ local ZONE_CARD_Y = 0.3 -- zone / level card top, as a fraction of the screen (c
 local BACK_ACTION = "ShatterRunUIBack" -- ContextActionService name for gamepad B (only bound while a popover is open)
 
 local ZONE_CARD_TIME = 0.9 -- short: the next glass is already coming
+local ZONE_REWARD_CARD_TIME = 1.4 -- a zone reward reached for the first time (a bit longer to read it)
 local LEVEL_CARD_TIME = 2.4 -- only away from a run (during one, a level up is a side toast)
 local TOAST_TIME = 2
 local MAX_TOASTS = 3
@@ -19944,6 +19984,18 @@ function UI._buildGameOver(self)
 	text({ Text = "BEST", TextSize = 7, AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(3, -2), Size = UDim2.fromOffset(30, 8), Parent = g.bestMarker })
 	g.runMarker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(3, 20), Parent = ruler })
 	setAccent(g.runMarker, "BackgroundColor3")
+	-- The next zone reward: a gem on the ruler + what it is, so there's always a goal.
+	g.rewardMarker = gemIcon(ruler, 8, UDim2.fromScale(0, 0))
+	g.rewardMarker.Visible = false
+	g.nextReward = text({
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(12, 104),
+		Size = UDim2.fromOffset(300, 11),
+		Parent = sheet,
+	})
 
 	-- Data table
 	local function dataRow(y, label, withGem)
@@ -21715,8 +21767,24 @@ function UI:showGameOver(info)
 	g.sheet.Position = UDim2.new(0.05, -24, 0.5, 0)
 	tween(g.sheet, 0.35, { Position = UDim2.new(0.05, 0, 0.5, 0) })
 
+	-- Next zone reward this account hasn't earned yet (zones reached on this run count).
+	local zoneMeters = Config.checkpointMeters(1)
+	local reachedZone = math.max(player:GetAttribute("Checkpoint") or 0, math.floor(meters / zoneMeters))
+	local rewardZone, reward = Config.nextZoneReward(reachedZone)
+	local rewardMeters = if rewardZone then math.floor(Config.checkpointMeters(rewardZone)) else nil
+	if rewardZone then
+		local text = rewardText(reward)
+		g.nextReward.Text = string.format("NEXT REWARD / ZONE %02d AT %s M%s", rewardZone, commas(rewardMeters), if text ~= "" then ": " .. text else "")
+	else
+		g.nextReward.Text = "EVERY ZONE REWARD EARNED"
+	end
+
 	-- Count the distance up and slide the run marker along the ruler with it.
-	local span = math.max(best, 1) * 1.15
+	local span = math.max(best, rewardMeters or 0, 1) * 1.15
+	g.rewardMarker.Visible = rewardMeters ~= nil
+	if rewardMeters then
+		g.rewardMarker.Position = UDim2.new(rewardMeters / span, 0, 0, 14)
+	end
 	for i, label in g.scaleLabels do
 		label.Text = commas(span * i / 4)
 	end
@@ -21803,6 +21871,13 @@ function UI:hideRevive()
 	if wasVisible and g.root.Visible then
 		self:_returnFocus(g.reviveGroup, g.playAgain.holder)
 	end
+end
+
+-- First time in this zone and it has a reward (Config.ZoneRewards): the zone
+-- card says what was earned. The server gives it when the run ends.
+function UI:showZoneReward(zone, reward)
+	local text = rewardText(reward)
+	self:_showZoneCard(string.format("ZONE %02d", zone), "ZONE REWARD", if text ~= "" then text .. " EARNED" else nil, ZONE_REWARD_CARD_TIME)
 end
 
 function UI:toast(value, kind)

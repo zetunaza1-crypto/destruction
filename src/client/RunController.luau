@@ -167,6 +167,7 @@ local lastThrow = 0
 local lastRoom = 0
 local lastReportedRoom = 0 -- last room index sent to the server with RoomReached
 local startCheckpoint = 0
+local rewardedUpTo = 0 -- highest zone this account had reached when the run started
 local shake = 0
 local activeBalls = {}
 local reportedMeters = 0
@@ -1244,6 +1245,8 @@ local function startRun(checkpoint, boostIds)
 	end
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
 	startCheckpoint = checkpoint
+	-- Zone rewards up to here are already earned (anything further is new on this run).
+	rewardedUpTo = player:GetAttribute("Checkpoint") or 0
 
 	returnUnusedBoosts() -- PLAY AGAIN from the game over screen
 	unusedBoostsSent = false
@@ -1340,7 +1343,13 @@ local function onRoomEntered(room)
 	if room > 0 and room % Config.ROOMS_PER_CHECKPOINT == 0 then
 		local zone = room // Config.ROOMS_PER_CHECKPOINT
 		applyTheme(zone)
-		ui:toast(string.format("ZONE %02d", zone), "checkpoint")
+		-- First time this far: the zone card shows the reward (the server gives it at run end).
+		local reward = if zone > rewardedUpTo then Config.ZoneRewards[zone] else nil
+		if reward then
+			ui:showZoneReward(zone, reward)
+		else
+			ui:toast(string.format("ZONE %02d", zone), "checkpoint")
+		end
 		Sounds.play("Checkpoint")
 	end
 end

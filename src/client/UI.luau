@@ -74,6 +74,7 @@ local ZONE_CARD_Y = 0.3 -- zone / level card top, as a fraction of the screen (c
 local BACK_ACTION = "ShatterRunUIBack" -- ContextActionService name for gamepad B (only bound while a popover is open)
 
 local ZONE_CARD_TIME = 0.9 -- short: the next glass is already coming
+local ZONE_REWARD_CARD_TIME = 1.4 -- a zone reward reached for the first time (a bit longer to read it)
 local LEVEL_CARD_TIME = 2.4 -- only away from a run (during one, a level up is a side toast)
 local TOAST_TIME = 2
 local MAX_TOASTS = 3
@@ -5700,6 +5701,18 @@ function UI._buildGameOver(self)
 	text({ Text = "BEST", TextSize = 7, AnchorPoint = Vector2.new(0, 0), Position = UDim2.fromOffset(3, -2), Size = UDim2.fromOffset(30, 8), Parent = g.bestMarker })
 	g.runMarker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0, 0), Size = UDim2.fromOffset(3, 20), Parent = ruler })
 	setAccent(g.runMarker, "BackgroundColor3")
+	-- The next zone reward: a gem on the ruler + what it is, so there's always a goal.
+	g.rewardMarker = gemIcon(ruler, 8, UDim2.fromScale(0, 0))
+	g.rewardMarker.Visible = false
+	g.nextReward = text({
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(12, 104),
+		Size = UDim2.fromOffset(300, 11),
+		Parent = sheet,
+	})
 
 	-- Data table
 	local function dataRow(y, label, withGem)
@@ -7471,8 +7484,24 @@ function UI:showGameOver(info)
 	g.sheet.Position = UDim2.new(0.05, -24, 0.5, 0)
 	tween(g.sheet, 0.35, { Position = UDim2.new(0.05, 0, 0.5, 0) })
 
+	-- Next zone reward this account hasn't earned yet (zones reached on this run count).
+	local zoneMeters = Config.checkpointMeters(1)
+	local reachedZone = math.max(player:GetAttribute("Checkpoint") or 0, math.floor(meters / zoneMeters))
+	local rewardZone, reward = Config.nextZoneReward(reachedZone)
+	local rewardMeters = if rewardZone then math.floor(Config.checkpointMeters(rewardZone)) else nil
+	if rewardZone then
+		local text = rewardText(reward)
+		g.nextReward.Text = string.format("NEXT REWARD / ZONE %02d AT %s M%s", rewardZone, commas(rewardMeters), if text ~= "" then ": " .. text else "")
+	else
+		g.nextReward.Text = "EVERY ZONE REWARD EARNED"
+	end
+
 	-- Count the distance up and slide the run marker along the ruler with it.
-	local span = math.max(best, 1) * 1.15
+	local span = math.max(best, rewardMeters or 0, 1) * 1.15
+	g.rewardMarker.Visible = rewardMeters ~= nil
+	if rewardMeters then
+		g.rewardMarker.Position = UDim2.new(rewardMeters / span, 0, 0, 14)
+	end
 	for i, label in g.scaleLabels do
 		label.Text = commas(span * i / 4)
 	end
@@ -7559,6 +7588,13 @@ function UI:hideRevive()
 	if wasVisible and g.root.Visible then
 		self:_returnFocus(g.reviveGroup, g.playAgain.holder)
 	end
+end
+
+-- First time in this zone and it has a reward (Config.ZoneRewards): the zone
+-- card says what was earned. The server gives it when the run ends.
+function UI:showZoneReward(zone, reward)
+	local text = rewardText(reward)
+	self:_showZoneCard(string.format("ZONE %02d", zone), "ZONE REWARD", if text ~= "" then text .. " EARNED" else nil, ZONE_REWARD_CARD_TIME)
 end
 
 function UI:toast(value, kind)

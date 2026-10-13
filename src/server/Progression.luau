@@ -664,6 +664,9 @@ function Progression.normalize(data, now)
 	data.ZonesRewarded = zonesRewarded
 
 	Progression.migrateZoneLength(data)
+	-- Milestones added to Config.ZoneRewards after a player already flew past
+	-- them are given now (each zone only ever once, see grantZoneRewards).
+	Progression.grantZoneRewards(data, 0, wholeNumber(data.Checkpoint, 0))
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)
