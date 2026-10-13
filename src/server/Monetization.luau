@@ -15,10 +15,6 @@ local Remotes = ReplicatedStorage.Remotes
 
 local Monetization = {}
 
--- Set by Main: tries to use a bought boost on the player's current run right
--- away. Returns true if it did (false = no active run, or it can't stack).
-Monetization.useBoostOnRun = nil
-
 -- Gems given instead when a StreakSaver is bought while the streak is fine.
 local STREAK_SAVER_FALLBACK_GEMS = 100
 
@@ -75,17 +71,13 @@ local serverRewards = {
 	end,
 }
 
--- Boost products (BoostShield, BoostMagnet...): used on the current run if one is
--- going, otherwise added to the inventory. Returns whether it went to the run;
--- that is sent to the client with PurchaseGranted so it knows what to do.
+-- Boost products (BoostShield, BoostMagnet...): always go to the inventory.
+-- If the player is mid-run, their device then asks to use it right away with
+-- the "UseBoostNow" shop action (only the device knows for sure that it's running).
 local function boostReward(boostId)
 	return function(player, data)
-		if Monetization.useBoostOnRun and Monetization.useBoostOnRun(player, boostId) then
-			return true
-		end
 		Progression.addBoost(data, boostId, 1)
 		PlayerData.publish(player, { "Boosts" })
-		return false
 	end
 end
 
@@ -144,19 +136,18 @@ local function processReceipt(receipt)
 	for productKey, product in Config.Products do
 		if product.Id ~= 0 and product.Id == receipt.ProductId then
 			local reward = rewardFor(productKey, product)
-			local info = nil -- extra detail for the client (boosts: used on the run right away?)
 			if reward then
-				info = reward(player, PlayerData.get(player))
+				reward(player, PlayerData.get(player))
 			end
 			PlayerData.addReceipt(player, receipt.PurchaseId)
 
 			-- Deliver right away so the player isn't left waiting on a slow DataStore.
-			Remotes.PurchaseGranted:FireClient(player, productKey, info)
-			if Monetization.onProductGranted then
-				Monetization.onProductGranted(player, productKey)
-			end
+			-- (A revive no longer restarts the run's clock here: the device sends
+			-- the "ResumeRun" shop action once it has really revived.)
+			Remotes.PurchaseGranted:FireClient(player, productKey)
 
-			-- Only tell Roblox we're done once the receipt is safely saved.
+			-- Only tell Roblox we're done once the receipt is safely saved (purchases are
+			-- the one thing saved right away instead of by the autosave).
 			-- If the save fails, Roblox retries and hasReceipt() above stops a double payout.
 			return if PlayerData.save(player)
 				then Enum.ProductPurchaseDecision.PurchaseGranted

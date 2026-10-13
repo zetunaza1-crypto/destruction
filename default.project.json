@@ -14,6 +14,9 @@
         "RunEnded": {
           "$className": "RemoteEvent"
         },
+        "RoomReached": {
+          "$className": "RemoteEvent"
+        },
         "PurchaseGranted": {
           "$className": "RemoteEvent"
         },

@@ -55,10 +55,11 @@ local seenThisSession = {}
 local tipCooldown = 0
 local tipScan = 0
 local tipToken
+local cardHoldUntil = 0 -- os.clock() time until which the card must stay up
 
 -- UI -------------------------------------------------------------------------
 
-local gui, card, cardTitle, cardBody, ring, skipButton
+local gui, pointerGui, card, cardTitle, cardBody, ring, skipButton
 
 local function new(className, props, children)
 	local instance = Instance.new(className)
@@ -79,8 +80,16 @@ local function buildUi()
 		Name = "TutorialHints",
 		ResetOnSpawn = false,
 		DisplayOrder = 20,
-		IgnoreGuiInset = false,
 		ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
+		Parent = player:WaitForChild("PlayerGui"),
+	})
+	-- The pointer covers the whole screen (no insets), so its coordinates are
+	-- exactly what camera:WorldToViewportPoint returns.
+	pointerGui = new("ScreenGui", {
+		Name = "TutorialPointer",
+		ResetOnSpawn = false,
+		DisplayOrder = 19,
+		ScreenInsets = Enum.ScreenInsets.None,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
 
@@ -157,7 +166,7 @@ local function buildUi()
 		BackgroundTransparency = 1,
 		Active = false,
 		Visible = false,
-		Parent = gui,
+		Parent = pointerGui,
 	}, {
 		new("UIStroke", { Thickness = 4, Color = ACCENT }),
 	})
@@ -196,6 +205,18 @@ end
 local function hideCard()
 	card.Visible = false
 	ring.Visible = false
+end
+
+-- Cards that hide themselves later (tips, "YOU'RE READY!") use this token so
+-- an old timer never hides a newer card.
+local function hideLater(seconds)
+	local token = {}
+	tipToken = token
+	task.delay(seconds, function()
+		if tipToken == token and not active then
+			hideCard()
+		end
+	end)
 end
 
 local function remember(action, argument)
@@ -243,11 +264,20 @@ function Tutorial.finish(skipped)
 		hideCard()
 	else
 		showCard("YOU'RE READY!", "GO AS FAR AS YOU CAN. GOOD LUCK!", Color3.fromRGB(80, 220, 120))
-		task.delay(2, function()
-			if not active then
-				hideCard()
-			end
-		end)
+		tipCooldown = 2.5 -- don't cover it with a tip straight away
+		hideLater(2)
+	end
+end
+
+-- Game over screen: hide the tutorial (the SKIP button would sit on top of
+-- the game over buttons). A revive shows it again.
+function Tutorial.setPaused(paused)
+	if not gui or not active then
+		return
+	end
+	skipButton.Visible = not paused
+	if paused then
+		hideCard()
 	end
 end
 
@@ -277,9 +307,11 @@ function Tutorial.update(dt, cameraZ)
 	end
 
 	local wanted = 1
+	local showing = false
 	if target and target.Parent then
 		local ahead = cameraZ - target.Position.Z
 		if ahead > 0 and ahead < SLOW_DISTANCE then
+			showing = true
 			local lesson = LESSONS[step]
 			showCard(lesson.title, lesson.body, if step == 3 then DANGER else ACCENT)
 
@@ -291,13 +323,18 @@ function Tutorial.update(dt, cameraZ)
 			local screen, onScreen = camera:WorldToViewportPoint(target.Position)
 			ring.Visible = onScreen
 			if onScreen then
-				local inset = gui.AbsolutePosition
-				ring.Position = UDim2.fromOffset(screen.X - inset.X, screen.Y - inset.Y)
+				ring.Position = UDim2.fromOffset(screen.X, screen.Y)
 				local pulse = 1 + math.sin(os.clock() * 6) * 0.12
 				ring.Size = UDim2.fromOffset(84 * pulse, 84 * pulse)
 			end
-		elseif card.Visible and ahead <= 0 then
-			hideCard()
+		end
+	end
+	-- No lesson target close: hide the card and pointer (an "OOPS!" card stays
+	-- up for a moment first).
+	if not showing then
+		ring.Visible = false
+		if card.Visible and os.clock() >= cardHoldUntil then
+			card.Visible = false
 		end
 	end
 
@@ -312,6 +349,7 @@ function Tutorial.crashIsFree()
 		return false
 	end
 	showCard("OOPS!", "THAT WOULD HAVE COST " .. Config.CRASH_PENALTY .. " BALLS - THROW EARLIER", DANGER)
+	cardHoldUntil = os.clock() + 1.5
 	return true
 end
 
@@ -341,13 +379,7 @@ function Tutorial.tip(hintId)
 	remember("SeenHint", hintId)
 
 	showCard("NEW!", text, ACCENT)
-	local token = {}
-	tipToken = token
-	task.delay(TIP_SECONDS, function()
-		if tipToken == token and not active then
-			hideCard()
-		end
-	end)
+	hideLater(TIP_SECONDS)
 end
 
 -- Looks ahead for obstacle types the player hasn't been told about yet.
@@ -375,6 +407,7 @@ end
 function Tutorial.reset()
 	active = false
 	scale = 1
+	tipToken = nil
 	if gui then
 		hideCard()
 		skipButton.Visible = false

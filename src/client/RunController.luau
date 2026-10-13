@@ -6,9 +6,10 @@
 	out gems / XP / missions itself.
 
 	Boosts (Config.Boosts): picked in the menu or bought mid-run. The server
-	confirms which ones really started (Progress "BoostsActivated", or
-	PurchaseGranted for a Robux boost) and only those are switched on here.
-	  Shield     - the next crash costs no balls
+	confirms which ones really started (Progress "BoostsActivated", or the
+	"UseBoostNow" answer for a Robux boost bought mid-run) and only those are
+	switched on here.
+	  Shield     - the next crash costs no balls (buying more stacks: one per crash)
 	  Magnet     - crystals near the camera fly to you for a few seconds
 	  MegaBall   - the next few throws are giant balls that smash through everything
 	  SlowMo     - the world (camera, balls) runs slower for a few seconds
@@ -41,6 +42,8 @@ local FORWARD = Vector3.new(0, 0, -1)
 local CRASH_MARGIN = 0.8 -- how close to a pane's edge still counts as hitting it
 local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
 local BALL_STEPS = 3 -- collision checks per ball per frame
+local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
+local TUTORIAL_MIN_BALL_SPEED = 0.5 -- balls still fly at least half speed while the tutorial slows time
 local MEGA_STEPS = 8 -- mega balls can smash through several things in one frame
 
 -- Boosts
@@ -75,6 +78,7 @@ local multiball = 1
 local streak = 0
 local lastThrow = 0
 local lastRoom = 0
+local lastReportedRoom = 0 -- last room index sent to the server with RoomReached
 local startCheckpoint = 0
 local shake = 0
 local activeBalls = {}
@@ -86,8 +90,9 @@ local runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = 1 }
 local ui
 
 -- Boosts running in this run (only what the server confirmed).
--- magnet / slowmo = seconds left, megaball = giant throws left.
-local boost = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+-- shield = crashes it still absorbs, magnet / slowmo = seconds left,
+-- megaball = giant throws left.
+local boost = { shield = 0, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
 local timeScale = 1 -- 1 = normal speed, lower while SlowMo is on
 local slowLook = 0 -- how much of the slow-mo color effect is showing (0..1)
 local magnetized = {} -- crystals currently flying to the camera
@@ -191,44 +196,6 @@ local function makeBallPart(mega)
 	return part
 end
 
-local function spawnBall(origin, velocity, mega)
-	local part = makeBallPart(mega)
-	part.CFrame = CFrame.new(origin)
-	table.insert(activeBalls, { part = part, position = origin, velocity = velocity, age = 0, mega = mega })
-end
-
-local function throw(screenPosition)
-	if state ~= "Running" or balls <= 0 then
-		return
-	end
-	local now = os.clock()
-	if now - lastThrow < Config.THROW_COOLDOWN then
-		return
-	end
-	lastThrow = now
-	balls -= 1
-
-	-- MegaBall boost: this whole throw (every ball of the multiball fan) is giant.
-	local mega = boost.megaball > 0
-	if mega then
-		boost.megaball -= 1
-	end
-	-- Giant balls start a bit further out so they don't fill the screen.
-	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
-
-	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
-	local carry = FORWARD * speed -- balls keep the camera's forward momentum
-	for i = 1, multiball do
-		-- Spread extra balls out in a small fan.
-		local angle = (i - (multiball + 1) / 2) * 0.05
-		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
-		spawnBall(ray.Origin + direction * startDistance, direction * Config.BALL_SPEED + carry, mega)
-	end
-
-	Sounds.play("Throw", 0.95 + math.random() * 0.1)
-	updateHud()
-end
-
 local function collectCrystal(crystal)
 	Shatter.crystal(crystal, shardFolder)
 	balls += Config.CRYSTAL_REWARD
@@ -317,6 +284,11 @@ local function stepBall(ball, dt)
 		return false
 	end
 
+	-- Normal balls that bounced back well behind the camera can't hit anything useful.
+	if not ball.mega and ball.position.Z > cameraZ + BEHIND_CAMERA then
+		return false
+	end
+
 	ball.velocity += GRAVITY * dt
 	local travel = ball.velocity * dt
 
@@ -386,6 +358,64 @@ local function clearBalls()
 	table.clear(activeBalls)
 end
 
+-- preSweep (mega balls only): the ball starts at the camera and is swept this
+-- far before its first frame. A sphere cast can't hit something the sphere
+-- already overlaps at its start, so starting a giant ball out in front would
+-- miss glass, crystals and buttons right in front of the camera.
+local function spawnBall(origin, velocity, mega, preSweep)
+	-- Too many balls slows phones down: the oldest ones disappear first.
+	while #activeBalls >= Config.MAX_LIVE_BALLS do
+		local oldest = table.remove(activeBalls, 1)
+		oldest.part:Destroy()
+	end
+
+	local part = makeBallPart(mega)
+	local ball = { part = part, position = origin, velocity = velocity, age = 0, mega = mega }
+	table.insert(activeBalls, ball)
+	if mega and preSweep then
+		stepMegaBall(ball, preSweep)
+	end
+	part.CFrame = CFrame.new(ball.position)
+end
+
+local function throw(screenPosition)
+	if state ~= "Running" or balls <= 0 then
+		return
+	end
+	local now = os.clock()
+	if now - lastThrow < Config.THROW_COOLDOWN then
+		return
+	end
+	lastThrow = now
+	balls -= 1
+
+	-- MegaBall boost: this whole throw (every ball of the multiball fan) is giant.
+	local mega = boost.megaball > 0
+	if mega then
+		boost.megaball -= 1
+	end
+	-- Giant balls end up a bit further out so they don't fill the screen.
+	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
+
+	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
+	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	for i = 1, multiball do
+		-- Spread extra balls out in a small fan.
+		local angle = (i - (multiball + 1) / 2) * 0.05
+		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
+		local velocity = direction * Config.BALL_SPEED + carry
+		if mega then
+			-- Swept from the camera so anything close is still smashed.
+			spawnBall(ray.Origin, velocity, true, direction * startDistance)
+		else
+			spawnBall(ray.Origin + direction * startDistance, velocity, false)
+		end
+	end
+
+	Sounds.play("Throw", 0.95 + math.random() * 0.1)
+	updateHud()
+end
+
 -- Boosts ---------------------------------------------------------------------
 
 local function boostName(boostId)
@@ -428,10 +458,11 @@ local function pickBoosts(boostIds)
 	return picked
 end
 
--- Switches one boost on for this run. Buying the same timed boost again adds time.
+-- Switches one boost on for this run. Buying the same timed boost again adds
+-- time; each Shield absorbs one more crash.
 local function activateBoost(boostId)
 	if boostId == "Shield" then
-		boost.shield = true
+		boost.shield += 1
 	elseif boostId == "Magnet" then
 		boost.magnet += MAGNET.Duration
 	elseif boostId == "SlowMo" then
@@ -455,7 +486,7 @@ end
 
 -- Everything off (new run or back to the menu).
 local function resetBoosts()
-	boost.shield = false
+	boost.shield = 0
 	boost.magnet = 0
 	boost.slowmo = 0
 	boost.megaball = 0
@@ -533,7 +564,7 @@ end
 local function updateBoostHud()
 	if ui.setBoosts then
 		ui:setBoosts({
-			shield = boost.shield,
+			shield = boost.shield > 0, -- the UI only shows on / off
 			magnet = boost.magnet,
 			slowmo = boost.slowmo,
 			megaball = boost.megaball,
@@ -562,6 +593,7 @@ local function gameOver()
 	local newMeters = math.max(0, distance - reportedMeters)
 	reportedMeters = math.max(reportedMeters, distance)
 	Remotes.RunEnded:FireServer(distance, table.clone(runStats))
+	Tutorial.setPaused(true)
 
 	-- Personal best only counts runs started from the beginning (same as the server).
 	local countsForBest = startCheckpoint == 0
@@ -590,8 +622,8 @@ local function crash(hazard)
 	end
 
 	-- Shield boost: this crash is free (no balls lost, multiball kept).
-	if boost.shield then
-		boost.shield = false
+	if boost.shield > 0 then
+		boost.shield -= 1
 		shake = 0.2
 		shieldBreak()
 		return
@@ -663,6 +695,7 @@ local function resetWorld(checkpoint, tutorial)
 	raycastParams.FilterDescendantsInstances = { track.folder }
 
 	lastRoom = firstRoom
+	lastReportedRoom = firstRoom
 	applyTheme(checkpoint)
 end
 
@@ -737,6 +770,7 @@ local function revive(extraBalls)
 	multiball = minimumMultiball()
 	streak = 0
 	state = "Running"
+	Tutorial.setPaused(false)
 	ui:hideRevive()
 	ui:showHud()
 	updateHud()
@@ -765,15 +799,27 @@ local function onRoomEntered(room)
 	end
 end
 
+-- Tells the server each new room the camera reaches (it checks the distance
+-- against these, so it must be every room, in order).
+local function reportRoom(roomIndex)
+	local remote = Remotes:FindFirstChild("RoomReached")
+	if remote then
+		remote:FireServer(roomIndex)
+	end
+end
+
 local menuTime = 0
 
 local function step(dt)
 	-- worldDt: game time, slower than real time while SlowMo is on.
 	local worldDt = dt
+	local ballDt = dt -- balls ignore most of the tutorial's slow-down
 	if state == "Running" then
 		tickBoosts(dt)
 		-- The tutorial slows time while it waits for the player to act.
-		worldDt = dt * timeScale * Tutorial.update(dt, cameraZ)
+		local tutorialScale = Tutorial.update(dt, cameraZ)
+		worldDt = dt * timeScale * tutorialScale
+		ballDt = dt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED)
 		Tutorial.scanForTips(dt, cameraZ, track)
 
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
@@ -784,16 +830,20 @@ local function step(dt)
 		checkCrashes(prevZ, cameraZ)
 
 		local room = currentRoom()
-		if room ~= lastRoom then
+		if room ~= lastRoom and state == "Running" then
 			lastRoom = room
 			onRoomEntered(room)
+		end
+		while state == "Running" and room > lastReportedRoom do
+			lastReportedRoom += 1
+			reportRoom(lastReportedRoom)
 		end
 	end
 
 	if track then
 		track:update(cameraZ, worldDt)
 	end
-	stepBalls(worldDt)
+	stepBalls(ballDt)
 
 	if state == "Running" then
 		updateMagnet(worldDt)
@@ -854,13 +904,32 @@ local function promptPass(passKey)
 	end
 end
 
--- usedOnRun: for boost products, true when the server used it on the current
--- run right away (false = it went to the inventory).
-local function onPurchaseGranted(productKey, usedOnRun)
+local function shopRequest(action, argument)
+	local ok, success, message = pcall(function()
+		return Remotes.ShopRequest:InvokeServer(action, argument)
+	end)
+	if not ok then
+		return false, "Connection problem"
+	end
+	return success == true, message
+end
+
+-- A Robux boost always goes to the boost inventory first. Bought during a run,
+-- we ask the server to use it right away; it's only switched on if the server says yes.
+local function useBoostNow(boostId)
+	local ok = shopRequest("UseBoostNow", boostId)
+	if ok and state ~= "Menu" and activateBoost(boostId) then
+		ui:toast(boostName(boostId) .. " ON", "reward")
+	else
+		ui:toast(boostName(boostId) .. " ADDED TO YOUR BOOSTS", "reward")
+	end
+end
+
+local function onPurchaseGranted(productKey)
 	local product = Config.Products[productKey]
 	if product and product.Boost then
-		if usedOnRun == true and state ~= "Menu" and activateBoost(product.Boost) then
-			ui:toast(boostName(product.Boost) .. " ON", "reward")
+		if state == "Running" then
+			task.spawn(useBoostNow, product.Boost)
 		else
 			ui:toast(boostName(product.Boost) .. " ADDED TO YOUR BOOSTS", "reward")
 		end
@@ -876,7 +945,10 @@ local function onPurchaseGranted(productKey, usedOnRun)
 	end
 
 	if state == "GameOver" then
-		revive(product.Balls)
+		if revive(product.Balls) then
+			-- The server paused the run's clock at game over; start it again.
+			task.spawn(shopRequest, "ResumeRun")
+		end
 	elseif state == "Running" then
 		balls += product.Balls
 		updateHud()
@@ -900,16 +972,6 @@ local function onBoostsActivated(event)
 	for _, boostId in ipairs(event.boosts) do
 		activateBoost(boostId)
 	end
-end
-
-local function shopRequest(action, argument)
-	local ok, success, message = pcall(function()
-		return Remotes.ShopRequest:InvokeServer(action, argument)
-	end)
-	if not ok then
-		return false, "Connection problem"
-	end
-	return success == true, message
 end
 
 -- Startup --------------------------------------------------------------------

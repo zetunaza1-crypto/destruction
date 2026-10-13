@@ -198,6 +198,13 @@ function actions.ClaimSeasonTier(player, data, request)
 	return ok, message
 end
 
+-- Lets Main add actions that need the player's current run
+-- (UseBoostNow, ResumeRun). handler(player, data, argument) -> (ok, message).
+-- Like every action here, it must not yield.
+function Shop.addAction(name, handler)
+	actions[name] = handler
+end
+
 -- One request at a time per player, so spamming can't double-spend.
 local busy = {}
 
@@ -220,9 +227,8 @@ function Shop.init()
 			warn("Shop error:", success)
 			return false, "Something went wrong"
 		end
-		if success then
-			task.spawn(PlayerData.save, player)
-		end
+		-- No save here: changes are marked dirty and the autosave writes them
+		-- (saving on every click would use up the DataStore's write budget).
 		return success == true, message
 	end
 end

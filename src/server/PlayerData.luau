@@ -17,6 +17,9 @@ local PlayerData = {}
 local store = DataStoreService:GetDataStore("PlayerData_v1")
 
 local LOAD_ATTEMPTS = 3
+-- Changed profiles are saved about once a minute (spread out over the minute),
+-- instead of after every action: DataStores only allow so many writes.
+local AUTOSAVE_INTERVAL = 60
 local MAX_RECEIPTS = 50 -- remembered purchase IDs, so a retried receipt is never paid twice
 
 -- Every new field needs a default here. Old saves get missing fields filled in.
@@ -69,7 +72,11 @@ local DEFAULT_DATA = {
 	Hints = {}, -- first-time tips already shown (keys of Config.Hints)
 }
 
--- player -> { data = {...}, canSave = bool }
+-- player -> {
+--   data = {...}, canSave = bool,
+--   dirty = bool (changed since the last save started),
+--   saving = bool (a save is running right now), released = bool
+-- }
 local profiles = {}
 local pendingSaves = 0
 
@@ -206,7 +213,7 @@ function PlayerData.load(player)
 	end
 
 	-- If loading failed we never save, so we can't wipe their real data.
-	profiles[player] = { data = data, canSave = ok }
+	profiles[player] = { data = data, canSave = ok, dirty = false, saving = false }
 	publishAll(player, data)
 end
 
@@ -220,12 +227,22 @@ function PlayerData.canSave(player)
 	return profile ~= nil and profile.canSave
 end
 
+-- Marks the player's data as changed, so the next autosave writes it.
+-- update/publish/addReceipt do this for you.
+function PlayerData.markDirty(player)
+	local profile = profiles[player]
+	if profile then
+		profile.dirty = true
+	end
+end
+
 -- Sets fields and sends them to the client.
 function PlayerData.update(player, changes)
 	local profile = profiles[player]
 	if not profile then
 		return
 	end
+	profile.dirty = true
 	for field, value in changes do
 		profile.data[field] = value
 	end
@@ -241,6 +258,7 @@ function PlayerData.publish(player, fields)
 	if not profile then
 		return
 	end
+	profile.dirty = true
 	for _, field in fields do
 		publishField(player, profile.data, field)
 	end
@@ -260,9 +278,12 @@ function PlayerData.addReceipt(player, purchaseId)
 	while #data.Receipts > MAX_RECEIPTS do
 		table.remove(data.Receipts, 1)
 	end
+	PlayerData.markDirty(player)
 end
 
--- Returns true only if the data really reached the DataStore.
+-- Returns true only if the data (as it is right now) really reached the DataStore.
+-- Only one save per player runs at a time: if one is already running we wait
+-- for it, and only save again if something changed after it started.
 function PlayerData.save(player)
 	local profile = profiles[player]
 	if not profile or not profile.canSave then
@@ -270,10 +291,24 @@ function PlayerData.save(player)
 	end
 
 	pendingSaves += 1
+	while profile.saving do
+		task.wait(0.1)
+	end
+	if profile.lastSaveOk and not profile.dirty then
+		-- The save we waited for already included every change.
+		pendingSaves -= 1
+		return true
+	end
+
+	profile.saving = true
+	profile.dirty = false -- changes from now on need another save
 	local ok, err = pcall(store.SetAsync, store, key(player), profile.data, { player.UserId })
+	profile.saving = false
+	profile.lastSaveOk = ok
 	pendingSaves -= 1
 
 	if not ok then
+		profile.dirty = true -- try again next time
 		warn("Could not save data for", player.Name, err)
 	end
 	return ok
@@ -285,6 +320,7 @@ function PlayerData.release(player)
 		return
 	end
 	profile.released = true
+	profile.dirty = true -- always write once more when they leave
 	PlayerData.save(player)
 	profiles[player] = nil
 end
@@ -299,6 +335,39 @@ function PlayerData.releaseAll(timeout)
 	while pendingSaves > 0 and os.clock() < deadline do
 		task.wait(0.1)
 	end
+end
+
+-- Saves changed profiles every AUTOSAVE_INTERVAL seconds, spread out over the
+-- interval so all players don't hit the DataStore at the same moment.
+-- Started once by Main.
+local autosaveStarted = false
+function PlayerData.startAutosave()
+	if autosaveStarted then
+		return
+	end
+	autosaveStarted = true
+	task.spawn(function()
+		while true do
+			local due = {}
+			for player, profile in profiles do
+				if profile.dirty and profile.canSave and not profile.released and not profile.saving then
+					table.insert(due, player)
+				end
+			end
+			if #due == 0 then
+				task.wait(AUTOSAVE_INTERVAL)
+			else
+				local gap = AUTOSAVE_INTERVAL / #due
+				for _, player in due do
+					local profile = profiles[player]
+					if profile and profile.dirty and not profile.released then
+						task.spawn(PlayerData.save, player)
+					end
+					task.wait(gap)
+				end
+			end
+		end
+	end)
 end
 
 -- Calls fn(player, data) for everyone whose data is loaded.

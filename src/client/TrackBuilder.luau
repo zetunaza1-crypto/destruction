@@ -1,6 +1,15 @@
 --[[
 	Builds the corridor rooms in front of the camera and deletes the ones behind it.
 	Everything here is created on the player's device only, so nobody else sees it.
+
+	Building a whole room at once takes long enough to make phones stutter, so
+	each room is built in steps, a few milliseconds per frame (Config.ROOM_BUILD_BUDGET):
+	  1. "Shell"  - floor, walls, trim, AND all glass, doors and crystals
+	                (so crash checks never see a room with glass missing)
+	  2. "Decor"  - the zone's decorations
+	  3. "Lights" - real lights and shadows (needs the decorations to exist)
+	The room the camera is about to enter is always finished right away, even
+	if that goes over the budget.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -76,6 +85,7 @@ function TrackBuilder.new(parent, firstRoom, tutorial)
 	self.doorOf = setmetatable({}, { __mode = "k" }) -- door panel / button -> door
 	self.nextRoom = firstRoom or 0
 	self.rng = Random.new()
+	self.buildQueue = {} -- steps still to do, oldest first: { roomIndex, stage, info }
 	return self
 end
 
@@ -293,7 +303,8 @@ function TrackBuilder:buildTutorialRoom(room, roomIndex, startZ)
 	end
 end
 
-function TrackBuilder:buildRoom(roomIndex)
+-- Step 1: the room's shell plus everything you can crash into or collect.
+function TrackBuilder:buildShell(roomIndex)
 	local theme = TrackBuilder.themeFor(roomIndex)
 	local startZ = TrackBuilder.roomStartZ(roomIndex)
 	local centerZ = startZ - LENGTH / 2
@@ -362,15 +373,6 @@ function TrackBuilder:buildRoom(roomIndex)
 		end
 	end
 
-	Decor.decorate(self, room, {
-		roomIndex = roomIndex,
-		zone = zone,
-		theme = theme,
-		startZ = startZ,
-		isZoneStart = isZoneStart,
-		rng = rng,
-	})
-
 	if self.tutorial and table.find(Config.TUTORIAL_ROOMS, roomIndex) then
 		self:buildTutorialRoom(room, roomIndex, startZ)
 	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
@@ -399,11 +401,62 @@ function TrackBuilder:buildRoom(roomIndex)
 		end
 	end
 
-	-- Real lights from the room's glowing parts, shadows from decorations.
-	LightingFx.lightRoom(folder, theme)
-
 	folder.Parent = self.folder
 	self.rooms[roomIndex] = room
+
+	-- Decorations and lights come in later frames.
+	local info = {
+		roomIndex = roomIndex,
+		zone = zone,
+		theme = theme,
+		startZ = startZ,
+		isZoneStart = isZoneStart,
+		rng = rng,
+	}
+	self:queueStep({ roomIndex = roomIndex, stage = "Decor", info = info })
+	self:queueStep({ roomIndex = roomIndex, stage = "Lights", info = info })
+end
+
+-- Adds a build step, keeping the queue in room order (nearest room first).
+function TrackBuilder:queueStep(job)
+	local queue = self.buildQueue
+	local position = #queue + 1
+	while position > 1 and queue[position - 1].roomIndex > job.roomIndex do
+		position -= 1
+	end
+	table.insert(queue, position, job)
+end
+
+-- Runs one queued build step.
+function TrackBuilder:runBuildStep(job)
+	if job.stage == "Shell" then
+		self:buildShell(job.roomIndex)
+		return
+	end
+	local room = self.rooms[job.roomIndex]
+	if not room then
+		return -- already behind the camera and deleted
+	end
+	if job.stage == "Decor" then
+		Decor.decorate(self, room, job.info)
+	elseif job.stage == "Lights" then
+		-- Real lights from the room's glowing parts, shadows from decorations.
+		LightingFx.lightRoom(room.folder, job.info.theme)
+	end
+end
+
+-- Builds a whole room right now (all steps).
+function TrackBuilder:buildRoom(roomIndex)
+	self:buildShell(roomIndex)
+	self:finishRoomsUpTo(roomIndex)
+end
+
+-- Runs every queued step for rooms up to lastRoomIndex, right now.
+function TrackBuilder:finishRoomsUpTo(lastRoomIndex)
+	local queue = self.buildQueue
+	while queue[1] and queue[1].roomIndex <= lastRoomIndex do
+		self:runBuildStep(table.remove(queue, 1))
+	end
 end
 
 -- Call every frame with the camera's Z position.
@@ -417,9 +470,22 @@ function TrackBuilder:update(cameraZ, dt)
 		end
 	end
 
+	-- Queue new rooms coming into view (built over the next frames).
 	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - Config.ROOMS_AHEAD * LENGTH do
-		self:buildRoom(self.nextRoom)
+		self:queueStep({ roomIndex = self.nextRoom, stage = "Shell" })
 		self.nextRoom += 1
+	end
+
+	-- The room the camera is in and the next one (starting within one room
+	-- length plus a margin) must be complete: build them now, whatever it costs.
+	local started = os.clock()
+	local mustFinish = (ORIGIN.Z - (cameraZ - LENGTH - 20)) // LENGTH
+	self:finishRoomsUpTo(mustFinish)
+
+	-- Everything further away: only while this frame's time budget lasts.
+	local queue = self.buildQueue
+	while queue[1] and os.clock() - started < Config.ROOM_BUILD_BUDGET do
+		self:runBuildStep(table.remove(queue, 1))
 	end
 
 	for roomIndex, room in self.rooms do

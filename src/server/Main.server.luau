@@ -22,6 +22,20 @@ local LEADERBOARD_SIZE = 10
 local LEADERBOARD_REFRESH = 60
 local MISSION_CHECK_INTERVAL = 30
 
+-- Anti-cheat ------------------------------------------------------------------
+-- Highest distance one run can put on the global leaderboard (a sanity cap far
+-- above any realistic run).
+local MAX_RUN_METERS = 25000
+-- A run only counts toward Stats.runs and the "play N runs" mission after this far.
+local MIN_COUNTED_RUN_METERS = 50
+-- RunEnded reports closer together than this are ignored (spam).
+local MIN_RUN_ENDED_GAP = 0.5
+-- The fastest a room can be flown through: at top speed, plus 15% for lag.
+local MIN_ROOM_SECONDS = Config.ROOM_LENGTH / (Config.MAX_SPEED * 1.15)
+-- How far ahead of that pace a player may be, in rooms, so one late network
+-- message doesn't block the rest of the run. Waiting can't bank more than this.
+local ROOM_LAG_ALLOWANCE = 2
+
 -- Season info for the UI.
 ReplicatedStorage:SetAttribute("SeasonName", Config.SEASON_NAME)
 ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
@@ -30,7 +44,10 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 --   startedAt, pausedAt (set while on the game over screen), pausedTotal,
 --   startCheckpoint, startMeters, metersRewarded,
 --   reported (run stats already paid for), counted (run added to Stats.runs),
---   boosts ({ [boostId] = true } used on this run), doubleGems
+--   boosts ({ [boostId] = true } used on this run), doubleGems,
+--   lastRoom (last room index accepted from RoomReached), roomClock (active
+--   seconds the next room is measured from), pausedMaxStuds (cached time cap
+--   while paused), lastEndedAt (os.clock() of the last RunEnded we handled)
 -- }
 local activeRuns = {}
 
@@ -40,13 +57,41 @@ local runCounts = {}
 
 -- The furthest anyone can legitimately travel in `seconds`, following the same
 -- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
+-- The ramp (about 40 rooms) is worked out once here; after it the speed never
+-- changes, so longer times are a simple multiplication.
+local rampRoomTimes = {} -- seconds to fly through each ramp room
+local rampTime, rampStuds = 0, 0
+do
+	local gain = Config.SPEED_GAIN_PER_ROOM
+	local rampRooms = 0
+	if gain > 0 and Config.START_SPEED < Config.MAX_SPEED then
+		rampRooms = math.ceil((Config.MAX_SPEED - Config.START_SPEED) / gain)
+	end
+	for room = 0, rampRooms - 1 do
+		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + room * gain)
+		local seconds = Config.ROOM_LENGTH / speed
+		table.insert(rampRoomTimes, seconds)
+		rampTime += seconds
+	end
+	rampStuds = rampRooms * Config.ROOM_LENGTH
+end
+
 local function maxStudsIn(seconds)
-	local studs, time, dt = 0, 0, 0.05
-	while time < seconds do
-		local rooms = studs // Config.ROOM_LENGTH
-		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + rooms * Config.SPEED_GAIN_PER_ROOM)
-		studs += speed * dt
-		time += dt
+	if seconds <= 0 then
+		return 0
+	end
+	if seconds >= rampTime then
+		return rampStuds + (seconds - rampTime) * Config.MAX_SPEED
+	end
+	-- Still speeding up: walk the (at most ~40) ramp rooms.
+	local studs, time = 0, 0
+	for _, roomSeconds in rampRoomTimes do
+		if time + roomSeconds >= seconds then
+			local speed = Config.ROOM_LENGTH / roomSeconds
+			return studs + (seconds - time) * speed
+		end
+		studs += Config.ROOM_LENGTH
+		time += roomSeconds
 	end
 	return studs
 end
@@ -56,30 +101,30 @@ local function activeSeconds(run)
 	return now - run.startedAt - run.pausedTotal
 end
 
--- A boost bought with Robux is used on the run right away if one is going
--- (and not sitting on the game over screen). DoubleGems can't stack, so a
--- second one goes to the inventory instead.
-Monetization.useBoostOnRun = function(player, boostId)
-	local run = activeRuns[player]
-	if not run or run.pausedAt then
-		return false
-	end
-	if boostId == "DoubleGems" then
-		if run.doubleGems then
-			return false
+-- Time cap for the run so far. While paused (game over screen) the run's
+-- active time can't change, so it's only worked out once.
+local function maxStudsForRun(run)
+	if run.pausedAt then
+		if not run.pausedMaxStuds then
+			run.pausedMaxStuds = maxStudsIn(activeSeconds(run))
 		end
-		run.doubleGems = true
+		return run.pausedMaxStuds
 	end
-	run.boosts[boostId] = true
-	return true
+	return maxStudsIn(activeSeconds(run))
 end
 
--- A revive (or ball pack on the game over screen) continues the run.
-Monetization.onProductGranted = function(player, productKey)
-	local run = activeRuns[player]
-	if run and run.pausedAt and (productKey == "Revive" or productKey == "BallPack") then
+local function pauseRun(run)
+	if not run.pausedAt then
+		run.pausedAt = os.clock()
+		run.pausedMaxStuds = nil
+	end
+end
+
+local function resumeRun(run)
+	if run.pausedAt then
 		run.pausedTotal += os.clock() - run.pausedAt
 		run.pausedAt = nil
+		run.pausedMaxStuds = nil
 	end
 end
 
@@ -122,6 +167,44 @@ end)
 
 Monetization.init()
 Shop.init()
+PlayerData.startAutosave()
+
+-- Shop action "UseBoostNow"(boostId): the device asks this right after buying a
+-- boost with Robux mid-run (the purchase always goes to the inventory first).
+-- Takes one from the inventory and turns it on for the current run.
+-- Returns true only if it's on; otherwise it stays in the inventory.
+Shop.addAction("UseBoostNow", function(player, data, boostId)
+	if not Progression.isBoost(boostId) then
+		return false, "That boost doesn't exist"
+	end
+	local run = activeRuns[player]
+	if not run or run.pausedAt then
+		return false, "No run going"
+	end
+	if boostId == "DoubleGems" and run.doubleGems then
+		return false, "2x gems is already on" -- can't stack
+	end
+	if not Progression.takeBoost(data, boostId) then
+		return false, "You don't have that boost"
+	end
+	run.boosts[boostId] = true
+	if boostId == "DoubleGems" then
+		run.doubleGems = true
+	end
+	PlayerData.publish(player, { "Boosts" })
+	return true
+end)
+
+-- Shop action "ResumeRun": the device sends this after it has really revived
+-- (Revive or ball pack on the game over screen), so the run's clock runs again.
+Shop.addAction("ResumeRun", function(player)
+	local run = activeRuns[player]
+	if not run then
+		return false, "No run going"
+	end
+	resumeRun(run)
+	return true
+end)
 
 -- Picks the boosts the player asked for (boostIds, a list of ids) that are real,
 -- not repeated and actually owned, up to Config.MAX_BOOSTS_PER_RUN.
@@ -176,6 +259,10 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 		counted = false,
 		boosts = {},
 		doubleGems = false,
+		lastRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT, -- the room the run starts in
+		roomClock = 0,
+		pausedMaxStuds = nil,
+		lastEndedAt = nil,
 	}
 	activeRuns[player] = run
 
@@ -200,8 +287,31 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 	if #used > 0 then
 		PlayerData.publish(player, { "Boosts" })
 		Progression.fire(player, { type = "BoostsActivated", boosts = used, run = runCounts[player] })
-		task.spawn(PlayerData.save, player)
+		-- Saved by the autosave (publish marked the data as changed).
 	end
+end)
+
+-- RoomReached(roomIndex): sent each time the player's camera enters a new room.
+-- Rooms must come in order, and no faster than top speed allows (counting only
+-- time actually running). RunEnded then pays at most up to the last accepted room.
+Remotes.RoomReached.OnServerEvent:Connect(function(player, roomIndex)
+	local run = activeRuns[player]
+	if not run or type(roomIndex) ~= "number" or roomIndex ~= math.floor(roomIndex) then
+		return -- not a whole number (NaN fails this too)
+	end
+	if roomIndex ~= run.lastRoom + 1 then
+		return
+	end
+	local now = activeSeconds(run)
+	local earliest = run.roomClock + MIN_ROOM_SECONDS
+	if now < earliest then
+		return -- too fast: ignore it (no kick; lag can cause the odd one)
+	end
+	run.lastRoom = roomIndex
+	-- Measure the next room from here, but let a player who is slower than top
+	-- speed be up to ROOM_LAG_ALLOWANCE rooms "ahead", so a late message
+	-- followed by an on-time one still gets through.
+	run.roomClock = math.max(earliest, now - ROOM_LAG_ALLOWANCE * MIN_ROOM_SECONDS)
 end)
 
 -- Reads one number from the client's run stats, clamped to what's possible.
@@ -246,15 +356,24 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if not run or not data or type(meters) ~= "number" or meters ~= meters then
 		return
 	end
+	local now = os.clock()
+	if run.lastEndedAt and now - run.lastEndedAt < MIN_RUN_ENDED_GAP then
+		return -- spam
+	end
+	run.lastEndedAt = now
 	if type(runStats) ~= "table" then
 		runStats = {}
 	end
 
-	-- Anti-cheat: nobody can go further than the speed ramp allows in the time
-	-- they actually spent running (time on the game over screen doesn't count).
-	local maxMeters = run.startMeters + maxStudsIn(activeSeconds(run)) / Config.STUDS_PER_METER * 1.1 + 15
-	meters = math.clamp(math.floor(meters), 0, math.floor(maxMeters))
-	run.pausedAt = run.pausedAt or os.clock()
+	-- Anti-cheat: the distance is the smallest of
+	--  * what the device says,
+	--  * how far the speed ramp allows in the time they actually spent running
+	--    (time on the game over screen doesn't count),
+	--  * the end of the last room the server accepted from RoomReached.
+	pauseRun(run)
+	local timeCap = run.startMeters + maxStudsForRun(run) / Config.STUDS_PER_METER * 1.1 + 15
+	local roomCap = (run.lastRoom + 1) * Config.ROOM_LENGTH / Config.STUDS_PER_METER
+	meters = math.clamp(math.floor(meters), 0, math.floor(math.min(timeCap, roomCap)))
 
 	local newMeters = math.max(0, meters - run.metersRewarded)
 	run.metersRewarded = math.max(run.metersRewarded, meters)
@@ -281,8 +400,12 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 		deltas[name] = math.max(0, value - run.reported[name])
 		run.reported[name] = math.max(run.reported[name], value)
 	end
-	deltas.runs = if run.counted then 0 else 1
-	run.counted = true
+	-- Only a real attempt counts as a run (not tapping PLAY then MENU).
+	deltas.runs = 0
+	if not run.counted and flownMeters >= MIN_COUNTED_RUN_METERS then
+		deltas.runs = 1
+		run.counted = true
+	end
 
 	-- Gems and XP for what was added since the last report.
 	local multiplier = gemMultiplier(player)
@@ -327,11 +450,12 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 
 	-- Personal best + global leaderboard only count runs from the very start,
 	-- so a Checkpoints pass can't buy a higher score.
+	-- One run can never put more than MAX_RUN_METERS on the board.
 	if run.startCheckpoint == 0 and meters > data.Best then
 		changes.Best = meters
 		-- Skip if their data didn't load: their real best is unknown.
 		if PlayerData.canSave(player) then
-			task.spawn(updateLeaderboard, player, meters)
+			task.spawn(updateLeaderboard, player, math.min(meters, MAX_RUN_METERS))
 		end
 	end
 	PlayerData.update(player, changes)
