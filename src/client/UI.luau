@@ -200,6 +200,16 @@ local function fxName(id)
 	return string.upper(if fx and fx.Id == id then fx.Name else tostring(id))
 end
 
+local function boostInfo(id)
+	local boosts = Config.Boosts
+	return if type(boosts) == "table" then boosts[id] else nil
+end
+
+local function boostName(id)
+	local boost = boostInfo(id)
+	return if boost and boost.Name then string.upper(boost.Name) else string.upper(tostring(id))
+end
+
 -- "+70 GEMS", "NEONITE SKIN", "SHATTERBORN SKIN + SUPERNOVA FX"...
 local function rewardText(reward)
 	if type(reward) ~= "table" then
@@ -214,6 +224,12 @@ local function rewardText(reward)
 	end
 	if reward.Fx then
 		table.insert(parts, fxName(reward.Fx) .. " FX")
+	end
+	if reward.Boost then
+		table.insert(parts, boostName(reward.Boost) .. " BOOST")
+	end
+	if reward.Balls then
+		table.insert(parts, "+" .. commas(reward.Balls) .. " BALLS")
 	end
 	return table.concat(parts, " + ")
 end
@@ -879,6 +895,21 @@ local function rewardChip(parent, reward, size, position)
 		end
 		return chip
 	end
+	if reward.Boost then
+		local boost = boostInfo(reward.Boost)
+		local chip = new("Frame", {
+			Name = "Chip",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = position,
+			Size = UDim2.fromOffset(size, size),
+			BackgroundColor3 = boost and boost.Color or INK,
+			Parent = parent,
+		})
+		stroke(chip, 1)
+		-- Boosts read as a square with an ink bar through it (a "capsule" mark).
+		rule(chip, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(1, 0, 0, 1) })
+		return chip
+	end
 	return gemIcon(parent, math.floor(size * 0.8), position)
 end
 
@@ -920,6 +951,7 @@ function UI._buildMenu(self)
 
 	self:_buildMenuLeft(root)
 	self:_buildMenuPanel(root)
+	self:_buildModal(root)
 end
 
 function UI._buildMenuLeft(self, root)
@@ -1599,11 +1631,15 @@ function UI._buildDailySheet(self, layer)
 			Size = UDim2.new(1, -4, 0, 16),
 			Parent = cell,
 		}), 11, 6))
-		local extra = if reward.Fx then fxName(reward.Fx) .. " FX" elseif reward.Balls then "+" .. reward.Balls .. " BALLS" else "GEMS"
+		local extra = if reward.Fx
+			then fxName(reward.Fx) .. " FX"
+			elseif reward.Boost then "+" .. boostName(reward.Boost)
+			elseif reward.Balls then "+" .. reward.Balls .. " BALLS"
+			else "GEMS"
 		table.insert(texts, text({
 			Text = extra,
 			TextSize = 7,
-			TextColor3 = if reward.Fx or reward.Balls then INK else GREY,
+			TextColor3 = if reward.Fx or reward.Balls or reward.Boost then INK else GREY,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			Position = UDim2.fromOffset(0, 63),
 			Size = UDim2.new(1, 0, 0, 9),
@@ -1728,8 +1764,8 @@ function UI._buildOfferSheet(self, layer)
 	end
 	if product.Fx then
 		local swatch = fxSwatch(sheet, Config.getFx(product.Fx), { Position = UDim2.fromOffset(260, 96), Size = UDim2.fromOffset(128, 40) })
-		tag(swatch, "FX", { BackgroundColor3 = PAPER, Size = UDim2.fromOffset(24, 12) }).BackgroundTransparency = 0
-		swatch:FindFirstChild("Tag"):FindFirstChildOfClass("TextLabel").TextColor3 = INK
+		local _, fxLabel = tag(swatch, "FX", { BackgroundColor3 = PAPER, Size = UDim2.fromOffset(24, 12) })
+		fxLabel.TextColor3 = INK
 	end
 
 	text({ Text = "YOU CAN ALSO FIND THIS IN THE SHOP", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(12, 140), Size = UDim2.new(1, -24, 0, 10), Parent = sheet })
@@ -1791,6 +1827,573 @@ function UI._refreshStarter(self)
 	end
 	if bought and m.modalOpen == "offer" then
 		self:_closeModal()
+	end
+end
+
+function UI._setTabPip(self, index, on)
+	local tab = self._menu.tabs[index]
+	if tab then
+		tab.pip.Visible = on
+	end
+end
+
+-- Missions ---------------------------------------------------------------------------------
+
+function UI._buildMissionsPage(self, page)
+	local m = self._menu
+	local _, right = sectionHeader(page, 1, "02.1", "DAILY MISSIONS")
+	m.missionsRight = right
+	m.missions = new("Frame", { Name = "Missions", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, Parent = page })
+	list(m.missions, 6)
+	m.missionsReset = text({ Text = "", TextSize = 9, TextColor3 = GREY, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 3, Parent = page })
+	local _, roadRight = sectionHeader(page, 4, "02.2", "LEVEL ROAD")
+	m.roadRight = roadRight
+	m.levelRoad = new("Frame", { Name = "LevelRoad", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 5, Parent = page })
+	list(m.levelRoad, 0)
+end
+
+local function readMissions()
+	local raw = player:GetAttribute("Missions")
+	local decoded = decodeJson(raw)
+	if type(decoded) ~= "table" then
+		return nil, raw
+	end
+	local missions = {}
+	for _, entry in decoded do
+		if type(entry) == "table" and entry.id ~= nil then
+			local goal = math.max(1, math.floor(tonumber(entry.goal) or 1))
+			table.insert(missions, {
+				id = entry.id,
+				text = string.upper(tostring(entry.text or "MISSION")),
+				goal = goal,
+				progress = math.clamp(math.floor(tonumber(entry.progress) or 0), 0, goal),
+				gems = math.floor(tonumber(entry.gems) or 0),
+				xp = math.floor(tonumber(entry.xp) or 0),
+				claimed = entry.claimed == true,
+			})
+		end
+	end
+	return missions, raw
+end
+
+-- Rebuilds only when the Missions JSON or the reroll count actually changed.
+function UI._rebuildMissions(self, force)
+	local m = self._menu
+	local missions, raw = readMissions()
+	local rerolls = math.max(0, math.floor(attrNumber("MissionRerolls", 0)))
+	local key = tostring(raw) .. "|" .. rerolls
+	if not force and key == m.missionsKey then
+		return
+	end
+	m.missionsKey = key
+	clearRows(m.missions)
+	m.missionsRight.Text = rerolls .. (if rerolls == 1 then " REROLL" else " REROLLS") .. " LEFT"
+
+	local claimable = 0
+	if missions == nil or #missions == 0 then
+		text({
+			Text = if missions == nil then "LOADING" else "NO MISSIONS / CHECK BACK SOON",
+			TextSize = 9,
+			TextColor3 = GREY,
+			Size = UDim2.new(1, 0, 0, 28),
+			Parent = m.missions,
+		})
+	else
+		for i, mission in missions do
+			if mission.progress >= mission.goal and not mission.claimed then
+				claimable += 1
+			end
+			self:_buildMissionRow(m.missions, i, mission, rerolls)
+		end
+	end
+	self:_setTabPip(TAB_MISSIONS, claimable > 0)
+end
+
+function UI._buildMissionRow(self, parent, index, mission, rerolls)
+	local complete = mission.progress >= mission.goal
+	local ready = complete and not mission.claimed
+	local row = new("Frame", { Name = "Mission" .. index, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 72), LayoutOrder = index, Parent = parent })
+	stroke(row, if ready then 1.5 else 1, INK, if mission.claimed then 0.75 elseif ready then 0 else 0.5)
+	if ready then
+		local bar = new("Frame", { Size = UDim2.new(0, 4, 1, 0), Parent = row })
+		setAccent(bar, "BackgroundColor3")
+	end
+	local fade = if mission.claimed then 0.5 else 0
+
+	text({ Text = "M-" .. twoDigits(index), TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(10, 5), Size = UDim2.fromOffset(40, 10), Parent = row })
+	text({
+		Text = commas(mission.progress) .. " / " .. commas(mission.goal),
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromOffset(50, 5),
+		Size = UDim2.new(1, -152, 0, 10),
+		Parent = row,
+	})
+	capText(text({
+		Text = mission.text,
+		Font = FONT_NUM,
+		TextTransparency = fade,
+		Position = UDim2.fromOffset(10, 16),
+		Size = UDim2.new(1, -112, 0, 18),
+		Parent = row,
+	}), 11, 6)
+	local _, fill = meter(row, { Position = UDim2.fromOffset(10, 39), Size = UDim2.new(1, -112, 0, 5) })
+	fill.Size = UDim2.fromScale(mission.progress / mission.goal, 1)
+	if mission.claimed then
+		clearAccent(fill)
+		fill.BackgroundColor3 = INK
+		fill.BackgroundTransparency = 0.6
+	end
+	gemIcon(row, 7, UDim2.fromOffset(14, 57))
+	text({
+		Text = "+" .. commas(mission.gems) .. " GEMS   +" .. commas(mission.xp) .. " XP",
+		TextSize = 9,
+		TextTransparency = fade,
+		Position = UDim2.fromOffset(24, 50),
+		Size = UDim2.new(1, -126, 0, 14),
+		Parent = row,
+	})
+
+	if mission.claimed then
+		stamp(row, "CLAIMED", { Position = UDim2.new(1, -50, 0.5, 0), Size = UDim2.fromOffset(82, 24) }, "clear")
+	elseif complete then
+		local button
+		button = hardButton(row, {
+			Name = "Claim",
+			Fill = "accent",
+			Text = "CLAIM",
+			TextSize = 12,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(88, 52),
+			OnClick = function()
+				self:_missionAction("ClaimMission", mission, button, "CLAIMING")
+			end,
+		})
+	elseif rerolls > 0 then
+		local button
+		button = hardButton(row, {
+			Name = "Reroll",
+			Fill = "paper",
+			Text = "REROLL",
+			TextSize = 10,
+			Sub = "SWAP MISSION",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(88, 48),
+			OnClick = function()
+				self:_missionAction("RerollMission", mission, button, "...")
+			end,
+		})
+		button.sub.TextSize = 7
+	else
+		capText(text({
+			Text = math.floor(mission.progress / mission.goal * 100) .. "%",
+			Font = FONT_NUM,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(88, 30),
+			Parent = row,
+		}), 16, 8)
+	end
+end
+
+function UI._missionAction(self, action, mission, button, busyText)
+	local m = self._menu
+	if m.missionBusy then
+		return
+	end
+	m.missionBusy = true
+	button.setEnabled(false)
+	button.setText(busyText)
+	task.spawn(function()
+		local ok, message = self:_ask("onShop", action, mission.id)
+		m.missionBusy = false
+		if not ok then
+			self:toast(message or (if action == "ClaimMission" then "COULD NOT CLAIM" else "COULD NOT REROLL"), "error")
+		end
+		self:_rebuildMissions(true)
+	end)
+end
+
+-- Every level unlock in order, with how far away it is.
+function UI._rebuildLevelRoad(self)
+	local m = self._menu
+	if not m.levelRoad then
+		return
+	end
+	clearRows(m.levelRoad)
+	local level = levelInfo()
+	m.roadRight.Text = "+" .. Config.LEVEL_UP_GEMS .. " GEMS EVERY LEVEL"
+	local levels = {}
+	for unlockLevel in Config.LevelUnlocks do
+		table.insert(levels, unlockLevel)
+	end
+	table.sort(levels)
+	local upcoming = nextUnlock(level)
+	for i, unlockLevel in levels do
+		local reward = Config.LevelUnlocks[unlockLevel]
+		local reached = level >= unlockLevel
+		local row = new("Frame", { Name = "Lv" .. unlockLevel, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = i, Parent = m.levelRoad })
+		rule(row, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), BackgroundTransparency = 0.8 })
+		if unlockLevel == upcoming then
+			local bar = new("Frame", { Size = UDim2.new(0, 3, 1, -6), Position = UDim2.fromOffset(0, 3), Parent = row })
+			setAccent(bar, "BackgroundColor3")
+		end
+		capText(text({
+			Text = "LV " .. twoDigits(unlockLevel),
+			Font = FONT_NUM,
+			TextTransparency = if reached or unlockLevel == upcoming then 0 else 0.45,
+			Position = UDim2.fromOffset(8, 6),
+			Size = UDim2.fromOffset(52, 18),
+			Parent = row,
+		}), 10, 7)
+		rewardChip(row, reward, 10, UDim2.fromOffset(70, 15))
+		text({
+			Text = rewardText(reward),
+			TextSize = 9,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextTransparency = if reached or unlockLevel == upcoming then 0 else 0.45,
+			Position = UDim2.fromOffset(82, 0),
+			Size = UDim2.new(1, -164, 1, 0),
+			Parent = row,
+		})
+		local status = if reached then "UNLOCKED" elseif unlockLevel == upcoming then (unlockLevel - level) .. " LV TO GO" else "LOCKED"
+		local statusTag, statusLabel = tag(row, status, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(76, 16) }, reached)
+		if not reached then
+			statusTag.BackgroundTransparency = 1
+			statusLabel.TextColor3 = if unlockLevel == upcoming then INK else GREY
+		end
+	end
+end
+
+-- Season pass ------------------------------------------------------------------------------
+
+function UI._buildSeasonPage(self, page)
+	local m = self._menu
+	local s = {}
+	m.season = s
+	local _, right = sectionHeader(page, 1, "03.1", "SEASON PASS")
+	s.right = right
+
+	local info = new("Frame", { Name = "Info", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), LayoutOrder = 2, Parent = page })
+	s.name = capText(text({ Text = Config.SEASON_NAME, Font = FONT_NUM, Position = UDim2.fromOffset(0, 2), Size = UDim2.new(1, 0, 0, 18), Parent = info }), 12, 7)
+	s.tier = text({ Text = "TIER 00", TextSize = 9, Position = UDim2.fromOffset(0, 24), Size = UDim2.new(0.5, 0, 0, 12), Parent = info })
+	s.xp = text({
+		Text = "",
+		TextSize = 9,
+		TextColor3 = GREY,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(0.5, 0, 0, 24),
+		Size = UDim2.new(0.5, 0, 0, 12),
+		Parent = info,
+	})
+	local _, fill = meter(info, { Position = UDim2.fromOffset(0, 39), Size = UDim2.new(1, 0, 0, 6) })
+	s.fill = fill
+	text({ Text = "EVERY RUN FILLS THE PASS / FREE ROW IS FOR EVERYONE", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(0, 49), Size = UDim2.new(1, 0, 0, 10), Parent = info })
+
+	-- Premium unlock card (hidden once owned, or when the product isn't set up).
+	local product = Config.Products.SeasonPremium
+	local unlock = new("Frame", { Name = "Premium", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 66), LayoutOrder = 3, Visible = false, Parent = page })
+	notch(unlock, 10, 1, 0)
+	capText(setAccent(text({ Text = "PREMIUM TRACK", Font = FONT_NUM, Position = UDim2.fromOffset(10, 7), Size = UDim2.new(1, -112, 0, 16), Parent = unlock }), "TextColor3"), 11, 7)
+	text({
+		Text = "UNLOCKS THE PREMIUM ROW FOR THIS SEASON: SKINS, FX AND MORE GEMS. TIERS YOU ALREADY REACHED CAN BE CLAIMED RIGHT AWAY.",
+		TextSize = 7,
+		TextColor3 = PAPER,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(10, 26),
+		Size = UDim2.new(1, -112, 0, 36),
+		Parent = unlock,
+	})
+	local buy = hardButton(unlock, {
+		Name = "Unlock",
+		Fill = "accent",
+		Text = "UNLOCK",
+		TextSize = 11,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 2),
+		Size = UDim2.fromOffset(92, 54),
+		OnClick = function()
+			self:_fire("onBuyProduct", "SeasonPremium")
+		end,
+	})
+	withPrice(product and product.Id, Enum.InfoType.Product, function(price)
+		buy.sub.Text = "R$ " .. commas(price)
+	end)
+	s.unlock = unlock
+	s.active = tag(page, "PREMIUM TRACK ACTIVE", { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = 3, Visible = false }, true)
+
+	local _, trackRight = sectionHeader(page, 4, "03.2", "REWARDS")
+	s.trackRight = trackRight
+	local holder = new("Frame", { Name = "Track", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 146), LayoutOrder = 5, Parent = page })
+	for _, rowInfo in { { "FREE", 23 }, { "PREMIUM", 81 } } do
+		local label = new("Frame", { BackgroundTransparency = 1, Position = UDim2.fromOffset(0, rowInfo[2]), Size = UDim2.fromOffset(40, 53), Parent = holder })
+		rule(label, { Size = UDim2.new(0, 2, 1, 0) })
+		text({ Text = rowInfo[1], TextSize = 7, Position = UDim2.fromOffset(5, 0), Size = UDim2.new(1, -5, 1, 0), Parent = label })
+	end
+	local scroll = new("ScrollingFrame", {
+		Name = "Tiers",
+		Active = true,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(42, 0),
+		Size = UDim2.new(1, -42, 1, 0),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = INK,
+		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		Parent = holder,
+	})
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, SEASON_COLUMN_GAP),
+		Parent = scroll,
+	})
+	s.scroll = scroll
+end
+
+local function readSeasonClaimed()
+	local decoded = decodeJson(player:GetAttribute("SeasonClaimed"))
+	local claimed = { Free = {}, Premium = {} }
+	if type(decoded) == "table" then
+		for field, trackName in { free = "Free", premium = "Premium" } do
+			local tiers = decoded[field]
+			if type(tiers) == "table" then
+				for _, tier in tiers do
+					local n = tonumber(tier)
+					if n then
+						claimed[trackName][math.floor(n)] = true
+					end
+				end
+			end
+		end
+	end
+	return claimed
+end
+
+local function seasonProgress()
+	local maxTier = #Config.SeasonTiers
+	local tier = math.clamp(math.floor(attrNumber("SeasonTier", 0)), 0, maxTier)
+	local need = math.max(1, Config.SEASON_TIER_XP)
+	local xp = math.clamp(math.floor(attrNumber("SeasonXP", 0)), 0, need)
+	return tier, xp, need, maxTier
+end
+
+function UI._refreshSeasonProgress(self)
+	local s = self._menu.season
+	local tier, xp, need, maxTier = seasonProgress()
+	s.name.Text = string.upper(tostring(ReplicatedStorage:GetAttribute("SeasonName") or Config.SEASON_NAME))
+	s.tier.Text = "TIER " .. twoDigits(tier) .. " / " .. maxTier
+	local fraction = if tier >= maxTier then 1 else xp / need
+	s.xp.Text = if tier >= maxTier then "PASS COMPLETE" else commas(xp) .. " / " .. commas(need) .. " XP TO TIER " .. (tier + 1)
+	tween(s.fill, 0.4, { Size = UDim2.fromScale(fraction, 1) })
+	if s.nextFill and s.nextFill.Parent then
+		s.nextFill.Size = UDim2.fromScale(fraction, 1)
+	end
+end
+
+-- Rebuilds the 30-tier track only when tier, ownership or claims change.
+function UI._rebuildSeason(self, force)
+	local s = self._menu.season
+	self:_refreshSeasonProgress()
+	local tier, _, _, maxTier = seasonProgress()
+	local premium = player:GetAttribute("SeasonPremium") == true
+	local key = tier .. "|" .. tostring(premium) .. "|" .. tostring(player:GetAttribute("SeasonClaimed"))
+	if not force and key == s.key then
+		return
+	end
+	s.key = key
+	local claimed = readSeasonClaimed()
+	local product = Config.Products.SeasonPremium
+	s.unlock.Visible = not premium and product ~= nil and product.Id ~= 0
+	s.active.Visible = premium
+
+	clearRows(s.scroll)
+	s.nextFill = nil
+	local claimable, firstClaimable = 0, nil
+	for t = 1, maxTier do
+		local rewards = Config.SeasonTiers[t] or {}
+		local reached = t <= tier
+		local column = new("Frame", { Name = "Tier" .. t, BackgroundTransparency = 1, Size = UDim2.fromOffset(SEASON_COLUMN_W, 138), LayoutOrder = t, Parent = s.scroll })
+		local head = new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = if reached then 0 else 1, Size = UDim2.new(1, -3, 0, 18), Parent = column })
+		if not reached then
+			stroke(head, 1, INK, 0.6)
+		end
+		text({
+			Text = "T" .. twoDigits(t),
+			Font = FONT_NUM,
+			TextSize = 9,
+			TextColor3 = if reached then PAPER else INK,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Size = UDim2.fromScale(1, 1),
+			Parent = head,
+		})
+		if t == tier + 1 then
+			local _, fill = meter(column, { Position = UDim2.fromOffset(0, 18), Size = UDim2.new(1, -3, 0, 3) })
+			s.nextFill = fill
+		end
+		for _, trackName in { "Free", "Premium" } do
+			local reward = rewards[trackName]
+			local state
+			if reward == nil then
+				state = "empty"
+			elseif claimed[trackName][t] then
+				state = "claimed"
+			elseif trackName == "Premium" and not premium then
+				state = "premiumLocked"
+			elseif reached then
+				state = "claimable"
+			else
+				state = "locked"
+			end
+			if state == "claimable" then
+				claimable += 1
+				firstClaimable = firstClaimable or t
+			end
+			self:_buildSeasonCell(column, if trackName == "Free" then 23 else 81, trackName, t, reward, state)
+		end
+	end
+	self:_refreshSeasonProgress()
+	s.trackRight.Text = if claimable > 0 then claimable .. " TO CLAIM" else "SWIPE FOR ALL " .. maxTier .. " TIERS"
+	s.focusTier = firstClaimable or math.min(tier + 1, maxTier)
+	self:_setTabPip(TAB_SEASON, claimable > 0)
+	self:_scrollSeasonTrack()
+end
+
+function UI._buildSeasonCell(self, column, y, trackName, tier, reward, state)
+	local holder = new("Frame", { Name = trackName, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, y), Size = UDim2.new(1, 0, 0, 56), Parent = column })
+	if state == "empty" then
+		local blank = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, -3, 1, -3), Parent = holder })
+		stroke(blank, 1, INK, 0.85)
+		text({ Text = "--", TextSize = 9, TextColor3 = GREY, TextTransparency = 0.4, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = blank })
+		return
+	end
+	local claimable = state == "claimable"
+	local locked = state == "locked" or state == "premiumLocked"
+	if claimable then
+		new("Frame", { Name = "Shadow", BackgroundColor3 = INK, Position = UDim2.fromOffset(3, 3), Size = UDim2.new(1, -3, 1, -3), Parent = holder })
+	end
+	local face = new("TextButton", {
+		Name = "Face",
+		AutoButtonColor = false,
+		Text = "",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = if locked then 0.4 else 0,
+		Size = UDim2.new(1, -3, 1, -3),
+		Parent = holder,
+	})
+	stroke(face, if claimable then 1.5 else 1, INK, if claimable or state == "claimed" then 0 else 0.5)
+	if claimable then
+		setAccent(face, "BackgroundColor3")
+	end
+	if state == "premiumLocked" then
+		hatch(face, { Name = "Hatch", Size = UDim2.new(0, 5, 1, 0) }, INK, 0.3, 3)
+	end
+	local dim = if claimable then 0 elseif state == "claimed" then 0.55 else 0.4
+	rewardChip(face, reward, 9, UDim2.fromOffset(11, 9))
+
+	local big, small
+	if reward.Skin then
+		big, small = skinName(reward.Skin), if reward.Fx then "SKIN + FX" else "SKIN"
+	elseif reward.Fx then
+		big, small = fxName(reward.Fx), "FX"
+	elseif reward.Boost and not reward.Gems then
+		big, small = boostName(reward.Boost), "BOOST"
+	else
+		big, small = "+" .. commas(reward.Gems or 0), if reward.Boost then "GEMS + BOOST" else "GEMS"
+	end
+	capText(text({
+		Text = big,
+		Font = FONT_NUM,
+		TextTransparency = dim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(3, 16),
+		Size = UDim2.new(1, -6, 0, 14),
+		Parent = face,
+	}), 10, 5)
+	text({
+		Text = small,
+		TextSize = 7,
+		TextTransparency = dim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 30),
+		Size = UDim2.new(1, 0, 0, 9),
+		Parent = face,
+	})
+	local status = if claimable then "CLAIM" elseif state == "claimed" then "CLAIMED" elseif state == "premiumLocked" then "PREMIUM" else "LOCKED"
+	local statusTag, statusLabel = tag(face, status, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -3), Size = UDim2.new(1, -6, 0, 11) })
+	statusLabel.TextSize = 7
+	if not claimable then
+		statusTag.BackgroundTransparency = 1
+		statusLabel.TextColor3 = if state == "claimed" then INK else GREY
+	end
+
+	face.Activated:Connect(function()
+		if state == "claimable" then
+			self:_claimSeasonTier(trackName, tier, statusLabel)
+		elseif state == "premiumLocked" then
+			self:toast("PREMIUM TRACK REWARD", "info")
+		elseif state == "locked" then
+			self:toast("REACH TIER " .. tier .. " TO CLAIM", "info")
+		end
+	end)
+end
+
+function UI._claimSeasonTier(self, trackName, tier, statusLabel)
+	local s = self._menu.season
+	if s.busy then
+		return
+	end
+	s.busy = true
+	statusLabel.Text = "..."
+	task.spawn(function()
+		local ok, message = self:_ask("onShop", "ClaimSeasonTier", { track = trackName, tier = tier })
+		s.busy = false
+		if not ok then
+			self:toast(message or "COULD NOT CLAIM", "error")
+		end
+		self:_rebuildSeason(true)
+	end)
+end
+
+-- Bring the first claimable (or next) tier into view, one column of context on the left.
+function UI._scrollSeasonTrack(self)
+	local s = self._menu.season
+	if not s or not s.focusTier then
+		return
+	end
+	local focus = s.focusTier
+	task.delay(0.1, function()
+		if s.scroll.Parent then
+			s.scroll.CanvasPosition = Vector2.new(math.max(0, (focus - 2) * (SEASON_COLUMN_W + SEASON_COLUMN_GAP)), 0)
+		end
+	end)
+end
+
+-- Missions reset + season end countdowns (ticked once a second while the menu is open).
+function UI._refreshCountdowns(self)
+	local m = self._menu
+	local now = os.time()
+	local reset = tonumber(player:GetAttribute("MissionsReset"))
+	if reset and reset > now then
+		m.missionsReset.Text = "NEW MISSIONS IN " .. clock(reset - now)
+	elseif reset then
+		m.missionsReset.Text = "NEW MISSIONS ARRIVING"
+	else
+		m.missionsReset.Text = ""
+	end
+	local ends = tonumber(ReplicatedStorage:GetAttribute("SeasonEnds")) or Config.SEASON_ENDS
+	if ends and ends > 0 then
+		m.season.right.Text = if ends > now then "ENDS IN " .. longClock(ends - now) else "SEASON ENDED"
+	else
+		m.season.right.Text = ""
 	end
 end
 
@@ -2181,6 +2784,14 @@ function UI._refreshSkins(self)
 				button.setEnabled(true)
 				card.outline.Thickness = 1
 				card.outline.Transparency = 0.5
+			elseif skin.Price <= 0 and skin.Source then
+				-- Earned through levels / streak / season / offers, never sold for gems.
+				card.state = "locked"
+				button.setFill("paper")
+				button.setText(skin.Source)
+				button.setEnabled(false)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
 			else
 				card.state = "buy"
 				button.setFill("ink")
@@ -2194,6 +2805,8 @@ function UI._refreshSkins(self)
 				card.price.Text = commas(skin.Price)
 					.. " GEMS"
 					.. (if card.state == "buy" and short > 0 then " / -" .. commas(short) else "")
+			elseif skin.Source then
+				card.price.Text = if card.state == "locked" then "LOCKED / EARN IT" else "EARNED / " .. skin.Source
 			end
 		end
 	end
@@ -2201,7 +2814,7 @@ function UI._refreshSkins(self)
 end
 
 function UI._skinAction(self, card)
-	if card.busy or card.state == "equipped" then
+	if card.busy or card.state == "equipped" or card.state == "locked" then
 		return
 	end
 	local buying = card.state == "buy"
@@ -2217,6 +2830,85 @@ function UI._skinAction(self, card)
 			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
 		end
 		self:_refreshSkins()
+	end)
+end
+
+function UI._refreshFx(self)
+	local m = self._menu
+	if not m or not m.fxCards then
+		return
+	end
+	local owned = ownedFx()
+	local equipped = player:GetAttribute("EquippedFx")
+	if type(equipped) ~= "string" or equipped == "" then
+		equipped = "Classic"
+	end
+	local gems = tonumber(player:GetAttribute("Gems")) or 0
+	local ownedCount = 0
+	for _, fx in Config.ShatterFx do
+		if owned[fx.Id] then
+			ownedCount += 1
+		end
+		local card = m.fxCards[fx.Id]
+		if card and not card.busy then
+			local button = card.button
+			if equipped == fx.Id then
+				card.state = "equipped"
+				button.setFill("accent")
+				button.setText("EQUIPPED")
+				button.setEnabled(false)
+				card.outline.Thickness = 2
+				card.outline.Transparency = 0
+			elseif owned[fx.Id] then
+				card.state = "owned"
+				button.setFill("paper")
+				button.setText("EQUIP")
+				button.setEnabled(true)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
+			elseif fx.Price <= 0 then
+				card.state = "locked"
+				button.setFill("paper")
+				button.setText(fx.Source or "LOCKED")
+				button.setEnabled(false)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
+			else
+				card.state = "buy"
+				button.setFill("ink")
+				button.setText("BUY")
+				button.setEnabled(true)
+				card.outline.Thickness = 1
+				card.outline.Transparency = 0.5
+			end
+			if fx.Price > 0 then
+				local short = fx.Price - gems
+				card.price.Text = commas(fx.Price) .. " GEMS" .. (if card.state == "buy" and short > 0 then " / -" .. commas(short) else "")
+			elseif fx.Source then
+				card.price.Text = if card.state == "locked" then "LOCKED / EARN IT" else "EARNED / " .. fx.Source
+			end
+		end
+	end
+	m.fxRight.Text = ownedCount .. " / " .. #Config.ShatterFx .. " OWNED"
+end
+
+function UI._fxAction(self, card)
+	if card.busy or card.state == "equipped" or card.state == "locked" then
+		return
+	end
+	local buying = card.state == "buy"
+	card.busy = true
+	card.button.setEnabled(false)
+	card.button.setText(if buying then "BUYING" else "EQUIPPING")
+	task.spawn(function()
+		local ok, message = self:_ask("onShop", if buying then "BuyFx" else "EquipFx", card.fx.Id)
+		card.busy = false
+		if ok and buying then
+			self:toast(string.upper(card.fx.Name) .. " FX UNLOCKED", "reward")
+		elseif not ok then
+			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+		end
+		self:_refreshFx()
 	end)
 end
 
@@ -2428,7 +3120,7 @@ function UI._buildGameOver(self)
 		BackgroundTransparency = 0.02,
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0.05, 0, 0.5, 0),
-		Size = UDim2.fromOffset(540, 236),
+		Size = UDim2.fromOffset(540, 282),
 		Parent = root,
 	})
 	fit(sheet)
@@ -2513,6 +3205,32 @@ function UI._buildGameOver(self)
 	g.best = dataRow(162, "BEST")
 	g.gems = dataRow(190, "GEMS EARNED", true)
 	rule(sheet, { Position = UDim2.fromOffset(12, 218), Size = UDim2.fromOffset(300, 1), BackgroundTransparency = 0.6 })
+
+	-- XP tally: filled in when the server's RunSummary arrives.
+	text({ Text = "XP EARNED", TextSize = 9, Position = UDim2.fromOffset(12, 219), Size = UDim2.fromOffset(100, 26), Parent = sheet })
+	g.xpValue = capText(text({
+		Text = "TALLYING...",
+		Font = FONT_NUM,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromOffset(192, 223),
+		Size = UDim2.fromOffset(120, 20),
+		Parent = sheet,
+	}), 13, 7)
+	g.xpLevel = capText(text({ Text = "LV 01", Font = FONT_NUM, Position = UDim2.fromOffset(12, 246), Size = UDim2.fromOffset(44, 12), Parent = sheet }), 9, 6)
+	local _, xpFill = meter(sheet, { Position = UDim2.fromOffset(60, 250), Size = UDim2.fromOffset(252, 5) })
+	g.xpFill = xpFill
+	g.xpProgress = text({ Text = "", TextSize = 8, TextColor3 = GREY, Position = UDim2.fromOffset(60, 258), Size = UDim2.fromOffset(130, 10), Parent = sheet })
+	g.xpMissions = text({
+		Text = "",
+		TextSize = 8,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromOffset(190, 258),
+		Size = UDim2.fromOffset(122, 10),
+		Parent = sheet,
+	})
+	rule(sheet, { Position = UDim2.fromOffset(12, 272), Size = UDim2.fromOffset(300, 1), BackgroundTransparency = 0.6 })
+	g.levelStamp = stamp(sheet, "LEVEL UP", { Position = UDim2.fromOffset(148, 232), Size = UDim2.fromOffset(84, 22), Rotation = -6, Visible = false }, "accent")
+	g.levelStampScale = new("UIScale", { Parent = g.levelStamp })
 
 	-- NEW BEST rubber stamp
 	local stamp = new("Frame", {
@@ -2603,7 +3321,7 @@ function UI._buildToasts(self)
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.24),
-		Size = UDim2.fromOffset(360, 92),
+		Size = UDim2.fromOffset(360, 106),
 		GroupTransparency = 1,
 		Visible = false,
 		Parent = layer,
@@ -2627,13 +3345,30 @@ function UI._buildToasts(self)
 	}), 40, 12)
 	local bar = new("Frame", { Position = UDim2.fromOffset(0, 80), Size = UDim2.new(0, 0, 0, 5), Parent = card })
 	setAccent(bar, "BackgroundColor3")
-	self._zoneCard = { card = card, title = title, ruleLeft = ruleLeft, ruleRight = ruleRight, bar = bar }
+	-- Optional reward line under the bar (level ups).
+	local sub = text({
+		Text = "",
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		BackgroundTransparency = 0.1,
+		BackgroundColor3 = PAPER,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 89),
+		Size = UDim2.fromOffset(300, 15),
+		Visible = false,
+		Parent = card,
+	})
+	self._zoneCard = { card = card, label = label, title = title, sub = sub, ruleLeft = ruleLeft, ruleRight = ruleRight, bar = bar }
 end
 
-function UI._showZoneCard(self, value)
+function UI._showZoneCard(self, value, heading, subline, duration)
 	local z = self._zoneCard
 	local token = {}
 	z.token = token
+	local holdTime = duration or ZONE_CARD_TIME
+	z.label.Text = heading or "CHECKPOINT"
+	z.sub.Text = subline or ""
+	z.sub.Visible = subline ~= nil and subline ~= ""
 	z.title.Text = string.upper(value)
 	z.card.Visible = true
 	z.card.GroupTransparency = 1
@@ -2644,8 +3379,8 @@ function UI._showZoneCard(self, value)
 	tween(z.card, 0.3, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, 0.24) })
 	tween(z.ruleLeft, 0.35, { Size = UDim2.fromOffset(120, 1) })
 	tween(z.ruleRight, 0.35, { Size = UDim2.fromOffset(120, 1) })
-	tween(z.bar, ZONE_CARD_TIME, { Size = UDim2.new(1, 0, 0, 5) }, Enum.EasingStyle.Linear)
-	task.delay(ZONE_CARD_TIME, function()
+	tween(z.bar, holdTime, { Size = UDim2.new(1, 0, 0, 5) }, Enum.EasingStyle.Linear)
+	task.delay(holdTime, function()
 		if z.token ~= token then
 			return
 		end
@@ -2746,11 +3481,17 @@ end
 
 function UI._refreshAll(self)
 	self:_refreshStats()
+	self:_refreshLevel()
 	self:_refreshDaily()
+	self:_refreshCountdowns()
 	self:_rebuildTopRuns()
 	self:_rebuildPasses()
 	self:_rebuildZones()
+	self:_rebuildMissions()
+	self:_rebuildSeason()
+	self:_refreshStarter()
 	self:_refreshSkins()
+	self:_refreshFx()
 end
 
 -- Public API ---------------------------------------------------------------------------
@@ -2762,6 +3503,7 @@ function UI.new(callbacks)
 	self._toasts = {}
 	self._toastSerial = 0
 	self._connections = {}
+	self._menuOpens = 0
 
 	local playerGui = player:WaitForChild("PlayerGui")
 	local old = playerGui:FindFirstChild("ShatterRunUI")
@@ -2831,9 +3573,49 @@ function UI.new(callbacks)
 	onAttribute("OwnedSkins", function()
 		self:_refreshSkins()
 	end)
-	onAttribute("NextDaily", function()
-		self:_refreshDaily()
+	for _, name in { "NextDaily", "StreakDay", "StreakExpires" } do
+		onAttribute(name, function()
+			self:_refreshDaily()
+		end)
+	end
+	for _, name in { "Level", "XP", "XPNeeded" } do
+		onAttribute(name, function()
+			self:_refreshLevel()
+		end)
+	end
+	for _, name in { "Missions", "MissionRerolls" } do
+		onAttribute(name, function()
+			self:_rebuildMissions()
+		end)
+	end
+	onAttribute("MissionsReset", function()
+		self:_refreshCountdowns()
 	end)
+	for _, name in { "SeasonTier", "SeasonClaimed", "SeasonPremium", "SeasonId" } do
+		onAttribute(name, function()
+			self:_rebuildSeason()
+		end)
+	end
+	onAttribute("SeasonXP", function()
+		self:_refreshSeasonProgress()
+	end)
+	for _, name in { "OwnedFx", "EquippedFx" } do
+		onAttribute(name, function()
+			self:_refreshFx()
+		end)
+	end
+	onAttribute("StarterPackBought", function()
+		self:_refreshStarter()
+	end)
+	onAttribute("BonusBalls", function()
+		self:_refreshStats()
+	end)
+	for _, name in { "SeasonName", "SeasonEnds" } do
+		connect(ReplicatedStorage:GetAttributeChangedSignal(name), function()
+			self:_refreshSeasonProgress()
+			self:_refreshCountdowns()
+		end)
+	end
 	for _, key in PASS_ORDER do
 		onAttribute("Pass_" .. key, function()
 			self:_rebuildPasses()
@@ -2853,11 +3635,12 @@ function UI.new(callbacks)
 		end
 	end)
 
-	-- Daily countdown ticks once a second while the menu is open.
+	-- One shared 1s tick drives every countdown, and only while the menu is open.
 	task.spawn(function()
 		while self._alive do
 			if self._menu.root.Visible then
 				self:_refreshDaily()
+				self:_refreshCountdowns()
 			end
 			task.wait(1)
 		end
@@ -2874,7 +3657,9 @@ function UI:showMenu()
 
 	local m = self._menu
 	m.root.Visible = true
+	self._menuOpens += 1
 	self:_refreshAll()
+	self:_maybeShowOffer()
 
 	m.left.Position = UDim2.new(0, EDGE - 16, 0.5, 0)
 	tween(m.left, 0.35, { Position = UDim2.new(0, EDGE + 4, 0.5, 0) })
@@ -2887,6 +3672,7 @@ end
 
 function UI:showHud()
 	self:hideRevive()
+	self:_closeModal()
 	self._menu.root.Visible = false
 	self._over.root.Visible = false
 	self._hud.layer.Visible = true
@@ -2990,6 +3776,27 @@ function UI:showGameOver(info)
 
 	g.best.Text = commas(best) .. " M"
 	g.gems.Text = "+" .. commas(info.gemsEarned or 0)
+
+	-- XP line waits for the server's RunSummary (see showProgress).
+	local level, xp, needed = levelInfo()
+	local token = {}
+	g.summaryToken = token
+	g.xpToken = nil
+	g.xpValue.Text = "TALLYING..."
+	g.xpLevel.Text = "LV " .. twoDigits(level)
+	g.xpFill.Size = UDim2.fromScale(xp / needed, 1)
+	g.xpProgress.Text = commas(xp) .. " / " .. commas(needed) .. " XP"
+	g.xpMissions.Text = ""
+	g.levelStamp.Visible = false
+	if g.xpCounter then
+		g.xpCounter:Destroy()
+		g.xpCounter = nil
+	end
+	task.delay(SUMMARY_TIMEOUT, function()
+		if g.summaryToken == token then
+			g.xpValue.Text = "--" -- still accepted if it shows up later
+		end
+	end)
 
 	g.stamp.Visible = info.isNewBest == true
 	if info.isNewBest then
@@ -3113,6 +3920,97 @@ end
 
 function UI:isMenuOpen()
 	return self._menu.root.Visible
+end
+
+-- Fills in the run report's XP line from the server's RunSummary.
+function UI._applyRunSummary(self, event)
+	local g = self._over
+	if not g.root.Visible or g.summaryToken == nil then
+		return -- report already closed (or this summary was for an earlier death)
+	end
+	local token = {}
+	g.summaryToken = nil
+	g.xpToken = token
+
+	local gained = math.max(0, math.floor(tonumber(event.xp) or 0))
+	local before = math.max(1, math.floor(tonumber(event.levelBefore) or 1))
+	local after = math.max(before, math.floor(tonumber(event.levelAfter) or before))
+	local missionsDone = math.max(0, math.floor(tonumber(event.missionsCompleted) or 0))
+	if tonumber(event.gems) then
+		g.gems.Text = "+" .. commas(event.gems)
+	end
+	g.xpMissions.Text = if missionsDone > 0
+		then "+" .. missionsDone .. (if missionsDone == 1 then " MISSION DONE" else " MISSIONS DONE")
+		else ""
+
+	local counter = Instance.new("NumberValue")
+	g.xpCounter = counter
+	counter.Changed:Connect(function(value)
+		g.xpValue.Text = "+" .. commas(value) .. " XP"
+	end)
+	g.xpValue.Text = "+0 XP"
+	tween(counter, 0.6, { Value = gained })
+
+	local function settle()
+		local _, xp, needed = levelInfo()
+		g.xpLevel.Text = "LV " .. twoDigits(after)
+		g.xpProgress.Text = commas(xp) .. " / " .. commas(needed) .. " XP"
+		tween(g.xpFill, 0.5, { Size = UDim2.fromScale(xp / needed, 1) })
+	end
+
+	if after > before then
+		-- Fill to the end, roll over to the new level, then fill to the current XP.
+		tween(g.xpFill, 0.45, { Size = UDim2.fromScale(1, 1) })
+		task.delay(0.5, function()
+			if g.xpToken ~= token or not g.root.Visible then
+				return
+			end
+			g.xpFill.Size = UDim2.fromScale(0, 1)
+			settle()
+			g.levelStamp.Visible = true
+			g.levelStampScale.Scale = 1.8
+			g.levelStamp.Rotation = -14
+			tween(g.levelStampScale, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+			tween(g.levelStamp, 0.22, { Rotation = -6 }, Enum.EasingStyle.Back)
+		end)
+	else
+		settle()
+	end
+end
+
+-- Progress events from the server (forwarded by the controller).
+function UI:showProgress(event)
+	if type(event) ~= "table" then
+		return
+	end
+	local kind = event.type
+	if kind == "RunSummary" then
+		self:_applyRunSummary(event)
+	elseif kind == "LevelUp" then
+		local level = math.max(1, math.floor(tonumber(event.level) or 1))
+		local parts = {}
+		if tonumber(event.gems) and tonumber(event.gems) > 0 then
+			table.insert(parts, "+" .. commas(event.gems) .. " GEMS")
+		end
+		if type(event.unlock) == "table" then
+			local unlocked = rewardText(event.unlock)
+			if unlocked ~= "" then
+				local cosmetic = event.unlock.Skin ~= nil or event.unlock.Fx ~= nil
+				table.insert(parts, if cosmetic then unlocked .. " UNLOCKED" else unlocked)
+			end
+		end
+		local subline = table.concat(parts, " / ")
+		self:_showZoneCard("LEVEL " .. twoDigits(level), "LEVEL UP", subline, LEVEL_CARD_TIME)
+		self:toast("LEVEL " .. twoDigits(level) .. (if subline ~= "" then " / " .. subline else ""), "level")
+	elseif kind == "MissionComplete" then
+		self:toast("MISSION COMPLETE: " .. tostring(event.text or ""), "reward")
+	elseif kind == "SeasonTier" then
+		self:toast("SEASON TIER " .. twoDigits(tonumber(event.tier) or 0), "reward")
+	elseif kind == "Reward" then
+		if event.text ~= nil then
+			self:toast(tostring(event.text), "reward")
+		end
+	end
 end
 
 return UI
