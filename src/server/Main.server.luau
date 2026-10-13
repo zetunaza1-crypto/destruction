@@ -349,6 +349,10 @@ Shop.addAction("ReturnBoost", function(player, data, boostId)
 	if taken < 1 then
 		return false, "Nothing to give back"
 	end
+	-- Already given back by ReturnUnusedBoosts? Then there's nothing left to return.
+	if (boostId == "Shield" and run.shieldsOn < 1) or (boostId == "MegaBall" and run.megaBallsOn < 1) then
+		return false, "Nothing to give back"
+	end
 	run.midRunBoosts[boostId] = taken - 1
 	if boostId == "Shield" then
 		run.shieldsOn = math.max(0, run.shieldsOn - 1)
@@ -357,6 +361,17 @@ Shop.addAction("ReturnBoost", function(player, data, boostId)
 	end
 	Progression.addBoost(data, boostId, 1)
 	PlayerData.publish(player, { "Boosts" })
+	return true
+end)
+
+-- Shop action "BoostTapped"(boostId): a boost-bar boost was tapped on the
+-- device, so it no longer counts as "never tapped" for ReturnUnusedBoosts.
+Shop.addAction("BoostTapped", function(player, data, boostId)
+	local run = activeRuns[player]
+	if not run or type(boostId) ~= "string" or (run.readyOn[boostId] or 0) < 1 then
+		return false, "Nothing to tap"
+	end
+	run.readyOn[boostId] -= 1
 	return true
 end)
 

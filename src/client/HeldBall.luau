@@ -54,6 +54,7 @@ function HeldBall.new(particleShare)
 	local shown = false
 	local lastMeshCheck = 0
 	local failedSkin = nil -- a skin whose ball couldn't be built (not retried every frame)
+	local meshTried = false -- already rebuilt once for the loaded Blender model (don't loop if it still fails)
 
 	local function destroyHeld()
 		if held then
@@ -101,6 +102,7 @@ function HeldBall.new(particleShare)
 		if newSkinId ~= skinId then
 			skinId = newSkinId
 			failedSkin = nil
+			meshTried = false
 			destroyHeld()
 		end
 	end
@@ -117,9 +119,10 @@ function HeldBall.new(particleShare)
 		end
 		if (held == nil and failedSkin ~= skinId) or (held and heldLow ~= graphicsLow()) then
 			build()
-		elseif held and not held.mesh and BallFx.isPremium(skinId) and now - lastMeshCheck > MESH_CHECK then
+		elseif held and not held.mesh and not meshTried and BallFx.isPremium(skinId) and now - lastMeshCheck > MESH_CHECK then
 			lastMeshCheck = now
 			if BallFx.hasMesh(skinId) then
+				meshTried = true -- one try: if the model still can't be used, keep the stand-in
 				build() -- the Blender model finished loading: swap the stand-in for it
 			end
 		end

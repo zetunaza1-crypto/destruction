@@ -1599,7 +1599,9 @@ function UI._buildMenuBall(self, face)
 		local now = os.clock()
 		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
 			lastMeshCheck = now
-			if not preview.mesh and BallFx.isPremium(ball.skinId) and BallFx.hasMesh(ball.skinId) then
+			-- meshTriedFor: one swap per skin, so a model that still can't be used doesn't rebuild every second.
+			if not preview.mesh and ball.meshTriedFor ~= ball.skinId and BallFx.isPremium(ball.skinId) and BallFx.hasMesh(ball.skinId) then
+				ball.meshTriedFor = ball.skinId
 				self:_showMenuBall(ball.skinId, true) -- the Blender model has loaded
 				preview = ball.preview
 			end
@@ -4569,7 +4571,9 @@ function UI._buildPremiumBalls(self, parent, order)
 		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
 			lastMeshCheck = now
 			-- The Blender model finished loading: swap the part-built stand-in for it.
-			if not preview.mesh and BallFx.hasMesh(p.selected) then
+			-- Once per ball, so a model that still can't be used doesn't rebuild every second.
+			if not preview.mesh and p.meshTriedFor ~= p.selected and BallFx.hasMesh(p.selected) then
+				p.meshTriedFor = p.selected
 				self:_showPremiumPreview(p.selected)
 				preview = p.preview
 			end
@@ -5271,10 +5275,6 @@ function UI._buildBarSlot(self, column, id, order, boost)
 		end
 		if (slot.ready or 0) > 0 then
 			self:_fire("onUseBoost", id)
-		else
-			-- Nothing waiting (only the countdown showing): a small nudge.
-			pop.Scale = 0.92
-			tween(pop, 0.2, { Scale = 1 }, Enum.EasingStyle.Back)
 		end
 	end)
 	return slot
@@ -5318,6 +5318,12 @@ function UI._setBarSlot(self, slot, readyCount, running, number, fraction, label
 		slot.tapped = false -- used up
 	end
 	local show = readyCount > 0 or (slot.tapped and running)
+	-- Only catches taps while there's one to use; a countdown-only (or folding)
+	-- slot lets the tap through so it throws a ball like anywhere else.
+	local tappable = show and readyCount > 0
+	if slot.holder.Interactable ~= tappable then
+		slot.holder.Interactable = tappable
+	end
 
 	if show ~= slot.shown then
 		slot.shown = show

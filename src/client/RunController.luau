@@ -981,6 +981,10 @@ local function useReadyBoost(boostId)
 		return false
 	end
 	ready[boostId] -= 1
+	-- Tell the server it was used, so it isn't handed back as "never tapped" later.
+	task.spawn(pcall, function()
+		Remotes.ShopRequest:InvokeServer("BoostTapped", boostId)
+	end)
 	activateBoost(boostId)
 	-- A quick pop: chime, buzz and a small camera punch (the UI pops the button).
 	Sounds.play("Checkpoint", 1.3)
