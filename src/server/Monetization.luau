@@ -127,11 +127,42 @@ local function ballsReward(amount)
 	end
 end
 
+-- Premium ball products (BallSupernova...): the ball is theirs forever and is
+-- equipped right away. Already owned (bought twice, e.g. while an earlier save
+-- failed)? They get gems worth the price instead, so a purchase is never wasted.
+local function premiumBallReward(skin)
+	return function(player, data)
+		local name = string.upper(skin.Name)
+		if Progression.ownsSkin(data, skin.Id) then
+			local gems = math.floor((tonumber(skin.Robux) or 0) * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
+			data.Gems += gems
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY OWN " .. name .. ": +" .. gems .. " GEMS INSTEAD",
+			})
+			return
+		end
+		table.insert(data.OwnedSkins, skin.Id)
+		data.EquippedSkin = skin.Id
+		PlayerData.publish(player, { "OwnedSkins", "EquippedSkin" })
+		Progression.fire(player, { type = "Reward", text = name .. " BALL UNLOCKED AND EQUIPPED" })
+	end
+end
+
 -- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
 -- Gems that has no special handler above.
 local function rewardFor(productKey, product)
 	if serverRewards[productKey] then
 		return serverRewards[productKey]
+	end
+	if product.Skin then
+		local skin = Progression.findSkin(product.Skin)
+		if skin and skin.Premium then
+			return premiumBallReward(skin)
+		end
+		warn("Product", productKey, "sells an unknown premium ball:", product.Skin)
+		return nil
 	end
 	if product.Boost and Progression.isBoost(product.Boost) then
 		return boostReward(product.Boost)

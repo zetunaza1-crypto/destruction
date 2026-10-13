@@ -48,6 +48,10 @@ function actions.BuySkin(player, data, skinId)
 	if not ok then
 		return false, message
 	end
+	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>).
+	if skin.Premium or skin.Price <= 0 then
+		return false, skin.Name .. " can't be bought with gems"
+	end
 	if data.Gems < skin.Price then
 		return false, "Not enough gems"
 	end

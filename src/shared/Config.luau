@@ -17,14 +17,32 @@ Config.ROOM_LENGTH = 80
 Config.ROOMS_AHEAD = 3 -- how many rooms are visible in front of the camera (the fog hides the far end);
 -- rooms start building one room earlier than that, a few parts per frame
 Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
-Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
+Config.ROOMS_PER_CHECKPOINT = 14 -- rooms per zone: new colors + "ZONE" every N rooms
 Config.CAMERA_HEIGHT = 6
 Config.STUDS_PER_METER = 3
 
 -- Speed ----------------------------------------------------------------------
+-- A run warms up from START_SPEED (+SPEED_GAIN_PER_ROOM every room), but each
+-- zone has its own top speed, so every new zone is a little faster than the last.
+-- The server's anti-cheat uses Config.speedForRoom too, so keep all speed rules in it.
 Config.START_SPEED = 22 -- studs per second
-Config.MAX_SPEED = 55
+Config.MAX_SPEED = 60 -- never faster than this (zone 10 and beyond)
 Config.SPEED_GAIN_PER_ROOM = 0.8
+-- Top speed in each zone (1 = the first zone). Zones after the last use MAX_SPEED.
+Config.ZoneTopSpeed = { 34, 40, 46, 50, 53, 55, 56.5, 58, 59, 60 }
+-- A Checkpoints-pass run starting in a later zone starts this much below that zone's top speed.
+Config.CHECKPOINT_WARMUP_DROP = 12
+
+-- Speed while the camera is in room `roomIndex`, for a run that started in room `startRoom`.
+function Config.speedForRoom(roomIndex, startRoom)
+	local function topSpeed(room)
+		local zone = room // Config.ROOMS_PER_CHECKPOINT + 1
+		return math.min(Config.ZoneTopSpeed[zone] or Config.MAX_SPEED, Config.MAX_SPEED)
+	end
+	local warmStart = math.max(Config.START_SPEED, topSpeed(startRoom) - Config.CHECKPOINT_WARMUP_DROP)
+	local warm = warmStart + math.max(0, roomIndex - startRoom) * Config.SPEED_GAIN_PER_ROOM
+	return math.min(topSpeed(roomIndex), warm)
+end
 
 -- Balls ----------------------------------------------------------------------
 Config.START_BALLS = 25
@@ -169,6 +187,41 @@ Config.Skins = {
 	{ Id = "Neonite", Name = "Neonite", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 70, 200), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 70, 200) },
 	{ Id = "Diamond", Name = "Diamond", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(200, 240, 255), Material = Enum.Material.Glass, Trail = Color3.fromRGB(255, 255, 255) },
 	{ Id = "Shatterborn", Name = "Shatterborn", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
+	-- Free reward for reaching ZONE 10 (Config.ZoneRewards): a rainbow glass ball.
+	{ Id = "PrismShard", Name = "Prism Shard", Price = 0, Source = "REACH ZONE 10", Color = Color3.fromRGB(235, 225, 255), Material = Enum.Material.Glass, Rainbow = true, Trail = Color3.fromRGB(200, 160, 255) },
+	-- Premium balls: Robux only (Config.Products.Ball<Id>), never sold for gems.
+	-- Robux = price shown if the live price can't be loaded. Each one is an animated
+	-- Blender model (Config.BallModels, styled by Shared.BallStyles). Until that's
+	-- uploaded they're built from parts: a Color core, a Shell, spinning Ring(s) and a Trail.
+	{ Id = "Frostbite", Name = "Frostbite", Price = 0, Premium = true, Robux = 79, ProductKey = "BallFrostbite", Text = "AN ICE CORE WITH FROST SHARDS CIRCLING IT", Color = Color3.fromRGB(150, 225, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(220, 245, 255), Ring = Color3.fromRGB(190, 240, 255), Trail = Color3.fromRGB(170, 230, 255) },
+	{ Id = "CyberCore", Name = "Cyber Core", Price = 0, Premium = true, Robux = 79, ProductKey = "BallCyberCore", Text = "A GLOWING CHIP INSIDE SPINNING DATA RINGS", Color = Color3.fromRGB(0, 255, 170), Material = Enum.Material.Neon, Shell = Color3.fromRGB(30, 40, 50), Ring = Color3.fromRGB(0, 230, 255), Trail = Color3.fromRGB(0, 255, 200) },
+	{ Id = "PlasmaCore", Name = "Plasma Core", Price = 0, Premium = true, Robux = 99, ProductKey = "BallPlasmaCore", Text = "CRACKLING PLASMA TRAPPED IN A FORCE FIELD", Color = Color3.fromRGB(210, 90, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 120, 230), Ring = Color3.fromRGB(255, 90, 220), Trail = Color3.fromRGB(220, 100, 255) },
+	{ Id = "MagmaHeart", Name = "Magma Heart", Price = 0, Premium = true, Robux = 99, ProductKey = "BallMagmaHeart", Text = "A MOLTEN HEART IN A CRACKED ROCK SHELL", Color = Color3.fromRGB(255, 110, 20), Material = Enum.Material.Neon, Shell = Color3.fromRGB(60, 30, 25), Ring = Color3.fromRGB(255, 170, 40), Trail = Color3.fromRGB(255, 90, 20) },
+	{ Id = "BlackHole", Name = "Black Hole", Price = 0, Premium = true, Robux = 149, ProductKey = "BallBlackHole", Text = "PURE DARKNESS WITH A BLAZING SPINNING DISK", Color = Color3.fromRGB(8, 4, 16), Material = Enum.Material.Neon, Shell = Color3.fromRGB(120, 60, 255), Ring = Color3.fromRGB(255, 150, 60), Trail = Color3.fromRGB(150, 80, 255) },
+	{ Id = "Supernova", Name = "Supernova", Price = 0, Premium = true, Robux = 199, ProductKey = "BallSupernova", Text = "A STAR ABOUT TO EXPLODE, WITH BLAZING RINGS", Color = Color3.fromRGB(255, 245, 210), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 200, 80), Ring = Color3.fromRGB(255, 180, 50), Trail = Color3.fromRGB(255, 220, 120) },
+}
+
+-- Ids of the premium (Robux) balls above, in shop order.
+Config.PremiumBalls = {}
+for _, skin in Config.Skins do
+	if skin.Premium then
+		table.insert(Config.PremiumBalls, skin.Id)
+	end
+end
+
+-- Gems given instead when someone buys a premium ball they already own
+-- (e.g. bought twice while a save was failing): Robux price x this.
+Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
+
+-- Blender models of the premium balls (assets/balls/*.fbx), uploaded as Model
+-- assets. 0 = not uploaded yet: the part-built version above is used instead.
+Config.BallModels = {
+	Frostbite = 0,
+	CyberCore = 0,
+	PlasmaCore = 0,
+	MagmaHeart = 0,
+	BlackHole = 0,
+	Supernova = 0,
 }
 
 function Config.getSkin(skinId)
@@ -215,6 +268,15 @@ Config.Products = {
 	ExtraReroll = { Id = 3718291678 }, -- ~5 R$
 	-- Keeps a broken login streak going (only offered right after it breaks).
 	StreakSaver = { Id = 3718291682 }, -- ~15 R$
+
+	-- Premium balls (see Config.Skins): yours forever and equipped right away.
+	-- Already owned? You get gems instead (Robux price x PREMIUM_BALL_REFUND_GEMS_PER_ROBUX).
+	BallFrostbite = { Id = 0, Skin = "Frostbite" }, -- 79 R$
+	BallCyberCore = { Id = 0, Skin = "CyberCore" }, -- 79 R$
+	BallPlasmaCore = { Id = 0, Skin = "PlasmaCore" }, -- 99 R$
+	BallMagmaHeart = { Id = 0, Skin = "MagmaHeart" }, -- 99 R$
+	BallBlackHole = { Id = 0, Skin = "BlackHole" }, -- 149 R$
+	BallSupernova = { Id = 0, Skin = "Supernova" }, -- 199 R$
 }
 
 -- Boosts --------------------------------------------------------------------------
@@ -294,6 +356,10 @@ Config.Hints = {
 	Double = "TWO PANES IN A ROW - THROW TWICE",
 	Multiball = "MULTIBALL! EVERY TAP NOW THROWS MORE BALLS",
 	Props = "BREAK DECORATIONS FOR MISSIONS AND XP",
+	ArmoredGlass = "ARMORED GLASS! HIT IT TWICE TO BREAK IT",
+	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
+	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
+	RingSpinner = "SPINNING RING! SMASH THE PANE COMING DOWN",
 }
 
 -- 3D models ------------------------------------------------------------------
@@ -320,6 +386,26 @@ Config.Models = {
 	PipeRun = 107736602209422,
 	Vent = 98915355039928,
 	Crate = 88284134622799,
+	IceCluster = 0,
+	Icicle = 0,
+	FrozenPillar = 0,
+	IceSculpture = 0,
+	LavaRock = 0,
+	MagmaVent = 0,
+	ForgeAnvil = 0,
+	MagmaJar = 0,
+	Coral = 0,
+	Seaweed = 0,
+	Anchor = 0,
+	FishTank = 0,
+	JellyLamp = 0,
+	CloudCluster = 0,
+	WindTurbine = 0,
+	SkyLantern = 0,
+	Banner = 0,
+	EnergyPylon = 0,
+	CoreCrystal = 0,
+	FloatingRing = 0,
 }
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
@@ -360,15 +446,95 @@ Config.Themes = {
 		Style = "Void", -- decoration set used by Decor.luau
 		Name = "THE VOID",
 	},
+	{
+		Wall = Color3.fromRGB(196, 222, 240),
+		Accent = Color3.fromRGB(110, 215, 255),
+		Fog = Color3.fromRGB(165, 200, 228),
+		Style = "Frost", -- decoration set used by Decor.luau
+		Name = "FROST CAVERNS",
+	},
+	{
+		Wall = Color3.fromRGB(62, 38, 32),
+		Accent = Color3.fromRGB(255, 110, 30),
+		Fog = Color3.fromRGB(70, 30, 18),
+		Style = "Magma", -- decoration set used by Decor.luau
+		Name = "MAGMA FORGE",
+	},
+	{
+		Wall = Color3.fromRGB(28, 72, 88),
+		Accent = Color3.fromRGB(60, 255, 215),
+		Fog = Color3.fromRGB(14, 58, 74),
+		Style = "Aquarium", -- decoration set used by Decor.luau
+		Name = "DEEP AQUARIUM",
+	},
+	{
+		Wall = Color3.fromRGB(236, 240, 248),
+		Accent = Color3.fromRGB(255, 185, 50),
+		Fog = Color3.fromRGB(190, 220, 250),
+		Style = "Sky", -- decoration set used by Decor.luau
+		Name = "SKY CITADEL",
+	},
+	{
+		Wall = Color3.fromRGB(38, 24, 58),
+		Accent = Color3.fromRGB(215, 140, 255),
+		Fog = Color3.fromRGB(34, 20, 54),
+		Style = "Core", -- decoration set used by Decor.luau
+		Name = "CRYSTAL CORE",
+	},
 }
 
--- Which obstacles show up in each zone. Zones after the last one use all of them.
+-- Which obstacles show up in each zone (1 = the first zone). Zones after the last one use the last list.
+-- Zones 6-10 bring new obstacles: ArmoredGlass (2 hits), BobbingPane, FallingPane, RingSpinner.
 Config.ZonePatterns = {
 	{ "Window", "Pillars", "Beam" },
 	{ "Window", "Pillars", "Beam", "FullWall", "Moving" },
 	{ "Pillars", "Beam", "FullWall", "Moving", "Door", "Grid" },
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double" },
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
+	{ "FullWall", "Moving", "Door", "Grid", "Double", "Pillars", "ArmoredGlass", "ArmoredGlass", "BobbingPane" },
+	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "BobbingPane", "FallingPane", "FallingPane" },
+	{ "Moving", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner", "RingSpinner" },
+	{ "FullWall", "Door", "Grid", "Spinner", "Double", "Moving", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner" },
+	{ "FullWall", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner", "RingSpinner" },
+}
+
+-- How hard each zone starts (0 = easy, 1 = very busy). It climbs a little more
+-- inside every zone (ZONE_DIFFICULTY_RAMP over the zone's rooms). Zones after the
+-- last keep adding ZONE_DIFFICULTY_AFTER per zone, so the endless part only gets harder.
+-- More difficulty = more obstacle groups per room (up to 4).
+Config.ZoneDifficulty = { 0.05, 0.15, 0.28, 0.4, 0.5, 0.58, 0.66, 0.74, 0.82, 0.9 }
+Config.ZONE_DIFFICULTY_RAMP = 0.45
+Config.ZONE_DIFFICULTY_AFTER = 0.06
+
+function Config.difficultyFor(zone, roomInZone)
+	local base = Config.ZoneDifficulty[zone + 1]
+	if base == nil then
+		base = Config.ZoneDifficulty[#Config.ZoneDifficulty]
+			+ (zone + 1 - #Config.ZoneDifficulty) * Config.ZONE_DIFFICULTY_AFTER
+	end
+	return base + roomInZone / Config.ROOMS_PER_CHECKPOINT * Config.ZONE_DIFFICULTY_RAMP
+end
+
+-- Crystals (extra balls) per room: { min, max } per zone. Later zones give fewer,
+-- so every throw counts. Zones after the last use the last entry.
+Config.ZoneCrystals = { { 1, 2 }, { 1, 2 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 } }
+-- Chance that armored glass hides a bonus crystal right behind it.
+Config.ARMOR_BONUS_CRYSTAL_CHANCE = 0.4
+
+-- First time you fly into a zone you get a reward (once per account, saved in
+-- ZonesRewarded). Keys are the zone number the game shows ("ZONE 05"; START is 0).
+-- ZONE 10 means you made it through all 10 zones.
+Config.ZoneRewards = {
+	[1] = { Gems = 50 },
+	[2] = { Gems = 100 },
+	[3] = { Gems = 150, Boost = "Shield" },
+	[4] = { Gems = 200, Boost = "MegaBall" },
+	[5] = { Gems = 250, Boost = "DoubleGems" },
+	[6] = { Gems = 350, Boost = "Shield" },
+	[7] = { Gems = 450, Boost = "SlowMo" },
+	[8] = { Gems = 600, Boost = "MegaBall" },
+	[9] = { Gems = 800, Boost = "DoubleGems" },
+	[10] = { Gems = 1000, Skin = "PrismShard" },
 }
 
 -- Smoothness (frame budgets) ---------------------------------------------------

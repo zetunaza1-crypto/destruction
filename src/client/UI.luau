@@ -39,10 +39,12 @@ local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BallFx = require(script.Parent.BallFx)
 local Settings = require(script.Parent.Settings)
 
 local player = Players.LocalPlayer
@@ -79,6 +81,14 @@ local MAX_TOASTS = 3
 local TAB_NAMES = { "PLAY", "MISSIONS", "SEASON", "ZONES", "SHOP" }
 local TAB_MISSIONS, TAB_SEASON = 2, 3
 local GEM_PACKS = { "GemPack", "GemPackMedium", "GemPackLarge" }
+local TAB_SHOP = 5
+-- Premium (Robux) balls at the top of SHOP: a spinning 3D preview + picker.
+local PREMIUM_CARD_H = 170
+local PREMIUM_VIEW = 132 -- the preview square
+local PREMIUM_PREVIEW_DIAMETER = 2 -- studs; the camera is placed to fit this
+local PREMIUM_CAMERA_DISTANCE = 4.6
+local PREMIUM_ORBIT_SPEED = 0.45 -- radians per second the preview camera circles the ball
+local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
 -- The starter offer pops up once per session, the first time the menu opens
 -- after a run (never on the very first screen, and never again once closed).
 local OFFER_AFTER_MENU_OPENS = 2
@@ -2277,6 +2287,9 @@ function UI._buildMenuPanel(self, root)
 
 	-- 05 SHOP
 	local shopPage = m.tabs[5].page
+	if #(Config.PremiumBalls or {}) > 0 then
+		self:_buildPremiumBalls(shopPage, -20)
+	end
 	local starter = Config.Products.StarterPack
 	if starter and starter.Id ~= 0 then
 		m.starterHeader = sectionHeader(shopPage, 1, "05.0", "STARTER PACK")
@@ -2302,9 +2315,11 @@ function UI._buildMenuPanel(self, root)
 	m.skinCards = {}
 	local skinButtons = {}
 	for order, skin in Config.Skins do
-		local entry = self:_buildSkinCard(grid, skin, order)
-		m.skinCards[skin.Id] = entry
-		table.insert(skinButtons, entry.button.holder)
+		if not skin.Premium then -- premium balls have their own section (Robux only)
+			local entry = self:_buildSkinCard(grid, skin, order)
+			m.skinCards[skin.Id] = entry
+			table.insert(skinButtons, entry.button.holder)
+		end
 	end
 	linkGrid(skinButtons, 2)
 
@@ -4110,6 +4125,7 @@ function UI._rebuildZones(self)
 end
 
 function UI._refreshSkins(self)
+	self:_refreshPremium()
 	local m = self._menu
 	if not m or not m.skinCards then
 		return
@@ -4118,7 +4134,12 @@ function UI._refreshSkins(self)
 	local equipped = player:GetAttribute("EquippedSkin") or "Default"
 	local gems = tonumber(player:GetAttribute("Gems")) or 0
 	local ownedCount = 0
+	local total = 0
 	for _, skin in Config.Skins do
+		if skin.Premium then
+			continue
+		end
+		total += 1
 		if owned[skin.Id] then
 			ownedCount += 1
 		end
@@ -4165,7 +4186,351 @@ function UI._refreshSkins(self)
 			end
 		end
 	end
-	m.skinsRight.Text = ownedCount .. " / " .. #Config.Skins .. " OWNED"
+	m.skinsRight.Text = ownedCount .. " / " .. total .. " OWNED"
+end
+
+-- Premium balls (Robux) ---------------------------------------------------------------
+-- Top of SHOP: an ink card with a slowly orbiting 3D preview of the picked ball
+-- (animated like in a run), its name, what it is and its live Robux price, then a
+-- 3x2 picker. BUY is a Robux button (off until the save loads, like every other);
+-- owned balls show EQUIP / EQUIPPED instead. Never sold for gems.
+
+function UI._buildPremiumBalls(self, parent, order)
+	local m = self._menu
+	local p = { chips = {}, prices = {}, busy = false }
+	m.premium = p
+
+	local _, right = sectionHeader(parent, order, "05.P", "PREMIUM BALLS")
+	p.right = right
+
+	local card = new("Frame", {
+		Name = "PremiumBalls",
+		BackgroundColor3 = INK,
+		Size = UDim2.new(1, 0, 0, PREMIUM_CARD_H),
+		LayoutOrder = order + 1,
+		Parent = parent,
+	})
+	notch(card, 12, 1, 0)
+
+	-- 3D preview: a camera circles the ball while the shop is on screen. The
+	-- viewport is see-through, so the faint blueprint grid behind it shows.
+	local backing = new("Frame", {
+		Name = "PreviewBacking",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(PREMIUM_VIEW, PREMIUM_VIEW),
+		Parent = card,
+	})
+	local grid = blueprintGrid(backing, 6, 6, 0.88)
+	for _, line in grid:GetChildren() do
+		line.BackgroundColor3 = PAPER
+	end
+	stroke(backing, 1, PAPER, 0.6)
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = backing,
+	})
+	brackets(backing, 8, 1, 0.2)
+	for _, item in backing:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	p.view = view
+	p.camera = viewCamera
+	p.tagLabel = text({
+		Text = "P-01 / LIVE",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(6, PREMIUM_VIEW + 9),
+		Size = UDim2.fromOffset(PREMIUM_VIEW, 10),
+		Parent = card,
+	})
+
+	-- Right column: name, what it is, price, action.
+	local x = PREMIUM_VIEW + 14
+	setAccent(text({
+		Text = "PREMIUM BALL / YOURS FOREVER",
+		TextSize = 8,
+		Position = UDim2.fromOffset(x, 8),
+		Size = UDim2.new(1, -(x + 22), 0, 10),
+		Parent = card,
+	}), "TextColor3")
+	p.name = capText(text({
+		Name = "BallName",
+		Font = FONT_NUM,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(x, 22),
+		Size = UDim2.new(1, -(x + 8), 0, 20),
+		Parent = card,
+	}), 15, 8)
+	p.desc = text({
+		Name = "Desc",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.15,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(x, 46),
+		Size = UDim2.new(1, -(x + 8), 0, 34),
+		Parent = card,
+	})
+	p.price = setAccent(capText(text({
+		Name = "Price",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(x, 84),
+		Size = UDim2.new(1, -(x + 8), 0, 18),
+		Parent = card,
+	}), 12, 7), "TextColor3")
+
+	local buttonSize = UDim2.new(1, -(x + 6), 0, 56)
+	local buttonPosition = UDim2.fromOffset(x, PREMIUM_CARD_H - 62)
+	p.buy = hardButton(card, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 13,
+		Sub = "",
+		Position = buttonPosition,
+		Size = buttonSize,
+		OnClick = function()
+			self:_buyPremium()
+		end,
+	})
+	self:_robuxButton(p.buy)
+	p.equip = hardButton(card, {
+		Name = "Equip",
+		Fill = "paper",
+		Text = "EQUIP",
+		TextSize = 13,
+		Position = buttonPosition,
+		Size = buttonSize,
+		OnClick = function()
+			self:_equipPremium()
+		end,
+	})
+	p.equip.holder.Visible = false
+
+	-- Picker: 3 x 2 chips, each with the ball's colors along the bottom.
+	local picker = new("Frame", {
+		Name = "PremiumPicker",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = order + 2,
+		Parent = parent,
+	})
+	new("UIGridLayout", {
+		CellSize = UDim2.new(1 / 3, -6, 0, 54),
+		CellPadding = UDim2.fromOffset(8, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = picker,
+	})
+	local holders = {}
+	for index, id in Config.PremiumBalls do
+		local skin = Config.getSkin(id)
+		local chip = hardButton(picker, {
+			Name = id,
+			Fill = "paper",
+			Text = string.upper(skin.Name),
+			TextSize = 9,
+			Sub = "",
+			LayoutOrder = index,
+			OnClick = function()
+				self:_selectPremium(id)
+			end,
+		})
+		local bar = new("Frame", {
+			Name = "Colors",
+			BackgroundColor3 = skin.Color,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 2, 1, -2),
+			Size = UDim2.new(1, -4, 0, 4),
+			Parent = chip.face,
+		})
+		new("UIGradient", {
+			Color = ColorSequence.new(skin.Color, skin.Ring or skin.Trail or skin.Color),
+			Parent = bar,
+		})
+		p.chips[id] = chip
+		table.insert(holders, chip.holder)
+
+		local product = Config.Products[skin.ProductKey or ""]
+		withPrice(product and product.Id, Enum.InfoType.Product, function(price)
+			p.prices[id] = price
+			self:_refreshPremium()
+		end)
+	end
+	linkGrid(holders, 3)
+	p.holders = holders
+
+	-- One frame loop: animates the preview, only while the SHOP page is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		local preview = p.preview
+		if not preview or not m.root.Visible or m.tab ~= TAB_SHOP then
+			return
+		end
+		local now = os.clock()
+		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
+			lastMeshCheck = now
+			-- The Blender model finished loading: swap the part-built stand-in for it.
+			if not preview.mesh and BallFx.hasMesh(p.selected) then
+				self:_showPremiumPreview(p.selected)
+				preview = p.preview
+			end
+		end
+		preview.step(now)
+		local angle = now * PREMIUM_ORBIT_SPEED
+		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		p.camera.CFrame = CFrame.lookAt(eye, Vector3.zero)
+	end))
+
+	-- Start on the first one they don't own (or the first).
+	local owned = ownedSkins()
+	local first = Config.PremiumBalls[1]
+	for _, id in Config.PremiumBalls do
+		if not owned[id] then
+			first = id
+			break
+		end
+	end
+	self:_selectPremium(first)
+end
+
+function UI._showPremiumPreview(self, id)
+	local p = self._menu.premium
+	if p.preview then
+		p.preview.destroy()
+		p.preview = nil
+	end
+	local ok, preview = pcall(BallFx.preview, id, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = p.view
+		p.preview = preview
+	else
+		warn("[UI] ball preview failed:", preview)
+	end
+end
+
+function UI._selectPremium(self, id)
+	local p = self._menu and self._menu.premium
+	if not p or not p.chips[id] then
+		return
+	end
+	if p.selected ~= id then
+		p.selected = id
+		self:_showPremiumPreview(id)
+	end
+	self:_refreshPremium()
+end
+
+-- "R$ 199" from the live price (Config's price until it has loaded).
+local function premiumPrice(p, skin)
+	local price = p.prices[skin.Id] or skin.Robux
+	return if price then "R$ " .. commas(price) else ""
+end
+
+function UI._refreshPremium(self)
+	local p = self._menu and self._menu.premium
+	if not p or not p.selected then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local ownedCount = 0
+	for _, id in Config.PremiumBalls do
+		local skin = Config.getSkin(id)
+		local chip = p.chips[id]
+		if owned[id] then
+			ownedCount += 1
+		end
+		chip.setFill(if id == p.selected then "ink" else "paper")
+		chip.sub.Text = if equipped == id then "EQUIPPED" elseif owned[id] then "OWNED" else premiumPrice(p, skin)
+	end
+	p.right.Text = ownedCount .. " / " .. #Config.PremiumBalls .. " OWNED"
+
+	local skin = Config.getSkin(p.selected)
+	local product = Config.Products[skin.ProductKey or ""]
+	local forSale = product ~= nil and (tonumber(product.Id) or 0) ~= 0
+	local index = table.find(Config.PremiumBalls, skin.Id) or 1
+	p.name.Text = string.upper(skin.Name)
+	p.desc.Text = skin.Text or ""
+	p.tagLabel.Text = "P-" .. twoDigits(index) .. " / " .. (if BallFx.hasMesh(skin.Id) then "3D MODEL" else "LIVE")
+
+	local isOwned = owned[skin.Id] == true
+	p.buy.holder.Visible = not isOwned
+	p.equip.holder.Visible = isOwned
+	if isOwned then
+		p.price.Text = "OWNED / ALL RUNS"
+		if not p.busy then
+			if equipped == skin.Id then
+				p.equip.setFill("accent")
+				p.equip.setText("EQUIPPED")
+				p.equip.setEnabled(false)
+			else
+				p.equip.setFill("paper")
+				p.equip.setText("EQUIP")
+				p.equip.setEnabled(true)
+			end
+		end
+	else
+		p.price.Text = if forSale then premiumPrice(p, skin) else "COMING SOON"
+		p.buy.setText(if forSale then "BUY" else "SOON")
+		p.buy.sub.Text = if forSale then premiumPrice(p, skin) else ""
+	end
+
+	-- Gamepad: action button <-> first row of chips.
+	local action = if isOwned then p.equip.holder else p.buy.holder
+	action.NextSelectionDown = p.holders[1]
+	for i = 1, math.min(3, #p.holders) do
+		p.holders[i].NextSelectionUp = action
+	end
+end
+
+function UI._buyPremium(self)
+	local p = self._menu.premium
+	local skin = Config.getSkin(p.selected)
+	local product = Config.Products[skin.ProductKey or ""]
+	if ownedSkins()[skin.Id] then
+		self:toast("YOU ALREADY OWN " .. string.upper(skin.Name), "info")
+		self:_refreshPremium()
+		return
+	end
+	if not product or (tonumber(product.Id) or 0) == 0 then
+		self:toast(string.upper(skin.Name) .. " IS COMING SOON", "info")
+		return
+	end
+	self:_fire("onBuyProduct", skin.ProductKey)
+end
+
+function UI._equipPremium(self)
+	local p = self._menu.premium
+	if p.busy then
+		return
+	end
+	local id = p.selected
+	p.busy = true
+	p.equip.setEnabled(false)
+	p.equip.setText("EQUIPPING")
+	task.spawn(function()
+		local ok, message = self:_ask("onEquipSkin", id)
+		p.busy = false
+		if ok then
+			self:toast(string.upper(Config.getSkin(id).Name) .. " EQUIPPED", "reward")
+		else
+			self:toast(message or "COULD NOT EQUIP", "error")
+		end
+		self:_refreshSkins()
+	end)
 end
 
 function UI._skinAction(self, card)

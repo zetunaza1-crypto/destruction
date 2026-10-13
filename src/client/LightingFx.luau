@@ -103,6 +103,71 @@ local PRESETS = {
 		LightBrightness = 2.4,
 		LightRange = 18,
 	},
+	-- Icy blue cave: cold morning light, crisp contrast, a little desaturated.
+	Frost = {
+		ClockTime = 9.5,
+		Brightness = 2.2,
+		Ambient = Color3.fromRGB(92, 118, 150),
+		OutdoorAmbient = Color3.fromRGB(150, 180, 212),
+		ExposureCompensation = 0.15,
+		Atmosphere = { Density = 0.42, Offset = 0.12, Haze = 1.6, Glare = 0.2 },
+		Grade = { Brightness = 0.03, Contrast = 0.12, Saturation = -0.05, TintColor = Color3.fromRGB(222, 238, 255) },
+		Bloom = { Intensity = 0.75, Size = 28, Threshold = 1 },
+		LightBrightness = 1.6,
+		LightRange = 16,
+	},
+	-- Forge: dark dusk outside, everything lit red-orange by the lava.
+	Magma = {
+		ClockTime = 19.6,
+		Brightness = 0.7,
+		Ambient = Color3.fromRGB(105, 45, 26),
+		OutdoorAmbient = Color3.fromRGB(135, 60, 32),
+		ExposureCompensation = 0.1,
+		Atmosphere = { Density = 0.5, Offset = 0.05, Haze = 2.6, Glare = 0.8 },
+		Grade = { Brightness = 0, Contrast = 0.2, Saturation = 0.2, TintColor = Color3.fromRGB(255, 222, 196) },
+		Bloom = { Intensity = 1.2, Size = 32, Threshold = 0.85 },
+		LightBrightness = 2.6,
+		LightRange = 18,
+	},
+	-- Deep teal water: thick haze, soft light from above (the caustic ripples are in Decor).
+	Aquarium = {
+		ClockTime = 13,
+		Brightness = 1.2,
+		Ambient = Color3.fromRGB(28, 84, 96),
+		OutdoorAmbient = Color3.fromRGB(40, 112, 124),
+		ExposureCompensation = 0.12,
+		Atmosphere = { Density = 0.56, Offset = 0.1, Haze = 2.8, Glare = 0 },
+		Grade = { Brightness = 0, Contrast = 0.12, Saturation = 0.1, TintColor = Color3.fromRGB(200, 245, 238) },
+		Bloom = { Intensity = 0.95, Size = 30, Threshold = 0.9 },
+		LightBrightness = 2,
+		LightRange = 18,
+	},
+	-- Bright, airy midday high above the clouds.
+	Sky = {
+		ClockTime = 12,
+		Brightness = 3.2,
+		Ambient = Color3.fromRGB(150, 164, 190),
+		OutdoorAmbient = Color3.fromRGB(190, 205, 232),
+		ExposureCompensation = 0.2,
+		Atmosphere = { Density = 0.3, Offset = 0.25, Haze = 1.2, Glare = 0.5 },
+		Grade = { Brightness = 0.04, Contrast = 0.05, Saturation = 0.06, TintColor = Color3.fromRGB(252, 252, 255) },
+		Bloom = { Intensity = 0.6, Size = 26, Threshold = 1.1 },
+		LightBrightness = 1.2,
+		LightRange = 14,
+	},
+	-- Purple-white crystal core: dark room, glowing crystals, strong bloom.
+	Core = {
+		ClockTime = 0,
+		Brightness = 0.3,
+		Ambient = Color3.fromRGB(70, 46, 96),
+		OutdoorAmbient = Color3.fromRGB(90, 62, 122),
+		ExposureCompensation = 0.3,
+		Atmosphere = { Density = 0.46, Offset = 0, Haze = 1.8, Glare = 0.5 },
+		Grade = { Brightness = 0, Contrast = 0.22, Saturation = 0.25, TintColor = Color3.fromRGB(246, 232, 255) },
+		Bloom = { Intensity = 1.4, Size = 36, Threshold = 0.78 },
+		LightBrightness = 2.6,
+		LightRange = 20,
+	},
 }
 
 local atmosphere

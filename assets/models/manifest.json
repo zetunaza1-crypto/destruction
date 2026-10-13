@@ -831,5 +831,908 @@
         "triangles": 352
       }
     }
+  },
+  "IceCluster": {
+    "file": "IceCluster.fbx",
+    "size": [
+      3.29,
+      2.31,
+      2.81
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Frost"
+    ],
+    "triangles": 744,
+    "parts": {
+      "Ice": {
+        "suggestedColor": [
+          165,
+          220,
+          255
+        ],
+        "suggestedMaterial": "Ice",
+        "transparency": 0.15,
+        "meshName": "IceCluster_Ice",
+        "triangles": 600
+      },
+      "Body": {
+        "suggestedColor": [
+          240,
+          246,
+          255
+        ],
+        "suggestedMaterial": "Snow",
+        "transparency": 0.0,
+        "meshName": "IceCluster_Body",
+        "triangles": 144
+      }
+    }
+  },
+  "Icicle": {
+    "file": "Icicle.fbx",
+    "size": [
+      3.21,
+      3.7,
+      1.28
+    ],
+    "anchor": "ceiling",
+    "breakable": false,
+    "zones": [
+      "Frost"
+    ],
+    "triangles": 1320,
+    "parts": {
+      "Ice": {
+        "suggestedColor": [
+          185,
+          230,
+          255
+        ],
+        "suggestedMaterial": "Ice",
+        "transparency": 0.15,
+        "meshName": "Icicle_Ice",
+        "triangles": 1176
+      },
+      "Body": {
+        "suggestedColor": [
+          240,
+          246,
+          255
+        ],
+        "suggestedMaterial": "Snow",
+        "transparency": 0.0,
+        "meshName": "Icicle_Body",
+        "triangles": 144
+      }
+    }
+  },
+  "FrozenPillar": {
+    "file": "FrozenPillar.fbx",
+    "size": [
+      3.19,
+      14.0,
+      3.11
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Frost"
+    ],
+    "triangles": 2016,
+    "parts": {
+      "Stone": {
+        "suggestedColor": [
+          105,
+          120,
+          145
+        ],
+        "suggestedMaterial": "Slate",
+        "transparency": 0.0,
+        "meshName": "FrozenPillar_Stone",
+        "triangles": 352
+      },
+      "Ice": {
+        "suggestedColor": [
+          165,
+          220,
+          255
+        ],
+        "suggestedMaterial": "Ice",
+        "transparency": 0.2,
+        "meshName": "FrozenPillar_Ice",
+        "triangles": 1376
+      },
+      "Body": {
+        "suggestedColor": [
+          240,
+          246,
+          255
+        ],
+        "suggestedMaterial": "Snow",
+        "transparency": 0.0,
+        "meshName": "FrozenPillar_Body",
+        "triangles": 288
+      }
+    }
+  },
+  "IceSculpture": {
+    "file": "IceSculpture.fbx",
+    "size": [
+      2.21,
+      3.08,
+      1.75
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Frost"
+    ],
+    "triangles": 580,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          200,
+          240,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.35,
+        "meshName": "IceSculpture_Glass",
+        "triangles": 452
+      },
+      "Stone": {
+        "suggestedColor": [
+          215,
+          225,
+          238
+        ],
+        "suggestedMaterial": "Marble",
+        "transparency": 0.0,
+        "meshName": "IceSculpture_Stone",
+        "triangles": 128
+      }
+    }
+  },
+  "LavaRock": {
+    "file": "LavaRock.fbx",
+    "size": [
+      3.46,
+      1.79,
+      2.59
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Magma"
+    ],
+    "triangles": 688,
+    "parts": {
+      "Stone": {
+        "suggestedColor": [
+          48,
+          40,
+          42
+        ],
+        "suggestedMaterial": "Basalt",
+        "transparency": 0.0,
+        "meshName": "LavaRock_Stone",
+        "triangles": 488
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          110,
+          30
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "LavaRock_Neon",
+        "triangles": 200
+      }
+    }
+  },
+  "MagmaVent": {
+    "file": "MagmaVent.fbx",
+    "size": [
+      4.36,
+      3.31,
+      4.15
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Magma"
+    ],
+    "triangles": 1308,
+    "parts": {
+      "Stone": {
+        "suggestedColor": [
+          58,
+          46,
+          44
+        ],
+        "suggestedMaterial": "Basalt",
+        "transparency": 0.0,
+        "meshName": "MagmaVent_Stone",
+        "triangles": 396
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          120,
+          35
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "MagmaVent_Neon",
+        "triangles": 912
+      }
+    }
+  },
+  "ForgeAnvil": {
+    "file": "ForgeAnvil.fbx",
+    "size": [
+      3.01,
+      2.86,
+      2.07
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Magma"
+    ],
+    "triangles": 1022,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          62,
+          62,
+          70
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "ForgeAnvil_Metal",
+        "triangles": 666
+      },
+      "Wood": {
+        "suggestedColor": [
+          110,
+          72,
+          45
+        ],
+        "suggestedMaterial": "Wood",
+        "transparency": 0.0,
+        "meshName": "ForgeAnvil_Wood",
+        "triangles": 192
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          150,
+          40
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "ForgeAnvil_Neon",
+        "triangles": 164
+      }
+    }
+  },
+  "MagmaJar": {
+    "file": "MagmaJar.fbx",
+    "size": [
+      2.22,
+      2.46,
+      1.71
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Magma"
+    ],
+    "triangles": 1892,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          255,
+          225,
+          200
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.5,
+        "meshName": "MagmaJar_Glass",
+        "triangles": 320
+      },
+      "Metal": {
+        "suggestedColor": [
+          72,
+          60,
+          56
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "MagmaJar_Metal",
+        "triangles": 1192
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          100,
+          20
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "MagmaJar_Neon",
+        "triangles": 380
+      }
+    }
+  },
+  "Coral": {
+    "file": "Coral.fbx",
+    "size": [
+      2.87,
+      2.08,
+      2.13
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Aquarium"
+    ],
+    "triangles": 1678,
+    "parts": {
+      "Body": {
+        "suggestedColor": [
+          255,
+          105,
+          130
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Coral_Body",
+        "triangles": 598
+      },
+      "Plant": {
+        "suggestedColor": [
+          165,
+          95,
+          235
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Coral_Plant",
+        "triangles": 700
+      },
+      "Neon": {
+        "suggestedColor": [
+          120,
+          255,
+          230
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "Coral_Neon",
+        "triangles": 280
+      },
+      "Stone": {
+        "suggestedColor": [
+          130,
+          118,
+          104
+        ],
+        "suggestedMaterial": "Rock",
+        "transparency": 0.0,
+        "meshName": "Coral_Stone",
+        "triangles": 100
+      }
+    }
+  },
+  "Seaweed": {
+    "file": "Seaweed.fbx",
+    "size": [
+      2.34,
+      7.45,
+      1.76
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Aquarium"
+    ],
+    "triangles": 1370,
+    "parts": {
+      "Plant": {
+        "suggestedColor": [
+          70,
+          175,
+          95
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Seaweed_Plant",
+        "triangles": 1270
+      },
+      "Stone": {
+        "suggestedColor": [
+          120,
+          112,
+          104
+        ],
+        "suggestedMaterial": "Rock",
+        "transparency": 0.0,
+        "meshName": "Seaweed_Stone",
+        "triangles": 100
+      }
+    }
+  },
+  "Anchor": {
+    "file": "Anchor.fbx",
+    "size": [
+      3.79,
+      4.49,
+      2.85
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Aquarium"
+    ],
+    "triangles": 1914,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          80,
+          88,
+          96
+        ],
+        "suggestedMaterial": "CorrodedMetal",
+        "transparency": 0.0,
+        "meshName": "Anchor_Metal",
+        "triangles": 1464
+      },
+      "Body": {
+        "suggestedColor": [
+          225,
+          205,
+          155
+        ],
+        "suggestedMaterial": "Sand",
+        "transparency": 0.0,
+        "meshName": "Anchor_Body",
+        "triangles": 144
+      },
+      "Plant": {
+        "suggestedColor": [
+          80,
+          170,
+          90
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "Anchor_Plant",
+        "triangles": 306
+      }
+    }
+  },
+  "FishTank": {
+    "file": "FishTank.fbx",
+    "size": [
+      3.2,
+      3.06,
+      1.6
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Aquarium"
+    ],
+    "triangles": 1848,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          205,
+          240,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.6,
+        "meshName": "FishTank_Glass",
+        "triangles": 188
+      },
+      "Metal": {
+        "suggestedColor": [
+          45,
+          52,
+          64
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "FishTank_Metal",
+        "triangles": 452
+      },
+      "Neon": {
+        "suggestedColor": [
+          60,
+          175,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.6,
+        "meshName": "FishTank_Neon",
+        "triangles": 12
+      },
+      "Body": {
+        "suggestedColor": [
+          255,
+          145,
+          40
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "FishTank_Body",
+        "triangles": 224
+      },
+      "Plant": {
+        "suggestedColor": [
+          80,
+          200,
+          110
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "FishTank_Plant",
+        "triangles": 576
+      },
+      "Stone": {
+        "suggestedColor": [
+          235,
+          215,
+          170
+        ],
+        "suggestedMaterial": "Sand",
+        "transparency": 0.0,
+        "meshName": "FishTank_Stone",
+        "triangles": 396
+      }
+    }
+  },
+  "JellyLamp": {
+    "file": "JellyLamp.fbx",
+    "size": [
+      2.01,
+      3.83,
+      2.01
+    ],
+    "anchor": "ceiling",
+    "breakable": true,
+    "zones": [
+      "Aquarium"
+    ],
+    "triangles": 2032,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          255,
+          170,
+          240
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.4,
+        "meshName": "JellyLamp_Glass",
+        "triangles": 1104
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          120,
+          220
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "JellyLamp_Neon",
+        "triangles": 544
+      },
+      "Metal": {
+        "suggestedColor": [
+          200,
+          205,
+          220
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "JellyLamp_Metal",
+        "triangles": 384
+      }
+    }
+  },
+  "CloudCluster": {
+    "file": "CloudCluster.fbx",
+    "size": [
+      5.57,
+      2.45,
+      2.85
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Sky"
+    ],
+    "triangles": 1404,
+    "parts": {
+      "Body": {
+        "suggestedColor": [
+          250,
+          252,
+          255
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "CloudCluster_Body",
+        "triangles": 1404
+      }
+    }
+  },
+  "WindTurbine": {
+    "file": "WindTurbine.fbx",
+    "size": [
+      3.63,
+      3.63,
+      2.28
+    ],
+    "anchor": "wall",
+    "breakable": false,
+    "zones": [
+      "Sky"
+    ],
+    "triangles": 940,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          215,
+          222,
+          235
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "WindTurbine_Metal",
+        "triangles": 388
+      },
+      "Body": {
+        "suggestedColor": [
+          70,
+          125,
+          230
+        ],
+        "suggestedMaterial": "SmoothPlastic",
+        "transparency": 0.0,
+        "meshName": "WindTurbine_Body",
+        "triangles": 352
+      },
+      "Neon": {
+        "suggestedColor": [
+          90,
+          200,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "WindTurbine_Neon",
+        "triangles": 200
+      }
+    }
+  },
+  "SkyLantern": {
+    "file": "SkyLantern.fbx",
+    "size": [
+      3.33,
+      3.12,
+      1.54
+    ],
+    "anchor": "ceiling",
+    "breakable": true,
+    "zones": [
+      "Sky"
+    ],
+    "triangles": 1544,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          255,
+          236,
+          185
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.45,
+        "meshName": "SkyLantern_Glass",
+        "triangles": 192
+      },
+      "Metal": {
+        "suggestedColor": [
+          235,
+          185,
+          70
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "SkyLantern_Metal",
+        "triangles": 1296
+      },
+      "Neon": {
+        "suggestedColor": [
+          255,
+          215,
+          110
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "SkyLantern_Neon",
+        "triangles": 56
+      }
+    }
+  },
+  "Banner": {
+    "file": "Banner.fbx",
+    "size": [
+      3.56,
+      5.07,
+      0.48
+    ],
+    "anchor": "wall",
+    "breakable": false,
+    "zones": [
+      "Sky"
+    ],
+    "triangles": 1636,
+    "parts": {
+      "Body": {
+        "suggestedColor": [
+          60,
+          110,
+          220
+        ],
+        "suggestedMaterial": "Fabric",
+        "transparency": 0.0,
+        "meshName": "Banner_Body",
+        "triangles": 784
+      },
+      "Metal": {
+        "suggestedColor": [
+          240,
+          190,
+          70
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "Banner_Metal",
+        "triangles": 852
+      }
+    }
+  },
+  "EnergyPylon": {
+    "file": "EnergyPylon.fbx",
+    "size": [
+      2.27,
+      6.75,
+      2.62
+    ],
+    "anchor": "floor",
+    "breakable": false,
+    "zones": [
+      "Core"
+    ],
+    "triangles": 708,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          58,
+          62,
+          82
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "EnergyPylon_Metal",
+        "triangles": 324
+      },
+      "Neon": {
+        "suggestedColor": [
+          80,
+          240,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "EnergyPylon_Neon",
+        "triangles": 384
+      }
+    }
+  },
+  "CoreCrystal": {
+    "file": "CoreCrystal.fbx",
+    "size": [
+      2.62,
+      3.6,
+      2.45
+    ],
+    "anchor": "floor",
+    "breakable": true,
+    "zones": [
+      "Core"
+    ],
+    "triangles": 576,
+    "parts": {
+      "Glass": {
+        "suggestedColor": [
+          170,
+          110,
+          255
+        ],
+        "suggestedMaterial": "Glass",
+        "transparency": 0.3,
+        "meshName": "CoreCrystal_Glass",
+        "triangles": 352
+      },
+      "Neon": {
+        "suggestedColor": [
+          230,
+          175,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "CoreCrystal_Neon",
+        "triangles": 64
+      },
+      "Stone": {
+        "suggestedColor": [
+          62,
+          56,
+          82
+        ],
+        "suggestedMaterial": "Slate",
+        "transparency": 0.0,
+        "meshName": "CoreCrystal_Stone",
+        "triangles": 160
+      }
+    }
+  },
+  "FloatingRing": {
+    "file": "FloatingRing.fbx",
+    "size": [
+      9.0,
+      9.0,
+      1.14
+    ],
+    "anchor": "center",
+    "breakable": false,
+    "zones": [
+      "Core"
+    ],
+    "triangles": 2496,
+    "parts": {
+      "Metal": {
+        "suggestedColor": [
+          70,
+          72,
+          95
+        ],
+        "suggestedMaterial": "Metal",
+        "transparency": 0.0,
+        "meshName": "FloatingRing_Metal",
+        "triangles": 1296
+      },
+      "Neon": {
+        "suggestedColor": [
+          120,
+          230,
+          255
+        ],
+        "suggestedMaterial": "Neon",
+        "transparency": 0.0,
+        "meshName": "FloatingRing_Neon",
+        "triangles": 1200
+      }
+    }
   }
 }

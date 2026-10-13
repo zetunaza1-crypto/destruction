@@ -8,7 +8,7 @@ A first-person glass-smashing runner for Roblox. You glide through corridors, th
 - **Crash into glass** and you lose 10 balls.
 - **Hit crystals** (blue diamonds) for +3 balls. Hit 5 in a row to raise **multiball** (up to x5 balls per throw). Crashing resets it.
 - **Red buttons** open metal doors. Miss the button and you crash into the door.
-- Every 10 rooms is a **checkpoint**: new zone, new colors, new obstacles, faster speed.
+- Every 14 rooms is a **checkpoint**: new zone, new colors, new obstacles, faster speed.
 
 ## Project layout
 

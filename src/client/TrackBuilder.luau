@@ -30,6 +30,11 @@
 
 	Room shell parts carry the attribute Shell = true. Everything else of
 	kind "Wall" is decoration that a ball can knock loose (see Shatter.knockLoose).
+
+	Zones 6-10 add four obstacles (Config.ZonePatterns): ArmoredGlass (2 hits,
+	see crackArmor), BobbingPane (tween), FallingPane (drops when you get close)
+	and RingSpinner (a turning wheel of panes). The last two are moved by
+	updateMovers every frame, only for finished rooms near the camera.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -92,7 +97,30 @@ local SURFACES = {
 	Temple = { Wall = Enum.Material.Sandstone, Ceiling = Enum.Material.Sandstone, Floor = Enum.Material.Limestone, FloorTint = Color3.fromRGB(150, 110, 70), FloorTintAmount = 0.3 },
 	Greenhouse = { Wall = Enum.Material.Concrete, Ceiling = Enum.Material.Glass, Floor = Enum.Material.WoodPlanks, FloorTint = Color3.fromRGB(120, 80, 45), FloorTintAmount = 0.6 },
 	Void = { Wall = Enum.Material.Basalt, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.Slate, FloorTint = Color3.fromRGB(10, 5, 20), FloorTintAmount = 0.4 },
+	Frost = { Wall = Enum.Material.Glacier, Ceiling = Enum.Material.Ice, Floor = Enum.Material.Glacier, FloorTint = Color3.fromRGB(150, 190, 225), FloorTintAmount = 0.3 },
+	Magma = { Wall = Enum.Material.Basalt, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.CrackedLava, FloorTint = Color3.fromRGB(35, 18, 12), FloorTintAmount = 0.35 },
+	Aquarium = { Wall = Enum.Material.Slate, Ceiling = Enum.Material.Metal, Floor = Enum.Material.Sand, FloorTint = Color3.fromRGB(200, 180, 130), FloorTintAmount = 0.6 },
+	Sky = { Wall = Enum.Material.Marble, Ceiling = Enum.Material.Marble, Floor = Enum.Material.Marble, FloorTint = Color3.fromRGB(225, 195, 135), FloorTintAmount = 0.25 },
+	Core = { Wall = Enum.Material.Slate, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.Marble, FloorTint = Color3.fromRGB(14, 8, 28), FloorTintAmount = 0.5 },
 }
+
+-- New obstacles (zones 6+) ----------------------------------------------------------
+local ARMOR_COLOR = Color3.fromRGB(105, 150, 185) -- thick tinted glass
+local ARMOR_CRACKED_COLOR = Color3.fromRGB(70, 100, 130)
+local ARMOR_EDGE_COLOR = Color3.fromRGB(45, 52, 62)
+local CRACK_COLOR = Color3.fromRGB(225, 245, 255)
+local WARNING_COLOR = Color3.fromRGB(255, 170, 30)
+local FALL_TRIGGER_DISTANCE = 70 -- a FallingPane drops when the camera is this close (studs)
+local FALL_TIME = 0.4 -- seconds the drop takes
+local RING_SLOTS = 8 -- RingSpinner: 8 places around the wheel, 6 have a pane (a 2-slot gap)
+local RING_PANES = 6
+local RING_CENTER_HEIGHT = 9.5 -- above the floor; the wheel turns above the middle of the corridor
+local RING_INNER, RING_OUTER = 1, 4.4 -- each pane runs from this far from the center to this far
+local SPIN_RANGE = 260 -- RingSpinners further ahead than this (studs) stand still (past the fog)
+
+-- Glass visibility: less see-through than before, plus a glowing outline.
+local GLASS_TRANSPARENCY = 0.2
+local GLASS_OUTLINE_THICKNESS = 0.07
 
 -- Shared with Decor.luau.
 TrackBuilder.newPart = newPart
@@ -140,9 +168,23 @@ function TrackBuilder:addGlass(room, position, size)
 		CFrame = CFrame.new(position),
 		Material = Enum.Material.Glass,
 		Color = Config.GLASS_COLOR,
-		Transparency = 0.35,
+		Transparency = GLASS_TRANSPARENCY,
 		Reflectance = 0.15,
 	})
+
+	-- Glowing outline + light tint so glass is always easy to see, even far
+	-- away in the fog or against pale walls. It follows moving/spinning panes
+	-- and disappears with the pane when it shatters.
+	local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+	local outline = Instance.new("SelectionBox")
+	outline.Name = "Outline"
+	outline.Adornee = glass
+	outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+	outline.LineThickness = GLASS_OUTLINE_THICKNESS
+	outline.SurfaceColor3 = accent
+	outline.SurfaceTransparency = 0.82
+	outline.Parent = glass
+
 	table.insert(room.glass, glass)
 	return glass
 end
@@ -254,6 +296,165 @@ function Patterns.Grid(self, room, z)
 			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4))
 		end
 	end
+end
+
+-- A see-through detail that belongs to a pane: never hit by balls or crashes
+-- (CanQuery off) and gone when the pane shatters (it's parented to the pane).
+local function paneDetail(pane, size, cframe, color, material)
+	local part = newPart(pane, "Detail", {
+		Name = "Detail",
+		Size = size,
+		CFrame = cframe,
+		Color = color,
+		Material = material,
+		CanQuery = false,
+	})
+	return part
+end
+
+-- Thick tinted glass with a metal edge. The first hit only cracks it
+-- (TrackBuilder:crackArmor), the second one breaks it. Mega balls and crashing
+-- into it break it right away. Sometimes a bonus crystal hides behind it.
+function Patterns.ArmoredGlass(self, room, z)
+	local rng = self.rng
+	local width = rng:NextNumber(9, 11)
+	local height = 9
+	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
+	local center = Vector3.new(x, ORIGIN.Y + 1.5 + height / 2, z)
+	local glass = self:addGlass(room, center, Vector3.new(width, height, 0.8))
+	glass.Name = "ArmoredGlass"
+	glass.Color = ARMOR_COLOR
+	glass.Transparency = 0.2
+	glass.Reflectance = 0.3
+	glass:SetAttribute("Armor", 1) -- extra hits it can take
+	-- Metal edge on the side facing the player.
+	local front = z + 0.45
+	for _, sx in { -1, 1 } do
+		paneDetail(glass, Vector3.new(0.35, height, 0.12), CFrame.new(x + sx * (width / 2 - 0.175), center.Y, front), ARMOR_EDGE_COLOR, Enum.Material.DiamondPlate)
+	end
+	for _, sy in { -1, 1 } do
+		paneDetail(glass, Vector3.new(width, 0.35, 0.12), CFrame.new(x, center.Y + sy * (height / 2 - 0.175), front), ARMOR_EDGE_COLOR, Enum.Material.DiamondPlate)
+	end
+	if rng:NextNumber() < Config.ARMOR_BONUS_CRYSTAL_CHANCE then
+		self:addCrystal(room, Vector3.new(x + rng:NextNumber(-2, 2), EYE_Y + rng:NextNumber(-1, 2), z - 3))
+	end
+end
+
+-- Armored glass was hit: the first hit cracks it (darker, with glowing crack
+-- lines from the hit point) and returns true, so the ball bounces off.
+-- Returns false when the pane should shatter now (plain glass, or already cracked).
+function TrackBuilder:crackArmor(glass, hitPoint)
+	local armor = glass:GetAttribute("Armor")
+	if type(armor) ~= "number" or armor <= 0 then
+		return false
+	end
+	glass:SetAttribute("Armor", armor - 1)
+	glass.Color = ARMOR_CRACKED_COLOR
+	glass.Transparency = 0.25
+	local cf = glass.CFrame
+	local half = glass.Size / 2
+	local hit = cf:PointToObjectSpace(hitPoint)
+	local hx = math.clamp(hit.X, -half.X * 0.8, half.X * 0.8)
+	local hy = math.clamp(hit.Y, -half.Y * 0.8, half.Y * 0.8)
+	local front = half.Z + 0.03
+	for i = 1, 6 do
+		local angle = (i + self.rng:NextNumber(-0.35, 0.35)) * math.pi / 3
+		local length = self.rng:NextNumber(1.8, 3.6)
+		local endX = math.clamp(hx + math.cos(angle) * length, -half.X, half.X)
+		local endY = math.clamp(hy + math.sin(angle) * length, -half.Y, half.Y)
+		local a, b = Vector3.new(hx, hy, front), Vector3.new(endX, endY, front)
+		local mid = (a + b) / 2
+		local span = (b - a).Magnitude
+		if span > 0.2 then
+			local line = cf * CFrame.new(mid) * CFrame.Angles(0, 0, math.atan2(b.Y - a.Y, b.X - a.X))
+			paneDetail(glass, Vector3.new(span, 0.08, 0.05), line, CRACK_COLOR, Enum.Material.Neon)
+		end
+	end
+	return true
+end
+
+-- A pane that bobs up and down across your path.
+function Patterns.BobbingPane(self, room, z)
+	local rng = self.rng
+	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
+	local low = CFrame.new(x, ORIGIN.Y + 3.5, z) -- covers your eyes
+	local high = CFrame.new(x, ORIGIN.Y + 10.5, z) -- you fly under it
+	local startHigh = rng:NextNumber() < 0.5
+	local glass = self:addGlass(room, (if startHigh then high else low).Position, Vector3.new(rng:NextNumber(10, 12), 5, 0.4))
+	local info = TweenInfo.new(rng:NextNumber(1.1, 1.8), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	TweenService:Create(glass, info, { CFrame = if startHigh then low else high }):Play()
+end
+
+-- A pane waiting in a slot in the ceiling (its bottom edge shows, with blinking
+-- warning lights and a stripe on the floor). It drops into your path when you
+-- get close (TrackBuilder:update). Smash the edge early to stop it.
+function Patterns.FallingPane(self, room, z)
+	local rng = self.rng
+	local width = rng:NextNumber(10, 13)
+	local height = 9
+	local x = ORIGIN.X + rng:NextNumber(-1, 1)
+	local downY = ORIGIN.Y + 1.5 + height / 2
+	local upY = ORIGIN.Y + 12.6 + height / 2 -- only the bottom 1.4 studs show below the ceiling
+	local glass = self:addGlass(room, Vector3.new(x, upY, z), Vector3.new(width, height, 0.4))
+	table.insert(room.fallers, { glass = glass, goal = CFrame.new(x, downY, z), dropped = false })
+
+	-- Warning: blinking lights on the ceiling slot and a dashed stripe on the floor.
+	local blink = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	for _, side in { -1, 1 } do
+		local light = newPart(room.folder, "Wall", {
+			Name = "Warning",
+			Size = Vector3.new(0.8, 0.3, 0.8),
+			CFrame = CFrame.new(x + side * (width / 2 + 0.7), ORIGIN.Y + HEIGHT - 0.15, z),
+			Color = WARNING_COLOR,
+			Material = Enum.Material.Neon,
+		})
+		light:SetAttribute("Shell", true)
+		TweenService:Create(light, blink, { Transparency = 0.85 }):Play()
+	end
+	for i = -2, 2 do
+		local stripe = newPart(room.folder, "Wall", {
+			Name = "WarningStripe",
+			Size = Vector3.new(width / 6, 0.04, 0.6),
+			CFrame = CFrame.new(x + i * width / 5, ORIGIN.Y + 0.03, z),
+			Color = WARNING_COLOR,
+			Material = Enum.Material.Neon,
+		})
+		stripe:SetAttribute("Shell", true)
+	end
+end
+
+-- Six panes on a wheel turning above the middle of the corridor, with a gap.
+-- Whatever pane points down when you get there is in your way: smash it, or
+-- time it so the gap is at the bottom. Turned by TrackBuilder:update.
+function Patterns.RingSpinner(self, room, z)
+	local rng = self.rng
+	local center = CFrame.new(ORIGIN.X, ORIGIN.Y + RING_CENTER_HEIGHT, z)
+	local ring = {
+		center = center,
+		angle = rng:NextNumber(0, 2 * math.pi),
+		speed = rng:NextNumber(1.3, 1.9) * (if rng:NextNumber() < 0.5 then -1 else 1),
+		panes = {},
+	}
+	local length = RING_OUTER - RING_INNER
+	local offset = CFrame.new(0, RING_INNER + length / 2, 0)
+	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
+	for i = 0, RING_PANES - 1 do
+		local slotAngle = (firstSlot + i) * 2 * math.pi / RING_SLOTS
+		local glass = self:addGlass(room, center.Position, Vector3.new(1.6, length, 0.4))
+		glass.CFrame = center * CFrame.Angles(0, 0, ring.angle + slotAngle) * offset
+		table.insert(ring.panes, { glass = glass, slotAngle = slotAngle, offset = offset })
+	end
+	-- Hub the panes hang on (above your head, so it never gets in the way).
+	local hub = newPart(room.folder, "Wall", {
+		Name = "RingHub",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.6, 1.4, 1.4),
+		CFrame = center * CFrame.Angles(0, math.rad(90), 0),
+		Color = Color3.fromRGB(60, 64, 74),
+		Material = Enum.Material.Metal,
+	})
+	hub:SetAttribute("Shell", true)
+	table.insert(room.rings, ring)
 end
 
 -- Metal doors you can't break. Hit the red button to open them.
@@ -381,7 +582,8 @@ function TrackBuilder:buildShell(roomIndex)
 	local folder = Instance.new("Folder")
 	folder.Name = "Room" .. roomIndex
 	folder.Parent = self.folder
-	local room = { folder = folder, glass = {}, doors = {}, crystals = {}, finished = false }
+	-- fallers: FallingPanes still waiting to drop; rings: RingSpinners to turn (both in update).
+	local room = { folder = folder, theme = theme, glass = {}, doors = {}, crystals = {}, fallers = {}, rings = {}, finished = false }
 	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
@@ -447,9 +649,10 @@ function TrackBuilder:buildShell(roomIndex)
 	if self.tutorial and table.find(Config.TUTORIAL_ROOMS, roomIndex) then
 		self:buildTutorialRoom(room, roomIndex, startZ)
 	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
-		-- Difficulty climbs inside each zone and keeps climbing zone to zone.
-		local inZone = (roomIndex % Config.ROOMS_PER_CHECKPOINT) / Config.ROOMS_PER_CHECKPOINT
-		local difficulty = math.min(inZone * 0.6 + zone * 0.15, 1)
+		-- Difficulty climbs inside each zone and keeps climbing zone to zone
+		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4
+		-- (the 4th only once difficulty goes past 1, in the endless zones after zone 10).
+		local difficulty = Config.difficultyFor(zone, roomIndex % Config.ROOMS_PER_CHECKPOINT)
 
 		local groups = 1
 		if rng:NextNumber() < difficulty then
@@ -458,11 +661,16 @@ function TrackBuilder:buildShell(roomIndex)
 		if rng:NextNumber() < difficulty * 0.6 then
 			groups += 1
 		end
+		if rng:NextNumber() < (difficulty - 1) * 0.6 then
+			groups += 1
+		end
 		for group = 1, groups do
 			self:addObstacle(room, startZ - LENGTH * group / (groups + 1), zone)
 		end
 
-		for _ = 1, rng:NextInteger(1, 2) do
+		-- Fewer crystals in later zones (Config.ZoneCrystals), so every ball counts.
+		local crystalRange = Config.ZoneCrystals[math.min(zone + 1, #Config.ZoneCrystals)]
+		for _ = 1, rng:NextInteger(crystalRange[1], crystalRange[2]) do
 			local position = Vector3.new(
 				ORIGIN.X + rng:NextNumber(-7, 7),
 				ORIGIN.Y + rng:NextNumber(3, HEIGHT - 3),
@@ -483,6 +691,7 @@ function TrackBuilder:buildShell(roomIndex)
 			startZ = startZ,
 			isZoneStart = isZoneStart,
 			rng = rng,
+			low = LightingFx.isLow(), -- Low graphics: Decor skips its little animations
 		}
 end
 
@@ -594,6 +803,39 @@ function TrackBuilder:updateShadowRooms(cameraZ, force)
 	LightingFx.setShadowRooms(here and here.folder, nextRoom and nextRoom.folder)
 end
 
+-- FallingPanes drop when the camera gets close; RingSpinners in view turn.
+-- Only finished rooms: a pane still being built has no final CFrame yet.
+function TrackBuilder:updateMovers(cameraZ, dt)
+	for roomIndex, room in self.rooms do
+		if not room.finished then
+			continue
+		end
+		local startZ = TrackBuilder.roomStartZ(roomIndex)
+		if startZ - LENGTH > cameraZ or startZ < cameraZ - SPIN_RANGE then
+			continue -- behind the camera, or too far ahead to see
+		end
+		for _, faller in room.fallers do
+			local glass = faller.glass
+			if not faller.dropped and glass.Parent and cameraZ - glass.Position.Z < FALL_TRIGGER_DISTANCE then
+				faller.dropped = true
+				local info = TweenInfo.new(FALL_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				TweenService:Create(glass, info, { CFrame = faller.goal }):Play()
+			end
+		end
+		if dt > 0 then
+			for _, ring in room.rings do
+				ring.angle = (ring.angle + ring.speed * dt) % (2 * math.pi)
+				for _, pane in ring.panes do
+					local glass = pane.glass
+					if glass.Parent then
+						glass.CFrame = ring.center * CFrame.Angles(0, 0, ring.angle + pane.slotAngle) * pane.offset
+					end
+				end
+			end
+		end
+	end
+end
+
 -- Call every frame with the camera's Z position.
 function TrackBuilder:update(cameraZ, dt)
 	local frameStart = os.clock()
@@ -614,6 +856,8 @@ function TrackBuilder:update(cameraZ, dt)
 			end
 		end
 	end
+
+	self:updateMovers(cameraZ, dt)
 
 	self:queueAhead(cameraZ)
 

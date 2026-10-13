@@ -1,0 +1,912 @@
+{
+  "Frostbite": {
+    "file": "Frostbite.fbx",
+    "diameter": 2.0,
+    "triangles": 1840,
+    "size": [
+      1.848,
+      1.566,
+      1.812
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          185,
+          232,
+          255
+        ],
+        "material": "Glass",
+        "transparency": 0.35,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Frostbite_Core",
+        "triangles": 320
+      },
+      "Heart": {
+        "color": [
+          90,
+          185,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.86,
+          "max": 1.1,
+          "hz": 0.9
+        },
+        "mesh": "Frostbite_Heart",
+        "triangles": 320
+      },
+      "Spikes": {
+        "color": [
+          165,
+          222,
+          255
+        ],
+        "material": "Ice",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            -1.0,
+            -0.0
+          ],
+          "rps": 0.12
+        },
+        "pulse": null,
+        "mesh": "Frostbite_Spikes",
+        "triangles": 576
+      },
+      "Shards": {
+        "color": [
+          120,
+          205,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9135,
+            0.4067
+          ],
+          "rps": 0.32
+        },
+        "pulse": null,
+        "mesh": "Frostbite_Shards",
+        "triangles": 624
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          210,
+          240,
+          255
+        ],
+        "color2": [
+          110,
+          190,
+          255
+        ],
+        "lifetime": 0.35,
+        "widthScale": 1.0
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            225,
+            245,
+            255
+          ],
+          "rate": 18,
+          "size": [
+            0.12,
+            0.28
+          ],
+          "lifetime": [
+            0.6,
+            1.2
+          ],
+          "speed": [
+            0.4,
+            1.4
+          ],
+          "lightEmission": 0.7
+        }
+      ],
+      "light": {
+        "color": [
+          150,
+          215,
+          255
+        ],
+        "range": 8,
+        "brightness": 1.2
+      }
+    }
+  },
+  "CyberCore": {
+    "file": "CyberCore.fbx",
+    "diameter": 2.0,
+    "triangles": 2696,
+    "size": [
+      1.866,
+      1.903,
+      1.643
+    ],
+    "parts": {
+      "Shell": {
+        "color": [
+          38,
+          44,
+          56
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "CyberCore_Shell",
+        "triangles": 528
+      },
+      "Circuits": {
+        "color": [
+          0,
+          235,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "CyberCore_Circuits",
+        "triangles": 1232
+      },
+      "RingA": {
+        "color": [
+          0,
+          220,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9272,
+            0.3746
+          ],
+          "rps": 0.45
+        },
+        "pulse": null,
+        "mesh": "CyberCore_RingA",
+        "triangles": 456
+      },
+      "RingB": {
+        "color": [
+          165,
+          175,
+          192
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.4698,
+            0.342,
+            0.8138
+          ],
+          "rps": -0.6
+        },
+        "pulse": null,
+        "mesh": "CyberCore_RingB",
+        "triangles": 480
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          0,
+          240,
+          255
+        ],
+        "color2": [
+          0,
+          120,
+          255
+        ],
+        "lifetime": 0.3,
+        "widthScale": 0.9
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            120,
+            245,
+            255
+          ],
+          "rate": 14,
+          "size": [
+            0.08,
+            0.18
+          ],
+          "lifetime": [
+            0.3,
+            0.6
+          ],
+          "speed": [
+            1,
+            3
+          ],
+          "lightEmission": 1
+        }
+      ],
+      "light": {
+        "color": [
+          0,
+          220,
+          255
+        ],
+        "range": 8,
+        "brightness": 1.5
+      }
+    }
+  },
+  "PlasmaCore": {
+    "file": "PlasmaCore.fbx",
+    "diameter": 2.0,
+    "triangles": 2224,
+    "size": [
+      1.999,
+      1.4,
+      1.427
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          255,
+          70,
+          230
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.84,
+          "max": 1.12,
+          "hz": 1.6
+        },
+        "mesh": "PlasmaCore_Core",
+        "triangles": 320
+      },
+      "Arcs": {
+        "color": [
+          215,
+          150,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.1952,
+            0.9759,
+            -0.0976
+          ],
+          "rps": 0.85
+        },
+        "pulse": null,
+        "mesh": "PlasmaCore_Arcs",
+        "triangles": 256
+      },
+      "Shell": {
+        "color": [
+          235,
+          205,
+          255
+        ],
+        "material": "Glass",
+        "transparency": 0.55,
+        "spin": null,
+        "pulse": null,
+        "mesh": "PlasmaCore_Shell",
+        "triangles": 528
+      },
+      "RingA": {
+        "color": [
+          255,
+          80,
+          235
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.7431,
+            0.6691
+          ],
+          "rps": 1.2
+        },
+        "pulse": null,
+        "mesh": "PlasmaCore_RingA",
+        "triangles": 560
+      },
+      "RingB": {
+        "color": [
+          140,
+          80,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.7431,
+            -0.6691
+          ],
+          "rps": -1.5
+        },
+        "pulse": null,
+        "mesh": "PlasmaCore_RingB",
+        "triangles": 560
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          230,
+          100,
+          255
+        ],
+        "color2": [
+          120,
+          60,
+          255
+        ],
+        "lifetime": 0.4,
+        "widthScale": 1.1
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            150,
+            255
+          ],
+          "rate": 22,
+          "size": [
+            0.12,
+            0.3
+          ],
+          "lifetime": [
+            0.3,
+            0.7
+          ],
+          "speed": [
+            1,
+            2.5
+          ],
+          "lightEmission": 1
+        }
+      ],
+      "light": {
+        "color": [
+          220,
+          90,
+          255
+        ],
+        "range": 10,
+        "brightness": 2
+      }
+    }
+  },
+  "MagmaHeart": {
+    "file": "MagmaHeart.fbx",
+    "diameter": 2.0,
+    "triangles": 2204,
+    "size": [
+      1.804,
+      1.405,
+      1.843
+    ],
+    "parts": {
+      "Shell": {
+        "color": [
+          42,
+          32,
+          30
+        ],
+        "material": "Basalt",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "MagmaHeart_Shell",
+        "triangles": 588
+      },
+      "Seams": {
+        "color": [
+          255,
+          150,
+          25
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.96,
+          "max": 1.05,
+          "hz": 1.2
+        },
+        "mesh": "MagmaHeart_Seams",
+        "triangles": 1072
+      },
+      "Core": {
+        "color": [
+          255,
+          72,
+          8
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "MagmaHeart_Core",
+        "triangles": 224
+      },
+      "Chunks": {
+        "color": [
+          255,
+          105,
+          35
+        ],
+        "material": "CrackedLava",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.2588,
+            0.9077,
+            -0.3304
+          ],
+          "rps": 0.4
+        },
+        "pulse": null,
+        "mesh": "MagmaHeart_Chunks",
+        "triangles": 320
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          255,
+          140,
+          30
+        ],
+        "color2": [
+          200,
+          40,
+          10
+        ],
+        "lifetime": 0.35,
+        "widthScale": 1.0
+      },
+      "particles": [
+        {
+          "texture": "fire",
+          "color": [
+            255,
+            120,
+            30
+          ],
+          "rate": 20,
+          "size": [
+            0.25,
+            0.6
+          ],
+          "lifetime": [
+            0.3,
+            0.6
+          ],
+          "speed": [
+            0.5,
+            1.5
+          ],
+          "lightEmission": 1
+        },
+        {
+          "texture": "smoke",
+          "color": [
+            70,
+            60,
+            60
+          ],
+          "rate": 6,
+          "size": [
+            0.4,
+            1.0
+          ],
+          "lifetime": [
+            0.6,
+            1.2
+          ],
+          "speed": [
+            0.3,
+            0.8
+          ],
+          "lightEmission": 0
+        }
+      ],
+      "light": {
+        "color": [
+          255,
+          120,
+          30
+        ],
+        "range": 10,
+        "brightness": 2
+      }
+    }
+  },
+  "BlackHole": {
+    "file": "BlackHole.fbx",
+    "diameter": 2.0,
+    "triangles": 2112,
+    "size": [
+      1.988,
+      1.195,
+      1.925
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          6,
+          4,
+          12
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "BlackHole_Core",
+        "triangles": 360
+      },
+      "Disk": {
+        "color": [
+          255,
+          125,
+          35
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9613,
+            0.2756
+          ],
+          "rps": 0.5
+        },
+        "pulse": null,
+        "mesh": "BlackHole_Disk",
+        "triangles": 816
+      },
+      "DiskInner": {
+        "color": [
+          255,
+          238,
+          195
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9613,
+            0.2756
+          ],
+          "rps": 0.95
+        },
+        "pulse": null,
+        "mesh": "BlackHole_DiskInner",
+        "triangles": 416
+      },
+      "Lens": {
+        "color": [
+          150,
+          85,
+          255
+        ],
+        "material": "ForceField",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.96,
+          "max": 1.06,
+          "hz": 0.6
+        },
+        "mesh": "BlackHole_Lens",
+        "triangles": 360
+      },
+      "Debris": {
+        "color": [
+          205,
+          175,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9613,
+            0.2756
+          ],
+          "rps": 0.7
+        },
+        "pulse": null,
+        "mesh": "BlackHole_Debris",
+        "triangles": 160
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          110,
+          40,
+          190
+        ],
+        "color2": [
+          25,
+          0,
+          50
+        ],
+        "lifetime": 0.45,
+        "widthScale": 1.1
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            200,
+            150,
+            255
+          ],
+          "rate": 20,
+          "size": [
+            0.08,
+            0.2
+          ],
+          "lifetime": [
+            0.4,
+            0.8
+          ],
+          "speed": [
+            -1.5,
+            -0.5
+          ],
+          "lightEmission": 0.8
+        }
+      ],
+      "light": {
+        "color": [
+          170,
+          80,
+          255
+        ],
+        "range": 9,
+        "brightness": 1.5
+      }
+    }
+  },
+  "Supernova": {
+    "file": "Supernova.fbx",
+    "diameter": 2.0,
+    "triangles": 2276,
+    "size": [
+      1.775,
+      1.639,
+      1.732
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          255,
+          246,
+          215
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.88,
+          "max": 1.14,
+          "hz": 1.5
+        },
+        "mesh": "Supernova_Core",
+        "triangles": 320
+      },
+      "Corona": {
+        "color": [
+          255,
+          112,
+          10
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            1.0,
+            -0.0
+          ],
+          "rps": 0.22
+        },
+        "pulse": null,
+        "mesh": "Supernova_Corona",
+        "triangles": 756
+      },
+      "Flares": {
+        "color": [
+          255,
+          228,
+          150
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.2822,
+            0.9407,
+            0.1881
+          ],
+          "rps": -0.15
+        },
+        "pulse": {
+          "min": 0.9,
+          "max": 1.06,
+          "hz": 2.2
+        },
+        "mesh": "Supernova_Flares",
+        "triangles": 96
+      },
+      "RingA": {
+        "color": [
+          255,
+          205,
+          70
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.9511,
+            0.309
+          ],
+          "rps": 0.55
+        },
+        "pulse": null,
+        "mesh": "Supernova_RingA",
+        "triangles": 368
+      },
+      "RingB": {
+        "color": [
+          255,
+          80,
+          30
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.7647,
+            0.4695,
+            0.4415
+          ],
+          "rps": -0.75
+        },
+        "pulse": null,
+        "mesh": "Supernova_RingB",
+        "triangles": 368
+      },
+      "RingC": {
+        "color": [
+          255,
+          238,
+          170
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            -0.7647,
+            0.4695,
+            0.4415
+          ],
+          "rps": 0.95
+        },
+        "pulse": null,
+        "mesh": "Supernova_RingC",
+        "triangles": 368
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          255,
+          200,
+          60
+        ],
+        "color2": [
+          255,
+          255,
+          235
+        ],
+        "lifetime": 0.5,
+        "widthScale": 1.3
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            240,
+            180
+          ],
+          "rate": 40,
+          "size": [
+            0.15,
+            0.45
+          ],
+          "lifetime": [
+            0.3,
+            0.8
+          ],
+          "speed": [
+            1.5,
+            4
+          ],
+          "lightEmission": 1
+        },
+        {
+          "texture": "fire",
+          "color": [
+            255,
+            150,
+            40
+          ],
+          "rate": 25,
+          "size": [
+            0.3,
+            0.8
+          ],
+          "lifetime": [
+            0.25,
+            0.5
+          ],
+          "speed": [
+            0.5,
+            1.5
+          ],
+          "lightEmission": 1
+        }
+      ],
+      "light": {
+        "color": [
+          255,
+          200,
+          110
+        ],
+        "range": 14,
+        "brightness": 3
+      }
+    }
+  }
+}

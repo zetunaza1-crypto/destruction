@@ -150,6 +150,31 @@ end
 -- Fields grantReward can touch (for publishing).
 Progression.REWARD_FIELDS = { "Gems", "BonusBalls", "OwnedSkins", "OwnedFx", "Boosts" }
 
+-- Zone rewards ---------------------------------------------------------------------
+
+-- First-time zone rewards (Config.ZoneRewards). A run that started in zone
+-- `startZone` and flew into zone `reachedZone` earns the reward of every zone
+-- after startZone up to reachedZone that this account hasn't had yet
+-- (data.ZonesRewarded). The zone a Checkpoints-pass run starts in doesn't count:
+-- only zones you actually flew into.
+-- Returns the messages to show, e.g. { "ZONE 06 REACHED: +350 GEMS, SHIELD BOOST" }.
+function Progression.grantZoneRewards(data, startZone, reachedZone)
+	local messages = {}
+	for zone = startZone + 1, reachedZone do
+		local reward = Config.ZoneRewards[zone]
+		if reward and not table.find(data.ZonesRewarded, zone) then
+			table.insert(data.ZonesRewarded, zone)
+			local given = Progression.grantReward(data, reward)
+			local text = string.format("ZONE %02d REACHED", zone)
+			if given ~= "" then
+				text ..= ": " .. string.upper(given)
+			end
+			table.insert(messages, text)
+		end
+	end
+	return messages
+end
+
 -- Levels + season pass ------------------------------------------------------------
 
 -- Adds XP to both the player level and the season pass.
@@ -590,6 +615,17 @@ function Progression.normalize(data, now)
 	if not Progression.findFx(data.EquippedFx) or not Progression.ownsFx(data, data.EquippedFx) then
 		data.EquippedFx = "Classic"
 	end
+
+	-- Zones whose first-time reward was given: whole numbers, each once.
+	local zonesRewarded = {}
+	if type(data.ZonesRewarded) == "table" then
+		for _, zone in data.ZonesRewarded do
+			if type(zone) == "number" and zone == math.floor(zone) and zone > 0 and not table.find(zonesRewarded, zone) then
+				table.insert(zonesRewarded, zone)
+			end
+		end
+	end
+	data.ZonesRewarded = zonesRewarded
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)

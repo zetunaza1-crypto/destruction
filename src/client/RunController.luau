@@ -41,6 +41,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BallFx = require(script.Parent.BallFx)
 local GamepadAim = require(script.Parent.GamepadAim)
 local Haptics = require(script.Parent.Haptics)
 local LeaveGift = require(script.Parent.LeaveGift)
@@ -59,7 +60,7 @@ local camera = workspace.CurrentCamera
 
 local ORIGIN = Config.TRACK_ORIGIN
 local FORWARD = Vector3.new(0, 0, -1)
-local CRASH_MARGIN = 0.8 -- how close to a pane's edge still counts as hitting it
+local CRASH_MARGIN = 0.25 -- small allowance only: if it looks like you missed the glass, you missed it
 local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
 local BALL_STEPS = 3 -- collision checks per ball per frame
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
@@ -312,46 +313,15 @@ end)
 -- Balls ----------------------------------------------------------------------
 
 -- mega: a giant MegaBall boost ball (bigger, always has a trail).
-local function makeBallPart(mega)
-	local skin = Config.getSkin(player:GetAttribute("EquippedSkin"))
+-- lite: a cheaper look for the extra balls of a multiball throw (premium balls
+-- only: no rings, particles or light). The look itself is in BallFx.luau.
+local function makeBallPart(mega, lite)
 	local radius = if mega then MEGA_RADIUS else Config.BALL_RADIUS
-
-	local part = Instance.new("Part")
-	part.Name = if mega then "MegaBall" else "Ball"
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.one * radius * 2
-	part.Material = skin.Material
-	part.Color = skin.Color
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-
-	if skin.Rainbow then
-		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
-	end
-
-	if skin.Trail or skin.Rainbow or mega then
-		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, radius * 0.6, 0)
-		a0.Parent = part
-		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -radius * 0.6, 0)
-		a1.Parent = part
-
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = a0
-		trail.Attachment1 = a1
-		trail.Lifetime = 0.25
-		trail.LightEmission = 1
-		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA.Color else part.Color))
-		trail.Transparency = NumberSequence.new(0.2, 1)
-		trail.Parent = part
-	end
-
-	part.Parent = shardFolder
-	return part
+	return BallFx.create(player:GetAttribute("EquippedSkin"), radius, {
+		mega = mega,
+		lite = lite,
+		parent = shardFolder,
+	})
 end
 
 local function collectCrystal(crystal)
@@ -531,7 +501,13 @@ local function stepBall(ball, dt)
 		local remaining = travel.Magnitude - hit.Distance
 		ball.position = hit.Position
 
-		if kind == "Glass" then
+		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
+			-- Armored glass: the first hit only cracks it and the ball bounces off.
+			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
+			Sounds.play("Shatter", 0.55)
+			smashFeedback(false)
+			travel = bounce(ball, hit, remaining)
+		elseif kind == "Glass" then
 			runStats.glass += 1
 			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
@@ -574,7 +550,7 @@ local function stepBalls(dt)
 	for i = #activeBalls, 1, -1 do
 		local ball = activeBalls[i]
 		if not stepBall(ball, dt) then
-			ball.part:Destroy()
+			BallFx.destroy(ball.part)
 			table.remove(activeBalls, i)
 		end
 	end
@@ -582,7 +558,7 @@ end
 
 local function clearBalls()
 	for _, ball in activeBalls do
-		ball.part:Destroy()
+		BallFx.destroy(ball.part)
 	end
 	table.clear(activeBalls)
 end
@@ -591,14 +567,14 @@ end
 -- far before its first frame. A sphere cast can't hit something the sphere
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
-local function spawnBall(origin, velocity, mega, preSweep)
+local function spawnBall(origin, velocity, mega, preSweep, lite)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
 		local oldest = table.remove(activeBalls, 1)
-		oldest.part:Destroy()
+		BallFx.destroy(oldest.part)
 	end
 
-	local part = makeBallPart(mega)
+	local part = makeBallPart(mega, lite)
 	local ball = { part = part, position = origin, velocity = velocity, age = 0, mega = mega }
 	table.insert(activeBalls, ball)
 	if mega and preSweep then
@@ -634,6 +610,8 @@ local function throwAlong(ray)
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	-- Only the middle ball of a multiball fan gets the full premium look (perf).
+	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
 		local angle = (i - (multiball + 1) / 2) * 0.05
@@ -641,9 +619,9 @@ local function throwAlong(ray)
 		local velocity = direction * Config.BALL_SPEED + carry
 		if mega then
 			-- Swept from the camera so anything close is still smashed.
-			spawnBall(ray.Origin, velocity, true, direction * startDistance)
+			spawnBall(ray.Origin, velocity, true, direction * startDistance, i ~= hero)
 		else
-			spawnBall(ray.Origin + direction * startDistance, velocity, false)
+			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, i ~= hero)
 		end
 	end
 
@@ -1142,8 +1120,8 @@ local function step(dt)
 		ballDt = runDt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
 		Tutorial.scanForTips(runDt, cameraZ, track)
 
-		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
-		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
+		-- Same rule the server's anti-cheat uses (each zone has its own top speed).
+		speed = Config.speedForRoom(currentRoom(), startCheckpoint * Config.ROOMS_PER_CHECKPOINT)
 
 		local prevZ = cameraZ
 		cameraZ -= speed * worldDt

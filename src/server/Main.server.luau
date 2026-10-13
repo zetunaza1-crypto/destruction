@@ -77,36 +77,52 @@ local sessionStarts = {}
 local runCounts = {}
 
 -- The furthest anyone can legitimately travel in `seconds`, following the same
--- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
--- The ramp (about 40 rooms) is worked out once here; after it the speed never
--- changes, so longer times are a simple multiplication.
-local rampRoomTimes = {} -- seconds to fly through each ramp room
-local rampTime, rampStuds = 0, 0
-do
-	local gain = Config.SPEED_GAIN_PER_ROOM
-	local rampRooms = 0
-	if gain > 0 and Config.START_SPEED < Config.MAX_SPEED then
-		rampRooms = math.ceil((Config.MAX_SPEED - Config.START_SPEED) / gain)
+-- speeds as the client (Config.speedForRoom: a warm-up from the start room, and a
+-- top speed per zone). Once the speed can't change any more (MAX_SPEED reached
+-- in the last zone with its own top speed), longer times are a simple multiplication.
+-- Worked out once per start checkpoint: { roomTimes, time, studs, finalSpeed }.
+local speedRamps = {}
+
+local function speedRamp(startCheckpoint)
+	local ramp = speedRamps[startCheckpoint]
+	if ramp then
+		return ramp
 	end
-	for room = 0, rampRooms - 1 do
-		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + room * gain)
-		local seconds = Config.ROOM_LENGTH / speed
-		table.insert(rampRoomTimes, seconds)
-		rampTime += seconds
+	ramp = { roomTimes = {}, time = 0, studs = 0, finalSpeed = Config.MAX_SPEED }
+	local startRoom = startCheckpoint * Config.ROOMS_PER_CHECKPOINT
+	-- After this room every zone runs at MAX_SPEED (zones past the ZoneTopSpeed list).
+	local lastSpeedZoneRoom = #Config.ZoneTopSpeed * Config.ROOMS_PER_CHECKPOINT
+	local room = startRoom
+	while true do
+		local speed = Config.speedForRoom(room, startRoom)
+		if speed >= Config.MAX_SPEED and room >= lastSpeedZoneRoom then
+			break
+		end
+		if #ramp.roomTimes > 2000 then
+			ramp.finalSpeed = Config.MAX_SPEED -- safety net (bad Config): assume top speed from here
+			break
+		end
+		local seconds = Config.ROOM_LENGTH / math.max(speed, 1)
+		table.insert(ramp.roomTimes, seconds)
+		ramp.time += seconds
+		ramp.studs += Config.ROOM_LENGTH
+		room += 1
 	end
-	rampStuds = rampRooms * Config.ROOM_LENGTH
+	speedRamps[startCheckpoint] = ramp
+	return ramp
 end
 
-local function maxStudsIn(seconds)
+local function maxStudsIn(seconds, startCheckpoint)
 	if seconds <= 0 then
 		return 0
 	end
-	if seconds >= rampTime then
-		return rampStuds + (seconds - rampTime) * Config.MAX_SPEED
+	local ramp = speedRamp(startCheckpoint)
+	if seconds >= ramp.time then
+		return ramp.studs + (seconds - ramp.time) * ramp.finalSpeed
 	end
-	-- Still speeding up: walk the (at most ~40) ramp rooms.
+	-- Still speeding up: walk the ramp rooms.
 	local studs, time = 0, 0
-	for _, roomSeconds in rampRoomTimes do
+	for _, roomSeconds in ramp.roomTimes do
 		if time + roomSeconds >= seconds then
 			local speed = Config.ROOM_LENGTH / roomSeconds
 			return studs + (seconds - time) * speed
@@ -127,11 +143,11 @@ end
 local function maxStudsForRun(run)
 	if run.pausedAt then
 		if not run.pausedMaxStuds then
-			run.pausedMaxStuds = maxStudsIn(activeSeconds(run))
+			run.pausedMaxStuds = maxStudsIn(activeSeconds(run), run.startCheckpoint)
 		end
 		return run.pausedMaxStuds
 	end
-	return maxStudsIn(activeSeconds(run))
+	return maxStudsIn(activeSeconds(run), run.startCheckpoint)
 end
 
 local function pauseRun(run)
@@ -643,6 +659,13 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 		changes.Checkpoint = reachedZone
 	end
 
+	-- First-time zone rewards (Config.ZoneRewards), only for zones flown into on
+	-- this run. Saved in ZonesRewarded so each one is given once.
+	local zoneRewards = Progression.grantZoneRewards(data, run.startCheckpoint, reachedZone)
+	if #zoneRewards > 0 then
+		PlayerData.publish(player, Progression.REWARD_FIELDS)
+	end
+
 	-- Personal best + global leaderboard only count runs from the very start,
 	-- so a Checkpoints pass can't buy a higher score.
 	-- One run can never put more than MAX_RUN_METERS on the board.
@@ -660,6 +683,9 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	end
 	for _, event in events do
 		Progression.fire(player, event)
+	end
+	for _, text in zoneRewards do
+		Progression.fire(player, { type = "Reward", text = text, source = "Zone" })
 	end
 	Progression.fire(player, {
 		type = "RunSummary",
