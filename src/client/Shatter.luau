@@ -918,7 +918,7 @@ local skinSparks = newEmitterSet(4, function(emitter)
 	emitter.Rotation = NumberRange.new(0, 360)
 end)
 
--- Premium themes, made the first time they're needed.
+-- Themed splashes of the animated balls (premium + earned), made the first time they're needed.
 local THEMES = {
 	Supernova = {
 		count = 22,
@@ -1024,6 +1024,59 @@ local THEMES = {
 			emitter.RotSpeed = NumberRange.new(-60, 60)
 		end,
 	},
+	-- Earned balls (never sold) get a themed splash too.
+	Infinity = {
+		count = 24,
+		setup = function(emitter) -- cosmic sparkles bursting outward: violet, pink, gold
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 90, 255)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 110, 220)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 210, 120)),
+			})
+			emitter.Size = fading(0.4, 0.05)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.35, 0.7)
+			emitter.Speed = NumberRange.new(10, 22)
+			emitter.SpreadAngle = Vector2.new(85, 85)
+			emitter.Drag = 5
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-180, 180)
+		end,
+		flare = function(emitter) -- a soft violet-gold bloom
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(200, 160, 255), Color3.fromRGB(255, 220, 150))
+			emitter.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1.2),
+				NumberSequenceKeypoint.new(0.3, 3.5),
+				NumberSequenceKeypoint.new(1, 0.4),
+			})
+			emitter.Transparency = NumberSequence.new(0.2, 1)
+			emitter.Lifetime = NumberRange.new(0.2)
+			emitter.Speed = NumberRange.new(0)
+			emitter.Rotation = NumberRange.new(0, 360)
+		end,
+	},
+	Smashbot = {
+		count = 22,
+		setup = function(emitter) -- fast hot sparks, orange into cyan
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 160, 50), Color3.fromRGB(110, 225, 255))
+			emitter.Size = fading(0.3, 0)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.1, 0.28)
+			emitter.Speed = NumberRange.new(24, 40)
+			emitter.SpreadAngle = Vector2.new(90, 90)
+			emitter.Drag = 8
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-400, 400)
+		end,
+	},
 	-- CyberCore: glowing cyan bits (pooled chips, see below) + the normal sparks.
 }
 local themeSets = {} -- id -> { sparks = set, flare = set? }
@@ -1083,7 +1136,7 @@ function Shatter.skinBurst(position, normal, style, big)
 	if not style.premium then
 		return
 	end
-	-- Premium: a bigger, themed splash on top.
+	-- Animated balls (premium + earned): a bigger, themed splash on top.
 	local sets, theme = themeSet(style.id)
 	if sets then
 		local themed = nextEmitter(sets.sparks)

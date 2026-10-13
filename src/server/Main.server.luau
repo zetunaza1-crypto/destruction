@@ -727,6 +727,11 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if #zoneRewards > 0 then
 		PlayerData.publish(player, Progression.REWARD_FIELDS)
 	end
+	-- Balls earned by lifetime stats (Smashbot: 50,000 glass in total), each once.
+	local statUnlocks = Progression.grantStatUnlocks(data)
+	if #statUnlocks > 0 then
+		PlayerData.publish(player, { "OwnedSkins" })
+	end
 
 	-- Personal best + global leaderboard only count runs from the very start,
 	-- so a Checkpoints pass can't buy a higher score.
@@ -748,6 +753,9 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	end
 	for _, text in zoneRewards do
 		Progression.fire(player, { type = "Reward", text = text, source = "Zone" })
+	end
+	for _, text in statUnlocks do
+		Progression.fire(player, { type = "Reward", text = text, source = "Unlock" })
 	end
 	Progression.fire(player, {
 		type = "RunSummary",

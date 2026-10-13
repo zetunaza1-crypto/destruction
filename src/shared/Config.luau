@@ -194,7 +194,6 @@ Config.Skins = {
 	{ Id = "PrismShard", Name = "Prism Shard", Price = 0, Source = "REACH ZONE 10", Color = Color3.fromRGB(235, 225, 255), Material = Enum.Material.Glass, Rainbow = true, Trail = Color3.fromRGB(200, 160, 255) },
 	-- Endless distance milestones (Config.ZoneRewards): only the best players have these.
 	{ Id = "Afterburn", Name = "Afterburn", Price = 0, Source = "REACH ZONE 20", Color = Color3.fromRGB(255, 120, 30), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 200, 60) },
-	{ Id = "Infinity", Name = "Infinity", Price = 0, Source = "REACH ZONE 50", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.ForceField, Rainbow = true, Trail = Color3.fromRGB(255, 255, 255) },
 	-- Premium balls: Robux only (Config.Products.Ball<Id>), never sold for gems.
 	-- Robux = price shown if the live price can't be loaded. Each one is an animated
 	-- Blender model (Config.BallModels, styled by Shared.BallStyles). Until that's
@@ -205,13 +204,33 @@ Config.Skins = {
 	{ Id = "MagmaHeart", Name = "Magma Heart", Price = 0, Premium = true, Robux = 99, ProductKey = "BallMagmaHeart", Text = "A MOLTEN HEART IN A CRACKED ROCK SHELL", Color = Color3.fromRGB(255, 110, 20), Material = Enum.Material.Neon, Shell = Color3.fromRGB(60, 30, 25), Ring = Color3.fromRGB(255, 170, 40), Trail = Color3.fromRGB(255, 90, 20) },
 	{ Id = "BlackHole", Name = "Black Hole", Price = 0, Premium = true, Robux = 149, ProductKey = "BallBlackHole", Text = "PURE DARKNESS WITH A BLAZING SPINNING DISK", Color = Color3.fromRGB(8, 4, 16), Material = Enum.Material.Neon, Shell = Color3.fromRGB(120, 60, 255), Ring = Color3.fromRGB(255, 150, 60), Trail = Color3.fromRGB(150, 80, 255) },
 	{ Id = "Supernova", Name = "Supernova", Price = 0, Premium = true, Robux = 199, ProductKey = "BallSupernova", Text = "A STAR ABOUT TO EXPLODE, WITH BLAZING RINGS", Color = Color3.fromRGB(255, 245, 210), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 200, 80), Ring = Color3.fromRGB(255, 180, 50), Trail = Color3.fromRGB(255, 220, 120) },
+	-- Earned animated balls: the same kind of animated Blender model as the premium
+	-- balls (Config.BallModels, Shared.BallStyles), but NEVER sold - not for Robux,
+	-- not for gems. Animated = true: looks like a premium ball, earned like a reward.
+	-- Source = how to get it (shown in the shop). Unlock = { Stat, Amount }: the
+	-- server gives it once the lifetime stat (data.Stats[Stat]) reaches Amount.
+	-- Shell / Ring / Trail: the part-built look until the model is uploaded.
+	{ Id = "Infinity", Name = "Infinity", Price = 0, Animated = true, Source = "REACH ZONE 50", Text = "A TINY BLACK UNIVERSE WITH INFINITY RINGS AND LIGHTNING", Color = Color3.fromRGB(120, 70, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(40, 20, 70), Ring = Color3.fromRGB(255, 205, 110), Trail = Color3.fromRGB(170, 110, 255) },
+	{ Id = "Smashbot", Name = "Smashbot", Price = 0, Animated = true, Source = "SMASH 50,000 GLASS", Unlock = { Stat = "glass", Amount = 50000 }, Text = "A ROBOT BALL WITH OPENING ARMOR AND A GLOWING EYE", Color = Color3.fromRGB(255, 140, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(70, 76, 90), Ring = Color3.fromRGB(255, 150, 40), Trail = Color3.fromRGB(90, 220, 255) },
 }
 
--- Ids of the premium (Robux) balls above, in shop order.
+-- True for balls drawn as an animated model (premium Robux balls AND earned
+-- Animated balls). Use this for anything about how a ball LOOKS. For anything
+-- about money (products, Robux prices, refunds) use skin.Premium only.
+function Config.isAnimatedSkin(skin)
+	return type(skin) == "table" and (skin.Premium == true or skin.Animated == true)
+end
+
+-- Ids of the premium (Robux) balls above, in shop order. Never the earned
+-- Animated balls: this list is what's sold.
 Config.PremiumBalls = {}
+-- Ids of the earned animated balls (Animated, never sold), in shop order.
+Config.EarnedBalls = {}
 for _, skin in Config.Skins do
 	if skin.Premium then
 		table.insert(Config.PremiumBalls, skin.Id)
+	elseif skin.Animated then
+		table.insert(Config.EarnedBalls, skin.Id)
 	end
 end
 
@@ -219,8 +238,8 @@ end
 -- (e.g. bought twice while a save was failing): Robux price x this.
 Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
 
--- Blender models of the premium balls (assets/balls/*.fbx), uploaded as Model
--- assets. 0 = not uploaded yet: the part-built version above is used instead.
+-- Blender models of the premium + earned animated balls (assets/balls/*.fbx), uploaded
+-- as Model assets. 0 = not uploaded yet: the part-built version above is used instead.
 Config.BallModels = {
 	Frostbite = 95405037753431,
 	CyberCore = 128733885861068,
@@ -228,6 +247,8 @@ Config.BallModels = {
 	MagmaHeart = 108350449356111,
 	BlackHole = 116620455419343,
 	Supernova = 72233037920626,
+	Infinity = 123152768181258,
+	Smashbot = 96416348312755,
 }
 
 function Config.getSkin(skinId)

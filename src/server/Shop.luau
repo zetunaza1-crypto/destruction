@@ -48,7 +48,8 @@ function actions.BuySkin(player, data, skinId)
 	if not ok then
 		return false, message
 	end
-	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>).
+	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>); earned balls
+	-- (Price 0 + Source, incl. the Animated ones like Infinity / Smashbot) are never sold.
 	if skin.Premium or skin.Price <= 0 then
 		return false, skin.Name .. " can't be bought with gems"
 	end

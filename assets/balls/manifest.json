@@ -908,5 +908,482 @@
         "brightness": 3
       }
     }
+  },
+  "Infinity": {
+    "file": "Infinity.fbx",
+    "diameter": 2.0,
+    "triangles": 2868,
+    "size": [
+      2.0,
+      1.535,
+      1.998
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          5,
+          3,
+          12
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Infinity_Core",
+        "triangles": 224
+      },
+      "ArmsA": {
+        "color": [
+          112,
+          100,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.2149,
+            0.9766
+          ],
+          "rps": 0.1
+        },
+        "pulse": null,
+        "mesh": "Infinity_ArmsA",
+        "triangles": 444,
+        "lite": true
+      },
+      "ArmsB": {
+        "color": [
+          255,
+          92,
+          214
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.2149,
+            0.9766
+          ],
+          "rps": 0.1
+        },
+        "pulse": null,
+        "mesh": "Infinity_ArmsB",
+        "triangles": 372,
+        "lite": true
+      },
+      "Stars": {
+        "color": [
+          240,
+          232,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            0.2149,
+            0.9766
+          ],
+          "rps": 0.1
+        },
+        "pulse": null,
+        "mesh": "Infinity_Stars",
+        "triangles": 312,
+        "lite": true
+      },
+      "Shell": {
+        "color": [
+          70,
+          44,
+          140
+        ],
+        "material": "Glass",
+        "transparency": 0.55,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Infinity_Shell",
+        "triangles": 288
+      },
+      "RingA": {
+        "color": [
+          255,
+          196,
+          78
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.0,
+            1.0,
+            -0.0
+          ],
+          "rps": 0.28
+        },
+        "pulse": null,
+        "mesh": "Infinity_RingA",
+        "triangles": 356,
+        "lite": true
+      },
+      "RingB": {
+        "color": [
+          255,
+          236,
+          186
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.5592,
+            0.829,
+            -0.0
+          ],
+          "rps": -0.36
+        },
+        "pulse": null,
+        "mesh": "Infinity_RingB",
+        "triangles": 356
+      },
+      "BoltsA": {
+        "color": [
+          80,
+          225,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.2822,
+            0.9407,
+            -0.1881
+          ],
+          "rps": 1.4
+        },
+        "pulse": null,
+        "mesh": "Infinity_BoltsA",
+        "triangles": 264,
+        "flicker": {
+          "hz": 9,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      "BoltsB": {
+        "color": [
+          190,
+          245,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            -0.3369,
+            0.8422,
+            -0.4211
+          ],
+          "rps": -1.9
+        },
+        "pulse": null,
+        "mesh": "Infinity_BoltsB",
+        "triangles": 252,
+        "flicker": {
+          "hz": 13,
+          "min": 0.0,
+          "max": 1.0
+        }
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          120,
+          60,
+          240
+        ],
+        "color2": [
+          255,
+          228,
+          150
+        ],
+        "lifetime": 0.5,
+        "widthScale": 1.25
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            240,
+            205
+          ],
+          "rate": 30,
+          "size": [
+            0.12,
+            0.38
+          ],
+          "lifetime": [
+            0.4,
+            1.0
+          ],
+          "speed": [
+            0.6,
+            2.2
+          ],
+          "lightEmission": 1
+        },
+        {
+          "texture": "sparkle",
+          "color": [
+            150,
+            225,
+            255
+          ],
+          "rate": 16,
+          "size": [
+            0.06,
+            0.16
+          ],
+          "lifetime": [
+            0.12,
+            0.3
+          ],
+          "speed": [
+            2.5,
+            5
+          ],
+          "lightEmission": 1
+        }
+      ],
+      "light": {
+        "color": [
+          165,
+          110,
+          255
+        ],
+        "range": 12,
+        "brightness": 2.4
+      }
+    }
+  },
+  "Smashbot": {
+    "file": "Smashbot.fbx",
+    "diameter": 2.0,
+    "triangles": 2816,
+    "size": [
+      1.957,
+      1.949,
+      1.763
+    ],
+    "parts": {
+      "Core": {
+        "color": [
+          255,
+          150,
+          32
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Smashbot_Core",
+        "triangles": 120
+      },
+      "Plates": {
+        "color": [
+          86,
+          94,
+          110
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 1.0,
+          "max": 1.15,
+          "hz": 0.5
+        },
+        "mesh": "Smashbot_Plates",
+        "triangles": 864
+      },
+      "Rivets": {
+        "color": [
+          196,
+          202,
+          214
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 1.0,
+          "max": 1.15,
+          "hz": 0.5
+        },
+        "mesh": "Smashbot_Rivets",
+        "triangles": 384
+      },
+      "Stripes": {
+        "color": [
+          255,
+          118,
+          12
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 1.0,
+          "max": 1.15,
+          "hz": 0.5
+        },
+        "mesh": "Smashbot_Stripes",
+        "triangles": 320
+      },
+      "Socket": {
+        "color": [
+          30,
+          33,
+          41
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Smashbot_Socket",
+        "triangles": 336
+      },
+      "Lens": {
+        "color": [
+          35,
+          226,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.975,
+          "max": 1.03,
+          "hz": 1.1
+        },
+        "mesh": "Smashbot_Lens",
+        "triangles": 192
+      },
+      "Pupil": {
+        "color": [
+          225,
+          255,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": {
+          "min": 0.975,
+          "max": 1.03,
+          "hz": 1.1
+        },
+        "mesh": "Smashbot_Pupil",
+        "triangles": 96
+      },
+      "Gear": {
+        "color": [
+          255,
+          128,
+          22
+        ],
+        "material": "Metal",
+        "transparency": 0.0,
+        "spin": {
+          "axis": [
+            0.2366,
+            0.2079,
+            0.9491
+          ],
+          "rps": 0.3
+        },
+        "pulse": null,
+        "mesh": "Smashbot_Gear",
+        "triangles": 504
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          255,
+          140,
+          30
+        ],
+        "color2": [
+          40,
+          220,
+          255
+        ],
+        "lifetime": 0.35,
+        "widthScale": 1.0
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            170,
+            60
+          ],
+          "rate": 26,
+          "size": [
+            0.08,
+            0.2
+          ],
+          "lifetime": [
+            0.2,
+            0.45
+          ],
+          "speed": [
+            2.5,
+            6
+          ],
+          "lightEmission": 1
+        },
+        {
+          "texture": "sparkle",
+          "color": [
+            120,
+            235,
+            255
+          ],
+          "rate": 10,
+          "size": [
+            0.1,
+            0.24
+          ],
+          "lifetime": [
+            0.3,
+            0.6
+          ],
+          "speed": [
+            0.4,
+            1.2
+          ],
+          "lightEmission": 1
+        }
+      ],
+      "light": {
+        "color": [
+          80,
+          220,
+          255
+        ],
+        "range": 10,
+        "brightness": 2
+      }
+    }
   }
 }

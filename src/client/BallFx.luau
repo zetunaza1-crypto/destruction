@@ -2,17 +2,20 @@
 	What a thrown ball looks like.
 
 	Plain skins (Steel, Gold, Ruby...) are one ball part, like always.
-	Premium balls (bought with Robux, Config.Skins entries with Premium = true)
-	are little animated models: the Blender model from Config.BallModels once it
-	has loaded (ReplicatedStorage.ModelLibrary.Balls), styled and animated by
-	Shared.BallStyles. Until then a part-built version (glowing core, see-through
-	shell, spinning rings / orbiting shards) so they already look special.
+	Animated balls - the premium balls (bought with Robux, Premium = true) and the
+	earned balls (Animated = true: Infinity, Smashbot; never sold) - are little
+	animated models: the Blender model from Config.BallModels once it has loaded
+	(ReplicatedStorage.ModelLibrary.Balls), styled and animated by Shared.BallStyles.
+	Until then a part-built version (glowing core, see-through shell, spinning
+	rings / orbiting shards) so they already look special.
+	Model parts can spin, pulse (grow / shrink) and flicker (their transparency
+	jumps around at random, e.g. lightning arcs: BallStyles Flicker = { Hz, Min, Max }).
 
 	BallFx.create(skinId, radius, options?) -> BasePart
 		The ball to throw. Move it by setting its CFrame (it never needs to turn).
 		Everything else (model parts, trail, particles, light) is welded to it /
 		parented under it, so it follows on its own and :Destroy() removes it all.
-		radius is the collision radius; premium balls are drawn 2.6x that across
+		radius is the collision radius; animated balls are drawn 2.6x that across
 		so their details read in flight.
 		options = {
 			mega = bool,       -- MegaBall boost ball (trail in the boost's color)
@@ -22,9 +25,10 @@
 			trailScale = num,  -- trail lifetime multiplier (RunController: longer at high speed)
 			parent = Instance,
 		}
-		Every ball has a trail in its skin's colors (premium ones longer and brighter).
+		Every ball has a trail in its skin's colors (animated ones longer and brighter).
 	BallFx.destroy(ball)  -- use this instead of ball:Destroy() (frees its budget)
-	BallFx.isPremium(skinId)
+	BallFx.isAnimated(skinId) -- drawn as an animated model (premium OR earned): use for looks
+	BallFx.isPremium(skinId)  -- sold for Robux (Premium = true only): use for money
 	BallFx.hasMesh(skinId) -- the Blender model has loaded
 	BallFx.preview(skinId, diameter) -> { model, mesh, step(t), destroy() }
 		Anchored copy for the shop's ViewportFrame. step(os.clock()) animates it.
@@ -36,9 +40,12 @@
 		particleScale (default 1): extra particle-rate multiplier (two hands = two balls).
 	BallFx.impactStyle(skinId) -> { id, color, color2, rainbow, premium }
 		The skin's colors for Shatter.skinBurst (the splash where a ball hits).
+		premium = true for every animated ball (they all get the bigger themed splash).
 
 	Keeping phones smooth:
-	  - one RenderStepped loop animates every live premium ball (no per-ball connections)
+	  - one RenderStepped loop animates every live animated ball (no per-ball connections)
+	  - flickering parts change at most Hz times a second (half that on Low graphics),
+	    lite balls don't flicker
 	  - at most MAX_FULL full-detail balls at once; more become lite versions
 	  - particle rates are shared: the more full balls, the less each one emits
 	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
@@ -56,8 +63,8 @@ local Settings = require(script.Parent.Settings)
 
 local BallFx = {}
 
-local VISUAL_SCALE = 2.6 -- premium balls are drawn this many times the collision radius across
-local MAX_FULL = { High = 8, Low = 4 } -- full-detail premium balls alive at once
+local VISUAL_SCALE = 2.6 -- animated balls are drawn this many times the collision radius across
+local MAX_FULL = { High = 8, Low = 4 } -- full-detail animated balls alive at once
 local MAX_LIGHTS = { High = 3, Low = 0 } -- newest balls that get a PointLight
 local PARTICLE_SHARE = 3 -- up to this many full balls emit at full rate; more share it
 local MIN_RATE_SCALE = 0.15
@@ -67,7 +74,7 @@ local TAU = math.pi * 2
 local MEGA_COLOR = Config.Boosts.MegaBall.Color
 
 -- Trails: every ball leaves one in its skin's colors, so a skin reads even as a
--- far-away dot. Premium trails are longer and brighter.
+-- far-away dot. Animated balls' trails are longer and brighter.
 local PLAIN_TRAIL_LIFETIME = 0.34 -- seconds (was 0.25, and only some skins had one)
 local PLAIN_TRAIL_WIDTH = 0.8 -- x the ball's radius, above and below its center
 local PREMIUM_TRAIL_LENGTH = 1.5 -- x the lifetime in BallStyles
@@ -76,6 +83,8 @@ local TRAIL_BRIGHTNESS = { plain = 1.6, premium = 2.4 }
 local TRAIL_MAX_LIFETIME = 0.8
 local LOW_TRAIL_SCALE = 0.75 -- Low graphics: shorter trails
 local HELD_PARTICLE_SCALE = 0.6 -- the ball in your hand sparkles a bit less than a thrown one
+local LOW_FLICKER_SCALE = 0.5 -- Low graphics: flickering parts change half as often
+local MAX_FLICKER_HZ = 30
 
 local TEXTURES = {
 	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
@@ -85,6 +94,8 @@ local TEXTURES = {
 
 -- Part-built look (no Blender model yet). Colors come from Config.Skins (Color, Shell, Ring).
 -- rings: spinning ForceField hoops (a BlackHole "disk" is a flat glowing plate).
+-- flicker: the rings crackle (Flicker spec, like BallStyles). fx: trail / particles /
+-- light used only while Shared.BallStyles has no entry for the ball yet.
 local FALLBACK = {
 	Frostbite = { shell = Enum.Material.Glass, shellAlpha = 0.45, rings = 0, shards = 5 },
 	CyberCore = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 0 },
@@ -92,6 +103,35 @@ local FALLBACK = {
 	MagmaHeart = { shell = Enum.Material.Glass, shellAlpha = 0.35, rings = 0, shards = 4 },
 	BlackHole = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 0, disk = true, shards = 0 },
 	Supernova = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 3 },
+	-- Earned balls (never sold).
+	Infinity = {
+		shell = Enum.Material.Glass,
+		shellAlpha = 0.5,
+		rings = 2,
+		shards = 6,
+		flicker = { Hz = 9, Min = 0, Max = 0.85 }, -- the rings crackle like its lightning
+		fx = {
+			Trail = { Color = Color3.fromRGB(170, 110, 255), Color2 = Color3.fromRGB(255, 205, 110), Lifetime = 0.45, WidthScale = 1.2 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 215, 140), Rate = 22, Size = { 0.12, 0.3 }, Lifetime = { 0.4, 0.9 }, Speed = { 0.8, 2.4 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(140, 235, 255), Rate = 12, Size = { 0.06, 0.16 }, Lifetime = { 0.12, 0.3 }, Speed = { 3, 6 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(150, 90, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	Smashbot = {
+		shell = Enum.Material.Metal,
+		shellAlpha = 0.6,
+		rings = 1,
+		shards = 4,
+		fx = {
+			Trail = { Color = Color3.fromRGB(255, 150, 40), Color2 = Color3.fromRGB(90, 220, 255), Lifetime = 0.35, WidthScale = 1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 170, 60), Rate = 22, Size = { 0.08, 0.22 }, Lifetime = { 0.15, 0.35 }, Speed = { 2, 5 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(90, 210, 255), Range = 9, Brightness = 1.8 },
+		},
+	},
 }
 local DEFAULT_FALLBACK = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 1, shards = 0 }
 local EMPTY_STYLE = { Diameter = 2, Parts = {}, Fx = { Particles = {} } }
@@ -111,9 +151,16 @@ local function styleOf(skinId)
 	return if type(style) == "table" then style else EMPTY_STYLE
 end
 
+-- Sold for Robux (money paths only).
 function BallFx.isPremium(skinId)
 	local skin = Config.getSkin(skinId)
 	return skin.Id == skinId and skin.Premium == true
+end
+
+-- Drawn as an animated model: premium balls and earned Animated balls (looks only).
+function BallFx.isAnimated(skinId)
+	local skin = Config.getSkin(skinId)
+	return skin.Id == skinId and Config.isAnimatedSkin(skin)
 end
 
 local function meshTemplate(skinId)
@@ -178,9 +225,52 @@ local function newRoot(diameter)
 	return root
 end
 
+-- A BallStyles Flicker = { Hz, Min, Max } cleaned up (nil if it does nothing).
+local function flickerSpec(flicker)
+	if type(flicker) ~= "table" then
+		return nil
+	end
+	local hz = tonumber(flicker.Hz) or 0
+	if hz ~= hz or hz <= 0 then
+		return nil
+	end
+	local low = math.clamp(tonumber(flicker.Min) or 0, 0, 1)
+	local high = math.clamp(tonumber(flicker.Max) or 1, 0, 1)
+	return { Hz = math.min(hz, MAX_FLICKER_HZ), Min = math.min(low, high), Max = math.max(low, high) }
+end
+
+-- Live flicker state for one part of one ball.
+local function newFlicker(part, spec)
+	return { part = part, min = spec.Min, max = spec.Max, hz = spec.Hz, nextAt = 0 }
+end
+
+-- Each flickering part gets a new random transparency about hz times a second.
+-- The gap is random too (0.5x - 1.5x), so arcs never blink in step.
+local function stepFlickers(flickers, t, rateScale)
+	for _, flicker in flickers do
+		if t >= flicker.nextAt then
+			flicker.part.Transparency = flicker.min + (flicker.max - flicker.min) * math.random()
+			flicker.nextAt = t + (0.5 + math.random()) / (flicker.hz * rateScale)
+		end
+	end
+end
+
+-- Flicker states for a copy of `proto` (`find(name)` -> that copy's part).
+local function copyFlickers(proto, find)
+	local flickers = {}
+	for _, item in proto.flickers do
+		local part = find(item.name)
+		if part then
+			table.insert(flickers, newFlicker(part, item.spec))
+		end
+	end
+	return flickers
+end
+
 -- Welds `part` to the root at `rest` (its place in the ball's own space) and records
--- its animation, if any. Spins turn around the ball's center; pulses scale.
-local function attach(proto, part, rest, spin, pulse)
+-- its animation, if any. Spins turn around the ball's center; pulses scale;
+-- flickers change its transparency.
+local function attach(proto, part, rest, spin, pulse, flicker)
 	local joint = Instance.new("Weld")
 	joint.Name = "Joint"
 	joint.Part0 = proto.root
@@ -200,6 +290,10 @@ local function attach(proto, part, rest, spin, pulse)
 			baseSize = part.Size,
 			phase = spin and spin.Phase or 0,
 		})
+	end
+	local spec = flickerSpec(flicker)
+	if spec then
+		table.insert(proto.flickers, { name = part.Name, spec = spec })
 	end
 end
 
@@ -230,7 +324,7 @@ local function buildFallback(proto, skin, style, diameter, lite)
 	for i = 1, math.min(look.rings or 0, #ringSpins) do
 		local spec = ringSpins[i]
 		local ring = newPart("Ring" .. i, Enum.PartType.Cylinder, Vector3.new(diameter * 0.04, diameter, diameter), ringColor, Enum.Material.ForceField)
-		attach(proto, ring, spec.tilt, { Axis = spec.axis, Rps = spec.rps, Phase = i * 0.37 })
+		attach(proto, ring, spec.tilt, { Axis = spec.axis, Rps = spec.rps, Phase = i * 0.37 }, nil, look.flicker)
 	end
 	if look.disk then
 		local disk = newPart("Disk", Enum.PartType.Cylinder, Vector3.new(diameter * 0.03, diameter, diameter), ringColor, Enum.Material.Neon, 0.35)
@@ -315,7 +409,9 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 	end
 
 	local partStyles = style.Parts or {}
-	-- Lite: only the parts that don't spin (usually the core and shell).
+	-- Lite: only the parts that don't spin (usually the core and shell), plus
+	-- spinning parts marked Lite = true, which stay but stand still (so a ball
+	-- whose look is mostly spinning parts still looks like itself).
 	local keepStatic = false
 	if lite then
 		for _, part in parts do
@@ -329,7 +425,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 	for index, part in parts do
 		local key = partKey(skinId, part)
 		local partStyle = partStyles[key]
-		if keepStatic and partStyle and partStyle.Spin then
+		if keepStatic and partStyle and partStyle.Spin and not partStyle.Lite then
 			continue
 		end
 		if partStyle then
@@ -343,7 +439,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		if lite or not partStyle then
 			attach(proto, part, rest)
 		else
-			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse)
+			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse, partStyle.Flicker)
 		end
 	end
 	model:Destroy()
@@ -438,9 +534,17 @@ local function prototypeFor(skin, radius, lite)
 	end
 
 	local style = styleOf(skin.Id)
+	if style == EMPTY_STYLE then
+		-- No BallStyles entry yet (e.g. a new ball before the manifest is regenerated):
+		-- the fallback's own trail / particles / light.
+		local look = FALLBACK[skin.Id]
+		if look and look.fx then
+			style = { Diameter = 2, Parts = {}, Fx = look.fx }
+		end
+	end
 	local diameter = radius * VISUAL_SCALE
 	local scale = diameter / (tonumber(style.Diameter) or 2)
-	proto = { root = newRoot(diameter), anims = {}, emitters = {}, hasLight = false, mesh = false }
+	proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
 	if template then
 		local ok, built = pcall(buildMesh, proto, skin.Id, style, template, diameter, lite)
 		if ok and built then
@@ -450,7 +554,7 @@ local function prototypeFor(skin, radius, lite)
 				warn("[BallFx] could not use the model for", skin.Id, built)
 			end
 			proto.root:Destroy()
-			proto = { root = newRoot(diameter), anims = {}, emitters = {}, hasLight = false, mesh = false }
+			proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
 		end
 	end
 	if not proto.mesh then
@@ -461,9 +565,9 @@ local function prototypeFor(skin, radius, lite)
 	return proto
 end
 
--- Live premium balls + the one animation loop -------------------------------------------
+-- Live animated balls + the one animation loop -------------------------------------------
 
-local live = {} -- full-detail premium balls, oldest first
+local live = {} -- full-detail animated balls, oldest first
 local entries = setmetatable({}, { __mode = "k" }) -- root -> entry
 
 -- Shares particles and lights out over the live balls (newest get the light).
@@ -488,7 +592,8 @@ local function rebalance()
 	end
 end
 
-local function animate(entry, t, pulses)
+local function animate(entry, t, pulses, flickerRate)
+	stepFlickers(entry.flickers, t, flickerRate)
 	for _, anim in entry.anims do
 		local c0 = anim.rest
 		local pulse = anim.pulse
@@ -511,6 +616,7 @@ local function step()
 	local t = os.clock()
 	local cameraPosition = camera.CFrame.Position
 	local pulses = graphicsLevel() ~= "Low"
+	local flickerRate = if pulses then 1 else LOW_FLICKER_SCALE
 	local removed = false
 	for i = #live, 1, -1 do
 		local entry = live[i]
@@ -520,7 +626,7 @@ local function step()
 			entries[root] = nil
 			removed = true
 		elseif (root.Position - cameraPosition).Magnitude < ANIMATE_RANGE then
-			animate(entry, t, pulses)
+			animate(entry, t, pulses, flickerRate)
 		end
 	end
 	if removed then
@@ -643,7 +749,7 @@ function BallFx.create(skinId, radius, options)
 	options = options or {}
 	local skin = Config.getSkin(skinId)
 	local root
-	if not skin.Premium then
+	if not Config.isAnimatedSkin(skin) then
 		root = plainBall(skin, radius, options.mega)
 		scaleTrail(root, options.trailScale)
 		root.Parent = options.parent
@@ -665,7 +771,7 @@ function BallFx.create(skinId, radius, options)
 	root.Name = if options.mega then "MegaBall" else "Ball"
 	scaleTrail(root, options.trailScale)
 	if not lite then
-		local entry = { root = root, anims = {}, emitters = {}, light = nil, phase = math.random() }
+		local entry = { root = root, anims = {}, flickers = {}, emitters = {}, light = nil, phase = math.random() }
 		for _, anim in proto.anims do
 			local part = root:FindFirstChild(anim.name)
 			local joint = part and part:FindFirstChild("Joint")
@@ -682,6 +788,9 @@ function BallFx.create(skinId, radius, options)
 				})
 			end
 		end
+		entry.flickers = copyFlickers(proto, function(name)
+			return root:FindFirstChild(name)
+		end)
 		for _, item in proto.emitters do
 			local emitter = root:FindFirstChild(item.name)
 			if emitter then
@@ -725,8 +834,10 @@ function BallFx.preview(skinId, diameter)
 	local model = Instance.new("Model")
 	model.Name = "BallPreview"
 	local anims = {}
+	local flickers = {}
+	local animated = Config.isAnimatedSkin(skin)
 
-	if skin.Premium then
+	if animated then
 		local proto = prototypeFor(skin, radius, false)
 		local root = proto.root:Clone()
 		for _, item in root:GetDescendants() do
@@ -751,6 +862,9 @@ function BallFx.preview(skinId, diameter)
 				})
 			end
 		end
+		flickers = copyFlickers(proto, function(name)
+			return root:FindFirstChild(name)
+		end)
 		root.Parent = model
 		model.PrimaryPart = root
 	else
@@ -759,8 +873,9 @@ function BallFx.preview(skinId, diameter)
 		model.PrimaryPart = part
 	end
 
-	local preview = { model = model, mesh = skin.Premium == true and BallFx.hasMesh(skinId) }
+	local preview = { model = model, mesh = animated and BallFx.hasMesh(skinId) }
 	function preview.step(t)
+		stepFlickers(flickers, t, 1)
 		for _, anim in anims do
 			local c0 = anim.rest
 			local pulse = anim.pulse
@@ -794,11 +909,16 @@ function BallFx.held(skinId, diameter, particleScale)
 	local items = {} -- one per visible part: { part, rest, baseSize, axis, rps, phase, pulse }
 	local root
 	local plain = nil
+	local flickers = {}
+	local animated = Config.isAnimatedSkin(skin)
 
-	if skin.Premium then
+	if animated then
 		local proto = prototypeFor(skin, diameter / VISUAL_SCALE, false)
 		held.mesh = proto.mesh
 		root = proto.root:Clone()
+		flickers = copyFlickers(proto, function(name)
+			return root:FindFirstChild(name)
+		end)
 		local animByName = {}
 		for _, anim in proto.anims do
 			animByName[anim.name] = anim
@@ -843,17 +963,19 @@ function BallFx.held(skinId, diameter, particleScale)
 		table.insert(parts, root)
 	end
 	root.Name = "HeldBall"
-	if skin.Premium then
+	if animated then
 		table.insert(parts, root) -- the invisible center carries the particles
 	end
 	held.root = root
 
 	local lastScale = 1
 	local pulses = not low
+	local flickerRate = if low then LOW_FLICKER_SCALE else 1
 	-- cframe: the ball's center (and how it's turned). scale: 1 = `diameter` across.
 	function held.place(cframe, scale, t)
 		local resize = scale ~= lastScale
 		lastScale = scale
+		stepFlickers(flickers, t, flickerRate)
 		for i, item in items do
 			local rest = item.rest
 			local s = scale
@@ -910,7 +1032,7 @@ function BallFx.impactStyle(skinId)
 		color = color,
 		color2 = color2,
 		rainbow = skin.Rainbow == true,
-		premium = skin.Premium == true,
+		premium = Config.isAnimatedSkin(skin), -- every animated ball gets the themed splash
 	}
 end
 

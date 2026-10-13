@@ -162,11 +162,13 @@ local function rewardFor(productKey, product)
 		return serverRewards[productKey]
 	end
 	if product.Skin then
+		-- Only Premium balls are ever sold. Earned balls (Animated, e.g. Infinity,
+		-- Smashbot) and every other skin are never given for Robux.
 		local skin = Progression.findSkin(product.Skin)
 		if skin and skin.Premium then
 			return premiumBallReward(skin)
 		end
-		warn("Product", productKey, "sells an unknown premium ball:", product.Skin)
+		warn("Product", productKey, "sells a ball that isn't a premium (Robux) ball:", product.Skin)
 		return nil
 	end
 	if product.Boost and Progression.isBoost(product.Boost) then

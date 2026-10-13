@@ -444,6 +444,28 @@ function Progression.trackRun(data, deltas, best)
 	return completed
 end
 
+-- Lifetime stat unlocks ------------------------------------------------------------
+
+-- Balls earned by a lifetime stat (Config.Skins entries with Unlock = { Stat, Amount },
+-- e.g. Smashbot: 50,000 glass smashed in total). Gives every one whose stat
+-- (data.Stats[Stat]) has reached Amount and isn't owned yet - so each is only ever
+-- given once. Returns the messages to show, e.g. { "SMASHBOT BALL UNLOCKED / EQUIP IT IN THE SHOP" }.
+function Progression.grantStatUnlocks(data)
+	local messages = {}
+	for _, skin in Config.Skins do
+		local unlock = skin.Unlock
+		if type(unlock) == "table" and type(unlock.Stat) == "string" and not Progression.ownsSkin(data, skin.Id) then
+			local value = tonumber(data.Stats and data.Stats[unlock.Stat]) or 0
+			local amount = tonumber(unlock.Amount)
+			if amount and value >= amount then
+				table.insert(data.OwnedSkins, skin.Id)
+				table.insert(messages, string.upper(skin.Name) .. " BALL UNLOCKED / EQUIP IT IN THE SHOP")
+			end
+		end
+	end
+	return messages
+end
+
 -- Daily streak ------------------------------------------------------------------
 
 -- Returns ok, message.
@@ -667,6 +689,8 @@ function Progression.normalize(data, now)
 	-- Milestones added to Config.ZoneRewards after a player already flew past
 	-- them are given now (each zone only ever once, see grantZoneRewards).
 	Progression.grantZoneRewards(data, 0, wholeNumber(data.Checkpoint, 0))
+	-- Saves already past a lifetime goal (e.g. 50,000 glass for Smashbot) get its ball now, silently.
+	Progression.grantStatUnlocks(data)
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)

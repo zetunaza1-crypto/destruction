@@ -6,10 +6,12 @@ What it does, in order (each step is skipped if it was already done, so it is
 safe to run again):
   1. Uploads the chosen sounds from assets/sounds        -> Config.Sounds
   2. Uploads every model in assets/models (*.fbx)        -> Config.Models
-  3. Uploads every premium ball in assets/balls (*.fbx)  -> Config.BallModels
+  3. Uploads every ball model in assets/balls (*.fbx)   -> Config.BallModels
+     (premium Robux balls AND earned balls like Infinity / Smashbot)
   4. Creates the game passes (with their images)         -> Config.GamePasses
   5. Creates the developer products (with their images)  -> Config.Products
-     (incl. the premium balls, icons assets/images/ball_<id>.png)
+     (incl. the premium balls, icons assets/images/ball_<id>.png; never the
+     earned balls in EARNED_BALLS - those are rewards, not for sale)
   6. Applies the experience + server settings (name, description, 20 players
      per server, devices, voice chat off, private servers off)
   7. Writes all the IDs into src/shared/Config.luau, and regenerates
@@ -109,6 +111,13 @@ PREMIUM_BALLS = {
     "Supernova": ("Supernova Ball", "A star about to explode, with blazing rings. Yours forever. Already own it? You get gems instead.", 199),
 }
 
+# Earned animated balls (Config.Skins entries with Animated = true): their models are
+# uploaded into Config.BallModels like the premium ones, but they are rewards
+# (Infinity: reach ZONE 50, Smashbot: smash 50,000 glass) and are NEVER sold, so no
+# developer product or game pass is ever made for them.
+EARNED_BALLS = ("Infinity", "Smashbot")
+assert not set(EARNED_BALLS) & set(PREMIUM_BALLS), "an earned ball must never be sold"
+
 
 def ball_icon(ball_id):
     """assets/images/ball_<id>.png (lowercase id first, then the exact id)."""
@@ -120,6 +129,7 @@ def ball_icon(ball_id):
 
 for _ball_id, (_name, _description, _price) in PREMIUM_BALLS.items():
     PRODUCTS["Ball" + _ball_id] = (_name, _description, _price, ball_icon(_ball_id))
+assert not any("Ball" + _ball_id in PRODUCTS for _ball_id in EARNED_BALLS), "an earned ball must never be sold"
 
 EXPERIENCE_NAME = "Shatter Run"
 EXPERIENCE_DESCRIPTION = (
@@ -308,7 +318,7 @@ def step_models(ids):
 
 
 def step_balls(ids):
-    print("\n[3/9] Premium ball models")
+    print("\n[3/9] Ball models (premium + earned)")
     if not os.path.exists(BALL_MANIFEST):
         print("  no assets/balls/manifest.json yet - skipped")
         return
@@ -325,7 +335,8 @@ def step_balls(ids):
         if DRY_RUN:
             print(f"  {key}: would upload {os.path.basename(path)}")
             continue
-        asset_id = upload_asset("Model", path, f"ShatterRun Ball {key}", "Premium ball model for Shatter Run.", "model/fbx")
+        kind = "Earned" if key in EARNED_BALLS else "Premium"
+        asset_id = upload_asset("Model", path, f"ShatterRun Ball {key}", f"{kind} ball model for Shatter Run.", "model/fbx")
         ids["BallModels"][key] = asset_id
         save_ids(ids)
         print(f"  {key}: {asset_id}")
@@ -483,14 +494,17 @@ def _pair(values, default):
 def ball_styles_luau(manifest, source):
     out = [
         "--[[",
-        "\tLook + animation of each premium ball's parts, and its trail / particles / light.",
+        "\tLook + animation of each animated ball's parts (premium + earned), and its trail / particles / light.",
         f"\tGenerated from {source} by tools/roblox_setup.py (write_ball_styles) - edit the",
         "\tmanifest and run it again instead of editing this by hand.",
         "\tParts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own",
         "\tspace (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).",
         "\tsrc/client/BallFx.luau uses this.",
-        "\tBallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse? } },",
+        "\tBallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker? } },",
         "\t                   Fx = { Trail?, Particles = { ... }, Light? } }",
+        "\tFlicker = { Hz, Min, Max }: the part's transparency jumps at random between Min and Max",
+        "\tabout Hz times a second (lightning arcs).",
+        "\tLite = true: a spinning part that cheap 'lite' balls (extra multiball balls) still show, standing still.",
         "]]",
         "",
         "return {",
@@ -521,6 +535,14 @@ def ball_styles_luau(manifest, source):
                 fields.append(
                     f"Pulse = {{ Min = {_fmt(_num(pulse.get('min'), 1))}, Max = {_fmt(_num(pulse.get('max'), 1))}, Hz = {_fmt(pulse.get('hz'))} }}"
                 )
+            flicker = style.get("flicker")
+            if isinstance(flicker, dict) and _num(flicker.get("hz")) > 0:
+                low = max(0.0, min(1.0, _num(flicker.get("min"), 0.0)))
+                high = max(0.0, min(1.0, _num(flicker.get("max"), 1.0)))
+                low, high = min(low, high), max(low, high)
+                fields.append(f"Flicker = {{ Hz = {_fmt(flicker.get('hz'))}, Min = {_fmt(low)}, Max = {_fmt(high)} }}")
+            if style.get("lite") is True:
+                fields.append("Lite = true")
             out.append(f"\t\t\t{part} = {{ " + ", ".join(fields) + " },")
         out.append("\t\t},")
         fx = info.get("fx") or {}

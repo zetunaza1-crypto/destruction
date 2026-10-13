@@ -90,6 +90,10 @@ local PREMIUM_PREVIEW_DIAMETER = 2 -- studs; the camera is placed to fit this
 local PREMIUM_CAMERA_DISTANCE = 4.6
 local PREMIUM_ORBIT_SPEED = 0.45 -- radians per second the preview camera circles the ball
 local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+-- Earned animated balls (Config.EarnedBalls: Infinity, Smashbot): one card each in SHOP.
+local EARNED_CARD_H = 140
+local EARNED_VIEW = 76 -- the preview square
+local EARNED_BUTTON_W = 92
 -- The equipped ball at the end of the PLAY button.
 local MENU_BALL_VIEW = 42 -- the window square (PLAY's face is 50 tall)
 local MENU_BALL_SPIN = 0.9 -- radians per second the camera circles it
@@ -1601,7 +1605,7 @@ function UI._buildMenuBall(self, face)
 		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
 			lastMeshCheck = now
 			-- meshTriedFor: one swap per skin, so a model that still can't be used doesn't rebuild every second.
-			if not preview.mesh and ball.meshTriedFor ~= ball.skinId and BallFx.isPremium(ball.skinId) and BallFx.hasMesh(ball.skinId) then
+			if not preview.mesh and ball.meshTriedFor ~= ball.skinId and BallFx.isAnimated(ball.skinId) and BallFx.hasMesh(ball.skinId) then
 				ball.meshTriedFor = ball.skinId
 				self:_showMenuBall(ball.skinId, true) -- the Blender model has loaded
 				preview = ball.preview
@@ -2472,6 +2476,9 @@ function UI._buildMenuPanel(self, root)
 	if #(Config.PremiumBalls or {}) > 0 then
 		self:_buildPremiumBalls(shopPage, -20)
 	end
+	if #(Config.EarnedBalls or {}) > 0 then
+		self:_buildEarnedBalls(shopPage, -12)
+	end
 	local starter = Config.Products.StarterPack
 	if starter and starter.Id ~= 0 then
 		m.starterHeader = sectionHeader(shopPage, 1, "05.0", "STARTER PACK")
@@ -2497,7 +2504,8 @@ function UI._buildMenuPanel(self, root)
 	m.skinCards = {}
 	local skinButtons = {}
 	for order, skin in Config.Skins do
-		if not skin.Premium then -- premium balls have their own section (Robux only)
+		-- Premium (Robux) and earned animated balls have their own sections.
+		if not Config.isAnimatedSkin(skin) then
 			local entry = self:_buildSkinCard(grid, skin, order)
 			m.skinCards[skin.Id] = entry
 			table.insert(skinButtons, entry.button.holder)
@@ -4308,6 +4316,7 @@ end
 
 function UI._refreshSkins(self)
 	self:_refreshPremium()
+	self:_refreshEarned()
 	local m = self._menu
 	if not m or not m.skinCards then
 		return
@@ -4318,8 +4327,8 @@ function UI._refreshSkins(self)
 	local ownedCount = 0
 	local total = 0
 	for _, skin in Config.Skins do
-		if skin.Premium then
-			continue
+		if Config.isAnimatedSkin(skin) then
+			continue -- premium / earned animated balls: their own sections
 		end
 		total += 1
 		if owned[skin.Id] then
@@ -4746,6 +4755,301 @@ function UI._equipPremium(self)
 		p.busy = false
 		if ok then
 			self:toast(string.upper(Config.getSkin(id).Name) .. " EQUIPPED", "reward")
+		else
+			self:toast(message or "COULD NOT EQUIP", "error")
+		end
+		self:_refreshSkins()
+	end)
+end
+
+-- Earned animated balls ----------------------------------------------------------------
+-- Below the premium balls: one paper card per earned ball (Config.EarnedBalls, e.g.
+-- Infinity for reaching ZONE 50, Smashbot for 50,000 glass in total). Same animated
+-- 3D model as the premium balls, but NEVER sold: a locked card shows how to get it
+-- and how far along you are (a thin meter); once earned it equips like any ball.
+
+-- How far along the player is for an earned ball: current, goal, label ("GLASS" / "ZONE").
+-- nil when the ball has no measurable goal (then only its Source text shows).
+local function earnedProgress(skin)
+	local unlock = skin.Unlock
+	if type(unlock) == "table" and type(unlock.Stat) == "string" and tonumber(unlock.Amount) then
+		local stats = decodeJson(player:GetAttribute("Stats"))
+		local value = if type(stats) == "table" then tonumber(stats[unlock.Stat]) else nil
+		return value or 0, tonumber(unlock.Amount), string.upper(unlock.Stat)
+	end
+	-- A zone reward (Config.ZoneRewards[zone].Skin): progress = furthest zone reached.
+	for zone, reward in Config.ZoneRewards do
+		if reward.Skin == skin.Id then
+			return attrNumber("Checkpoint", 0), zone, "ZONE"
+		end
+	end
+	return nil
+end
+
+function UI._buildEarnedBalls(self, parent, order)
+	local m = self._menu
+	local e = { cards = {}, order = {} }
+	m.earned = e
+
+	local _, right = sectionHeader(parent, order, "05.E", "EARNED BALLS")
+	e.right = right
+	text({
+		Text = "NOT FOR SALE. EARN THEM, THEN EQUIP THEM LIKE ANY BALL",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextWrapped = true,
+		Size = UDim2.new(1, 0, 0, 12),
+		LayoutOrder = order + 1,
+		Parent = parent,
+	})
+	for index, id in Config.EarnedBalls do
+		local entry = self:_buildEarnedCard(parent, order + 1 + index, id, index)
+		e.cards[id] = entry
+		table.insert(e.order, entry)
+	end
+
+	-- One frame loop animates every card's preview, only while SHOP is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		if not m.root.Visible or m.tab ~= TAB_SHOP then
+			return
+		end
+		local now = os.clock()
+		local checkMesh = now - lastMeshCheck > PREMIUM_MESH_CHECK
+		if checkMesh then
+			lastMeshCheck = now
+		end
+		local angle = now * PREMIUM_ORBIT_SPEED
+		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		for _, entry in e.order do
+			-- The Blender model finished loading: swap the part-built stand-in (once).
+			if checkMesh and entry.preview and not entry.preview.mesh and not entry.meshTried and BallFx.hasMesh(entry.skin.Id) then
+				entry.meshTried = true
+				self:_showEarnedPreview(entry)
+			end
+			if entry.preview then
+				entry.preview.step(now)
+				entry.camera.CFrame = CFrame.lookAt(eye, Vector3.zero)
+			end
+		end
+	end))
+	self:_refreshEarned()
+end
+
+function UI._buildEarnedCard(self, parent, order, id, index)
+	local skin = Config.getSkin(id)
+	local card = new("Frame", { Name = id, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, EARNED_CARD_H), LayoutOrder = order, Parent = parent })
+	local outline = stroke(card, 1, INK, 0.5)
+	notch(card, 10, 0, 0)
+
+	-- 3D preview: an ink window with the blueprint grid, like the premium one.
+	local backing = new("Frame", {
+		Name = "PreviewBacking",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(EARNED_VIEW, EARNED_VIEW),
+		Parent = card,
+	})
+	local grid = blueprintGrid(backing, 4, 4, 0.88)
+	for _, line in grid:GetChildren() do
+		line.BackgroundColor3 = PAPER
+	end
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = backing,
+	})
+	brackets(backing, 6, 1, 0.2)
+	for _, item in backing:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	text({ Text = "E-" .. twoDigits(index), TextSize = 8, TextColor3 = PAPER, ZIndex = 2, Position = UDim2.fromOffset(4, 2), Size = UDim2.fromOffset(40, 10), Parent = backing })
+
+	-- Right of the preview: what it is.
+	local x = EARNED_VIEW + 14
+	setAccent(text({
+		Text = "EARNED BALL / NOT FOR SALE",
+		TextSize = 8,
+		Position = UDim2.fromOffset(x, 8),
+		Size = UDim2.new(1, -(x + 8), 0, 10),
+		Parent = card,
+	}), "TextColor3")
+	capText(text({
+		Name = "BallName",
+		Text = string.upper(skin.Name),
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(x, 20),
+		Size = UDim2.new(1, -(x + 8), 0, 18),
+		Parent = card,
+	}), 14, 8)
+	text({
+		Name = "Desc",
+		Text = skin.Text or "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(x, 42),
+		Size = UDim2.new(1, -(x + 8), 0, 36),
+		Parent = card,
+	})
+
+	-- Bottom row: how to get it + progress meter, and the action button.
+	local columnWidth = -(6 + EARNED_BUTTON_W + 10)
+	local goal = capText(text({
+		Name = "Goal",
+		Text = "",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(6, 90),
+		Size = UDim2.new(1, columnWidth, 0, 13),
+		Parent = card,
+	}), 10, 6)
+	local track, fill = meter(card, { Name = "Meter", Position = UDim2.fromOffset(6, 108), Size = UDim2.new(1, columnWidth, 0, 3) })
+	local status = text({
+		Name = "Status",
+		Text = "",
+		TextSize = 8,
+		TextColor3 = GREY,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(6, 116),
+		Size = UDim2.new(1, columnWidth, 0, 12),
+		Parent = card,
+	})
+
+	local entry = {
+		skin = skin,
+		outline = outline,
+		view = view,
+		camera = viewCamera,
+		goal = goal,
+		meter = track,
+		fill = fill,
+		status = status,
+		busy = false,
+		state = "locked",
+	}
+	entry.button = hardButton(card, {
+		Name = "Action",
+		Fill = "paper",
+		Text = "LOCKED",
+		TextSize = 11,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -6, 1, -6),
+		Size = UDim2.fromOffset(EARNED_BUTTON_W, 46),
+		OnClick = function()
+			self:_earnedAction(entry)
+		end,
+	})
+	entry.button.onBlocked = function()
+		if entry.state == "locked" then
+			self:toast(string.upper(skin.Name) .. ": " .. string.upper(skin.Source or "EARN IT"), "info")
+		end
+	end
+	self:_showEarnedPreview(entry)
+	return entry
+end
+
+function UI._showEarnedPreview(self, entry)
+	if entry.preview then
+		entry.preview.destroy()
+		entry.preview = nil
+	end
+	local ok, preview = pcall(BallFx.preview, entry.skin.Id, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = entry.view
+		entry.preview = preview
+	else
+		warn("[UI] earned ball preview failed:", preview)
+	end
+end
+
+function UI._refreshEarned(self)
+	local e = self._menu and self._menu.earned
+	if not e then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local ownedCount = 0
+	for _, entry in e.order do
+		local skin = entry.skin
+		local isOwned = owned[skin.Id] == true
+		if isOwned then
+			ownedCount += 1
+		end
+		local current, target, label = earnedProgress(skin)
+		local ratio = 0
+		if target and target > 0 then
+			ratio = math.clamp((current or 0) / target, 0, 1)
+		end
+		if isOwned then
+			ratio = 1
+			entry.goal.Text = "UNLOCKED"
+			entry.status.Text = "EARNED / " .. string.upper(skin.Source or "")
+		elseif target then
+			entry.goal.Text = label .. " " .. commas(math.min(current or 0, target)) .. " / " .. commas(target)
+			entry.status.Text = "LOCKED / " .. string.upper(skin.Source or "")
+		else
+			entry.goal.Text = string.upper(skin.Source or "LOCKED")
+			entry.status.Text = "LOCKED / EARN IT"
+		end
+		entry.fill.Size = UDim2.fromScale(ratio, 1)
+
+		if entry.busy then
+			continue
+		end
+		local button = entry.button
+		if equipped == skin.Id then
+			entry.state = "equipped"
+			button.setFill("accent")
+			button.setText("EQUIPPED")
+			button.sub.Text = ""
+			button.setEnabled(false)
+			entry.outline.Thickness = 2
+			entry.outline.Transparency = 0
+		elseif isOwned then
+			entry.state = "owned"
+			button.setFill("paper")
+			button.setText("EQUIP")
+			button.sub.Text = ""
+			button.setEnabled(true)
+			entry.outline.Thickness = 1
+			entry.outline.Transparency = 0.5
+		else
+			entry.state = "locked"
+			button.setFill("paper")
+			button.setText("LOCKED")
+			button.sub.Text = if target then math.floor(ratio * 100) .. "%" else ""
+			button.setEnabled(false)
+			entry.outline.Thickness = 1
+			entry.outline.Transparency = 0.5
+		end
+	end
+	e.right.Text = ownedCount .. " / " .. #e.order .. " OWNED"
+end
+
+function UI._earnedAction(self, entry)
+	if entry.busy or entry.state ~= "owned" then
+		return
+	end
+	entry.busy = true
+	entry.button.setEnabled(false)
+	entry.button.setText("EQUIPPING")
+	task.spawn(function()
+		local ok, message = self:_ask("onEquipSkin", entry.skin.Id)
+		entry.busy = false
+		if ok then
+			self:toast(string.upper(entry.skin.Name) .. " EQUIPPED", "reward")
 		else
 			self:toast(message or "COULD NOT EQUIP", "error")
 		end
@@ -7077,6 +7381,7 @@ function UI.new(callbacks)
 		self:_refreshStats()
 	end)
 	onAttribute("Checkpoint", function()
+		self:_refreshEarned() -- REACH ZONE progress
 		self:_rebuildZones()
 		self:_rebuildPasses() -- the CHECKPOINTS card shows once a zone is reached
 	end)
@@ -7165,6 +7470,7 @@ function UI.new(callbacks)
 	end)
 	onAttribute("Stats", function()
 		self:_checkWelcome()
+		self:_refreshEarned() -- lifetime glass progress (Smashbot)
 	end)
 	for _, name in { "SeasonName", "SeasonEnds" } do
 		connect(ReplicatedStorage:GetAttributeChangedSignal(name), function()

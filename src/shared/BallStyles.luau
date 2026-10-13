@@ -1,12 +1,15 @@
 --[[
-	Look + animation of each premium ball's parts, and its trail / particles / light.
+	Look + animation of each animated ball's parts (premium + earned), and its trail / particles / light.
 	Generated from assets/balls/manifest.json by tools/roblox_setup.py (write_ball_styles) - edit the
 	manifest and run it again instead of editing this by hand.
 	Parts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own
 	space (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).
 	src/client/BallFx.luau uses this.
-	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse? } },
+	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker? } },
 	                   Fx = { Trail?, Particles = { ... }, Light? } }
+	Flicker = { Hz, Min, Max }: the part's transparency jumps at random between Min and Max
+	about Hz times a second (lightning arcs).
+	Lite = true: a spinning part that cheap 'lite' balls (extra multiball balls) still show, standing still.
 ]]
 
 return {
@@ -116,6 +119,51 @@ return {
 				{ Texture = "fire", Color = Color3.fromRGB(255, 150, 40), Rate = 25, Size = { 0.3, 0.8 }, Lifetime = { 0.25, 0.5 }, Speed = { 0.5, 1.5 }, LightEmission = 1 },
 			},
 			Light = { Color = Color3.fromRGB(255, 200, 110), Range = 14, Brightness = 3 },
+		},
+	},
+	Infinity = {
+		Diameter = 2,
+		Size = Vector3.new(2, 1.535, 1.998),
+		Parts = {
+			Core = { Color = Color3.fromRGB(5, 3, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			ArmsA = { Color = Color3.fromRGB(112, 100, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.215, 0.977), Rps = 0.1 }, Lite = true },
+			ArmsB = { Color = Color3.fromRGB(255, 92, 214), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.215, 0.977), Rps = 0.1 }, Lite = true },
+			Stars = { Color = Color3.fromRGB(240, 232, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.215, 0.977), Rps = 0.1 }, Lite = true },
+			Shell = { Color = Color3.fromRGB(70, 44, 140), Material = Enum.Material.Glass, Transparency = 0.55 },
+			RingA = { Color = Color3.fromRGB(255, 196, 78), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.28 }, Lite = true },
+			RingB = { Color = Color3.fromRGB(255, 236, 186), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.559, 0.829, 0), Rps = -0.36 } },
+			BoltsA = { Color = Color3.fromRGB(80, 225, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.282, 0.941, -0.188), Rps = 1.4 }, Flicker = { Hz = 9, Min = 0, Max = 1 } },
+			BoltsB = { Color = Color3.fromRGB(190, 245, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(-0.337, 0.842, -0.421), Rps = -1.9 }, Flicker = { Hz = 13, Min = 0, Max = 1 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(120, 60, 240), Color2 = Color3.fromRGB(255, 228, 150), Lifetime = 0.5, WidthScale = 1.25 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 240, 205), Rate = 30, Size = { 0.12, 0.38 }, Lifetime = { 0.4, 1 }, Speed = { 0.6, 2.2 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(150, 225, 255), Rate = 16, Size = { 0.06, 0.16 }, Lifetime = { 0.12, 0.3 }, Speed = { 2.5, 5 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(165, 110, 255), Range = 12, Brightness = 2.4 },
+		},
+	},
+	Smashbot = {
+		Diameter = 2,
+		Size = Vector3.new(1.957, 1.949, 1.763),
+		Parts = {
+			Core = { Color = Color3.fromRGB(255, 150, 32), Material = Enum.Material.Neon, Transparency = 0 },
+			Plates = { Color = Color3.fromRGB(86, 94, 110), Material = Enum.Material.Metal, Transparency = 0, Pulse = { Min = 1, Max = 1.15, Hz = 0.5 } },
+			Rivets = { Color = Color3.fromRGB(196, 202, 214), Material = Enum.Material.Metal, Transparency = 0, Pulse = { Min = 1, Max = 1.15, Hz = 0.5 } },
+			Stripes = { Color = Color3.fromRGB(255, 118, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0, Pulse = { Min = 1, Max = 1.15, Hz = 0.5 } },
+			Socket = { Color = Color3.fromRGB(30, 33, 41), Material = Enum.Material.Metal, Transparency = 0 },
+			Lens = { Color = Color3.fromRGB(35, 226, 255), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.975, Max = 1.03, Hz = 1.1 } },
+			Pupil = { Color = Color3.fromRGB(225, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.975, Max = 1.03, Hz = 1.1 } },
+			Gear = { Color = Color3.fromRGB(255, 128, 22), Material = Enum.Material.Metal, Transparency = 0, Spin = { Axis = Vector3.new(0.237, 0.208, 0.949), Rps = 0.3 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(255, 140, 30), Color2 = Color3.fromRGB(40, 220, 255), Lifetime = 0.35, WidthScale = 1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 170, 60), Rate = 26, Size = { 0.08, 0.2 }, Lifetime = { 0.2, 0.45 }, Speed = { 2.5, 6 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(120, 235, 255), Rate = 10, Size = { 0.1, 0.24 }, Lifetime = { 0.3, 0.6 }, Speed = { 0.4, 1.2 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(80, 220, 255), Range = 10, Brightness = 2 },
 		},
 	},
 }
