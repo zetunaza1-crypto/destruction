@@ -605,7 +605,7 @@ Config.LOW_ROOM_TEARDOWN_BUDGET = 0.0004
 Config.ROOM_FORCE_DISTANCE = 40
 Config.CRYSTAL_SPIN_RANGE = 150 -- only crystals this close (studs) spin
 Config.SHADOW_LIGHT_ROOMS = 2 -- shadow-casting lights only in the room you're in and the next one (High graphics, not phones)
-Config.SHOW_PERF = true -- playtest build: small FPS / worst frame / part count label in the bottom-left corner
+Config.SHOW_PERF = false -- true = playtest build: small FPS / worst frame / part count label in the bottom-left corner
 
 -- Glass breaking ---------------------------------------------------------------
 -- Shards are reused from a pool (no creating / deleting parts per break), land on

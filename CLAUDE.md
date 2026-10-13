@@ -52,6 +52,10 @@ plus assets (read/write) for uploads. The key's "experience" scope must include 
 Owner must do by hand in Creator Hub: maturity/content questionnaire, genre, visibility (public),
 icon/thumbnails upload if the API can't (files in assets/images).
 
+## Launch status
+Launched (public) with Config.SHOW_PERF = false. Earned animated balls: Infinity (zone 50), Smashbot (50,000 glass).
+Endless zone milestones in Config.ZoneRewards. Key still lacks universe:write (voice chat is set by hand in Creator Hub).
+
 ## Next session
 Shatter Run = universe 10770617881, start place 85718900803679 (NOT "Scorched Earth" 10258084678 - never touch it).
 The key works (network secret on apis.roblox.com, header x-api-key). Done: sounds, models, 3 game passes,
