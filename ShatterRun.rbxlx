@@ -9332,6 +9332,8 @@ local MEGA_HAND_BLEND_TIME = 0.15 -- seconds a giant ball's drawing takes to joi
 local AIM_RANGE = 120 -- studs checked ahead of a throw to find what it will hit
 local HAND_LINE_MIN = 0.04 -- seconds: shortest / longest time a normal ball is drawn on the
 local HAND_LINE_MAX = 0.3 --   straight line from the hand to where it hits (see throwAlong)
+local LANE_SPACING = Config.BALL_RADIUS * 2 + 0.1 -- studs between multiball balls flying side by side
+local MAX_LIFT_TIME = 0.6 -- seconds of fall the gravity aim-up makes up for at most
 local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
 
 -- Boosts
@@ -9958,27 +9960,37 @@ local function throwAlong(ray)
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
 	local trailScale = 1 + speedShare * TRAIL_SPEED_BONUS
-	-- Only the middle ball of a multiball fan gets the full premium look (perf).
-	local hero = math.ceil(multiball / 2)
+	-- Multiball: the balls fly side by side, parallel and nearly touching (not
+	-- in a fan, which drifts apart far away and leaves a gap where you aimed).
+	-- The first ball always flies exactly where you aimed; extra balls go
+	-- alternately to the other hand's side and to this hand's side.
+	local right = aimDirection:Cross(Vector3.yAxis)
+	right = if right.Magnitude > 0.01 then right.Unit else Vector3.xAxis
+	local throwSide = firstSide or 1
+	local spacing = if mega then MEGA_RADIUS * 1.8 else LANE_SPACING
+	-- Gravity pulls a ball down on its way; aim it a touch higher so it lands
+	-- right where you tapped (only when you tapped something within range).
+	local lift = Vector3.zero
 	for i = 1, multiball do
-		-- Spread extra balls out in a small fan around the aim.
-		local offset = i - (multiball + 1) / 2
-		local fan = CFrame.fromAxisAngle(Vector3.yAxis, offset * 0.05)
-		local direction = fan:VectorToWorldSpace(aimDirection)
-		local lite = i ~= hero
-		-- Both hands throwing: the balls fanning right are drawn from the right
-		-- hand, the ones fanning left from the left hand, the middle one from the first.
-		local fanSide = if offset < 0 then 1 else -1
-		local useSecond = bothHands and offset ~= 0 and fanSide ~= firstSide
+		local k = i - 1
+		local lane = if k == 0 then 0 else math.ceil(k / 2) * (if k % 2 == 1 then -throwSide else throwSide)
+		local laneOffset = right * (lane * spacing)
+		local lite = i ~= 1 -- only the middle ball gets the full premium look (perf)
+		-- Drawn from the hand on its side (the middle one from the throwing hand).
+		local useSecond = bothHands and lane ~= 0 and (if lane > 0 then 1 else -1) ~= throwSide
 		local handSpot = if useSecond then secondSpot else firstSpot
 		if mega then
 			-- Giant balls are swept from the camera: a sphere cast can't hit what it
 			-- already overlaps at its start.
-			spawnBall(ray.Origin, direction * Config.BALL_SPEED + carry, true, direction * startDistance, lite, trailScale, handSpot, MEGA_HAND_BLEND_TIME)
+			spawnBall(ray.Origin + laneOffset, aimDirection * Config.BALL_SPEED + carry, true, aimDirection * startDistance, lite, trailScale, handSpot, MEGA_HAND_BLEND_TIME)
 		else
-			local velocity = velocityAlong(direction, carry)
-			local lineTime = math.clamp((aimDistance - startDistance) / velocity.Magnitude, HAND_LINE_MIN, HAND_LINE_MAX)
-			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, lite, trailScale, handSpot, lineTime)
+			local velocity = velocityAlong(aimDirection, carry)
+			local flightTime = (aimDistance - startDistance) / velocity.Magnitude
+			if i == 1 and aimHit then
+				lift = Vector3.yAxis * (0.5 * Config.BALL_GRAVITY * math.min(flightTime, MAX_LIFT_TIME))
+			end
+			local lineTime = math.clamp(flightTime, HAND_LINE_MIN, HAND_LINE_MAX)
+			spawnBall(ray.Origin + aimDirection * startDistance + laneOffset, velocity + lift, false, nil, lite, trailScale, handSpot, lineTime)
 		end
 	end
 
