@@ -96,6 +96,32 @@ Config.Sounds = {
 	Music = 0,
 }
 
+-- 3D models ------------------------------------------------------------------
+-- Blender models from assets/models/, uploaded to Roblox as Model assets.
+-- Paste each asset ID here. 0 = use the built-in block version instead.
+Config.Models = {
+	Crystal = 0,
+	GlassVase = 0,
+	GlassBottle = 0,
+	GlassUrn = 0,
+	GlassLantern = 0,
+	Flask = 0,
+	TestTubeRack = 0,
+	GlassOrb = 0,
+	NeonTube = 0,
+	Pillar = 0,
+	Brazier = 0,
+	Planter = 0,
+	Plant = 0,
+	HangingVine = 0,
+	LabBench = 0,
+	ServerRack = 0,
+	CeilingLight = 0,
+	PipeRun = 0,
+	Vent = 0,
+	Crate = 0,
+}
+
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
 -- Style picks the room decoration set in src/client/Decor.luau.
 Config.Themes = {

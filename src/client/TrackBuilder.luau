@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Decor = require(script.Parent.Decor)
+local Models = require(script.Parent.Models)
 
 local WIDTH = Config.CORRIDOR_WIDTH
 local HEIGHT = Config.CORRIDOR_HEIGHT
@@ -42,6 +43,7 @@ TrackBuilder.HEIGHT = HEIGHT
 TrackBuilder.LENGTH = LENGTH
 TrackBuilder.ORIGIN = ORIGIN
 TrackBuilder.EYE_Y = EYE_Y
+TrackBuilder.Models = Models
 
 function TrackBuilder.themeFor(roomIndex)
 	local checkpoint = roomIndex // Config.ROOMS_PER_CHECKPOINT
@@ -78,7 +80,31 @@ function TrackBuilder:addGlass(room, position, size)
 	return glass
 end
 
+-- Uses the Blender gem when it's uploaded, a rotated neon cube otherwise.
+local function meshCrystal(parent, position)
+	local model = Models.place("Crystal", parent, CFrame.new(position), { anchor = "center", kind = "Crystal" })
+	if not model then
+		return nil
+	end
+	local gem = model:FindFirstChildWhichIsA("BasePart", true)
+	if not gem then
+		model:Destroy()
+		return nil
+	end
+	gem.Parent = parent
+	model:Destroy()
+	gem.Name = "Crystal"
+	gem.Material = Enum.Material.Neon
+	gem.Color = Config.CRYSTAL_COLOR
+	return gem
+end
+
 function TrackBuilder:addCrystal(room, position)
+	local gem = meshCrystal(room.folder, position)
+	if gem then
+		table.insert(room.crystals, gem)
+		return
+	end
 	local crystal = newPart(room.folder, "Crystal", {
 		Name = "Crystal",
 		Size = Vector3.new(1.6, 1.6, 1.6),

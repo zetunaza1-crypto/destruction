@@ -245,10 +245,15 @@ end
 -- Breakable decorations (vases, bottles, lamps...). Each part bursts into
 -- small random shards. Hitting any part of a breakable Model breaks all of it.
 function Shatter.prop(part, hitPoint, push, parent)
+	-- Walk up to the breakable model this part belongs to (if any).
 	local root = part
-	local model = part:FindFirstAncestorWhichIsA("Model")
-	if model and model:GetAttribute("Breakable") then
-		root = model
+	local ancestor = part.Parent
+	while ancestor and ancestor ~= workspace do
+		if ancestor:IsA("Model") and ancestor:GetAttribute("Breakable") then
+			root = ancestor
+			break
+		end
+		ancestor = ancestor.Parent
 	end
 
 	local pieces = if root:IsA("BasePart") then { root } else {}
