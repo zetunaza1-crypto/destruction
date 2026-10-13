@@ -14321,8 +14321,8 @@ local MENU_H = 340 -- height of the left menu column (the full reference sheet)
 local ZONE_CARD_Y = 0.3 -- zone / level card top, as a fraction of the screen (clear of the HUD plates)
 local BACK_ACTION = "ShatterRunUIBack" -- ContextActionService name for gamepad B (only bound while a popover is open)
 
-local ZONE_CARD_TIME = 1.6
-local LEVEL_CARD_TIME = 2.4
+local ZONE_CARD_TIME = 0.9 -- short: the next glass is already coming
+local LEVEL_CARD_TIME = 2.4 -- only away from a run (during one, a level up is a side toast)
 local TOAST_TIME = 2
 local MAX_TOASTS = 3
 
@@ -20838,16 +20838,16 @@ function UI._showZoneCard(self, value, heading, subline, duration)
 	z.ruleLeft.Size = UDim2.fromOffset(0, 1)
 	z.ruleRight.Size = UDim2.fromOffset(0, 1)
 	z.bar.Size = UDim2.new(0, 0, 0, 5)
-	tween(z.card, 0.3, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, ZONE_CARD_Y) })
-	tween(z.ruleLeft, 0.35, { Size = UDim2.fromOffset(120, 1) })
-	tween(z.ruleRight, 0.35, { Size = UDim2.fromOffset(120, 1) })
+	tween(z.card, 0.2, { GroupTransparency = 0, Position = UDim2.fromScale(0.5, ZONE_CARD_Y) })
+	tween(z.ruleLeft, 0.25, { Size = UDim2.fromOffset(120, 1) })
+	tween(z.ruleRight, 0.25, { Size = UDim2.fromOffset(120, 1) })
 	tween(z.bar, holdTime, { Size = UDim2.new(1, 0, 0, 5) }, Enum.EasingStyle.Linear)
 	task.delay(holdTime, function()
 		if z.token ~= token then
 			return
 		end
-		tween(z.card, 0.25, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, ZONE_CARD_Y, -10) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-		task.delay(0.26, function()
+		tween(z.card, 0.2, { GroupTransparency = 1, Position = UDim2.new(0.5, 0, ZONE_CARD_Y, -10) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		task.delay(0.21, function()
 			if z.token == token then
 				z.card.Visible = false
 			end
@@ -22007,7 +22007,12 @@ function UI:showProgress(event)
 			end
 		end
 		local subline = table.concat(parts, " / ")
-		self:_showZoneCard("LEVEL " .. twoDigits(level), "LEVEL UP", subline, LEVEL_CARD_TIME)
+		-- Mid-run the big center card would hide the glass ahead (and replace the
+		-- ZONE card, which often arrives at the same moment), so only the toast shows.
+		local running = self._hud.layer.Visible and not self._over.root.Visible
+		if not running then
+			self:_showZoneCard("LEVEL " .. twoDigits(level), "LEVEL UP", subline, LEVEL_CARD_TIME)
+		end
 		self:toast("LEVEL " .. twoDigits(level) .. (if subline ~= "" then " / " .. subline else ""), "level")
 	elseif kind == "MissionComplete" then
 		self:toast("MISSION COMPLETE: " .. tostring(event.text or ""), "reward")
