@@ -133,17 +133,18 @@ assert not any("Ball" + _ball_id in PRODUCTS for _ball_id in EARNED_BALLS), "an 
 
 EXPERIENCE_NAME = "Shatter Run"
 EXPERIENCE_DESCRIPTION = (
-    "Smash your way through walls of glass!\n\n"
-    "Throw balls to shatter glass as you fly through 10 colorful zones: a science lab, "
-    "a neon city, an ancient temple, a greenhouse, the Void, a frozen cave, a magma forge, "
-    "a deep aquarium, a sky citadel and the Crystal Core. Watch out - every crash "
-    "costs you balls!\n\n"
-    "- Collect crystals to earn more balls\n"
-    "- Unlock cool ball skins, epic animated balls and shatter effects\n"
-    "- Use boosts like Magnet, Slow-Mo and Mega Ball when you need them\n"
-    "- Daily missions, a 7-day streak and free daily rewards\n"
-    "- Level up and climb the season pass\n\n"
-    "Works on computer, phone, tablet and console."
+    "💥 Smash your way through walls of glass! 💥\n\n"
+    "🏃 Throw balls to shatter glass as you fly through 10 colorful zones: "
+    "🧪 a science lab, 🌃 a neon city, 🏛️ an ancient temple, 🌿 a greenhouse, 🌌 the Void, "
+    "❄️ a frozen cave, 🌋 a magma forge, 🐠 a deep aquarium, ☁️ a sky citadel and 💎 the Crystal Core.\n"
+    "⚠️ Watch out - every crash costs you balls!\n\n"
+    "💎 Collect crystals to earn more balls\n"
+    "🎨 Unlock cool ball skins, epic animated balls and shatter effects\n"
+    "🧲 Use boosts like Magnet, Slow-Mo and Mega Ball when you need them\n"
+    "📅 Daily missions, a 7-day streak and free daily rewards\n"
+    "⭐ Level up and climb the season pass\n"
+    "🏆 How far can you go? Reach Zone 50 for the legendary Infinity ball!\n\n"
+    "📱💻🎮 Works on phone, tablet, computer and console."
 )
 SERVER_SIZE = 20
 
