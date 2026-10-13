@@ -195,11 +195,14 @@ function TrackBuilder:addGlass(room, position, size, optional)
 	-- and disappears with the pane when it shatters. Hidden until the room is
 	-- near (setOutlinesNear), and edges only on Low graphics.
 	if not optional or #room.outlines < OUTLINE_CAP_PER_ROOM then
-		local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+		local theme = room.theme
+		local edge = theme and theme.GlassEdge
+		local accent = edge or (if theme and theme.Accent then theme.Accent else Color3.fromRGB(90, 200, 255))
 		local outline = Instance.new("SelectionBox")
 		outline.Name = "Outline"
 		outline.Adornee = glass
-		outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+		-- A zone's own glass color (GlassEdge) is used as is; the accent is lightened a bit.
+		outline.Color3 = if edge then edge else accent:Lerp(Color3.new(1, 1, 1), 0.25)
 		outline.LineThickness = GLASS_OUTLINE_THICKNESS
 		outline.SurfaceColor3 = accent
 		outline.SurfaceTransparency = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE

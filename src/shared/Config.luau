@@ -445,10 +445,12 @@ Config.Models = {
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
 -- Style picks the room decoration set in src/client/Decor.luau.
+-- GlassEdge (optional): glass outline color when the accent would blend into the room.
 Config.Themes = {
 	{
 		Wall = Color3.fromRGB(235, 238, 245),
 		Accent = Color3.fromRGB(90, 200, 255),
+		GlassEdge = Color3.fromRGB(30, 120, 255), -- a deeper blue than the accent, so it reads on the pale walls
 		Fog = Color3.fromRGB(215, 230, 245),
 		Style = "Lab", -- decoration set used by Decor.luau
 		Name = "LAB",
@@ -484,6 +486,7 @@ Config.Themes = {
 	{
 		Wall = Color3.fromRGB(196, 222, 240),
 		Accent = Color3.fromRGB(110, 215, 255),
+		GlassEdge = Color3.fromRGB(80, 60, 255), -- cyan glass outlines vanished against the ice
 		Fog = Color3.fromRGB(165, 200, 228),
 		Style = "Frost", -- decoration set used by Decor.luau
 		Name = "FROST CAVERNS",
@@ -498,6 +501,7 @@ Config.Themes = {
 	{
 		Wall = Color3.fromRGB(28, 72, 88),
 		Accent = Color3.fromRGB(60, 255, 215),
+		GlassEdge = Color3.fromRGB(255, 205, 60), -- cyan glass outlines vanished against the teal water
 		Fog = Color3.fromRGB(14, 58, 74),
 		Style = "Aquarium", -- decoration set used by Decor.luau
 		Name = "DEEP AQUARIUM",

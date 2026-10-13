@@ -678,10 +678,12 @@ Config.Models = {
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
 -- Style picks the room decoration set in src/client/Decor.luau.
+-- GlassEdge (optional): glass outline color when the accent would blend into the room.
 Config.Themes = {
 	{
 		Wall = Color3.fromRGB(235, 238, 245),
 		Accent = Color3.fromRGB(90, 200, 255),
+		GlassEdge = Color3.fromRGB(30, 120, 255), -- a deeper blue than the accent, so it reads on the pale walls
 		Fog = Color3.fromRGB(215, 230, 245),
 		Style = "Lab", -- decoration set used by Decor.luau
 		Name = "LAB",
@@ -717,6 +719,7 @@ Config.Themes = {
 	{
 		Wall = Color3.fromRGB(196, 222, 240),
 		Accent = Color3.fromRGB(110, 215, 255),
+		GlassEdge = Color3.fromRGB(80, 60, 255), -- cyan glass outlines vanished against the ice
 		Fog = Color3.fromRGB(165, 200, 228),
 		Style = "Frost", -- decoration set used by Decor.luau
 		Name = "FROST CAVERNS",
@@ -731,6 +734,7 @@ Config.Themes = {
 	{
 		Wall = Color3.fromRGB(28, 72, 88),
 		Accent = Color3.fromRGB(60, 255, 215),
+		GlassEdge = Color3.fromRGB(255, 205, 60), -- cyan glass outlines vanished against the teal water
 		Fog = Color3.fromRGB(14, 58, 74),
 		Style = "Aquarium", -- decoration set used by Decor.luau
 		Name = "DEEP AQUARIUM",
@@ -9588,7 +9592,7 @@ local MEGA_HAND_BLEND_TIME = 0.15 -- seconds a giant ball's drawing takes to joi
 local AIM_RANGE = 120 -- studs checked ahead of a throw to find what it will hit
 local HAND_LINE_MIN = 0.04 -- seconds: shortest / longest time a normal ball is drawn on the
 local HAND_LINE_MAX = 0.3 --   straight line from the hand to where it hits (see throwAlong)
-local LANE_SPACING = Config.BALL_RADIUS * 2 + 0.1 -- studs between multiball balls flying side by side
+local LANE_SPACING = Config.BALL_RADIUS * 2 + 0.1 -- studs between neighbouring multiball balls
 local MAX_LIFT_TIME = 0.6 -- seconds of fall the gravity aim-up makes up for at most
 local TRAIL_SPEED_BONUS = 0.6 -- trails last up to this much longer at top speed
 
@@ -10217,37 +10221,38 @@ local function throwAlong(ray)
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	local speedShare = math.clamp((speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED), 0, 1)
 	local trailScale = 1 + speedShare * TRAIL_SPEED_BONUS
-	-- Multiball: the balls fly side by side, parallel and nearly touching (not
-	-- in a fan, which drifts apart far away and leaves a gap where you aimed).
-	-- The first ball always flies exactly where you aimed; extra balls go
-	-- alternately to the other hand's side and to this hand's side.
+	-- Multiball: the balls fly together in a tight ring around where you aimed
+	-- (2 = side by side, 3 = triangle, 4 = square, 5 = pentagon), all parallel,
+	-- so the group stays the same size however far it flies.
 	local right = aimDirection:Cross(Vector3.yAxis)
 	right = if right.Magnitude > 0.01 then right.Unit else Vector3.xAxis
+	local up = right:Cross(aimDirection).Unit
 	local throwSide = firstSide or 1
-	local spacing = if mega then MEGA_RADIUS * 1.8 else LANE_SPACING
+	local spacing = if mega then MEGA_RADIUS * 1.8 else LANE_SPACING -- between neighbouring balls
+	local ringRadius = if multiball >= 2 then spacing / (2 * math.sin(math.pi / multiball)) else 0
+	-- Pair: level. Odd counts: one ball on top. Square: flat top and bottom.
+	local startAngle = if multiball == 2 then 0 elseif multiball % 2 == 1 then math.pi / 2 else math.pi / multiball
 	-- Gravity pulls a ball down on its way; aim it a touch higher so it lands
 	-- right where you tapped (only when you tapped something within range).
-	local lift = Vector3.zero
+	local velocity = velocityAlong(aimDirection, carry)
+	local flightTime = (aimDistance - startDistance) / velocity.Magnitude
+	local lift = if aimHit then Vector3.yAxis * (0.5 * Config.BALL_GRAVITY * math.min(flightTime, MAX_LIFT_TIME)) else Vector3.zero
+	local lineTime = math.clamp(flightTime, HAND_LINE_MIN, HAND_LINE_MAX)
 	for i = 1, multiball do
-		local k = i - 1
-		local lane = if k == 0 then 0 else math.ceil(k / 2) * (if k % 2 == 1 then -throwSide else throwSide)
-		local laneOffset = right * (lane * spacing)
-		local lite = i ~= 1 -- only the middle ball gets the full premium look (perf)
-		-- Drawn from the hand on its side (the middle one from the throwing hand).
-		local useSecond = bothHands and lane ~= 0 and (if lane > 0 then 1 else -1) ~= throwSide
+		local angle = startAngle + (i - 1) * 2 * math.pi / multiball
+		local across = math.cos(angle) * ringRadius -- + = to the right
+		local offset = right * across + up * (math.sin(angle) * ringRadius)
+		local lite = i ~= 1 -- only one ball gets the full premium look (perf)
+		-- Drawn from the hand on its side (balls in the middle from the throwing hand).
+		local side = if across > 0.05 then 1 elseif across < -0.05 then -1 else throwSide
+		local useSecond = bothHands and side ~= throwSide
 		local handSpot = if useSecond then secondSpot else firstSpot
 		if mega then
 			-- Giant balls are swept from the camera: a sphere cast can't hit what it
 			-- already overlaps at its start.
-			spawnBall(ray.Origin + laneOffset, aimDirection * Config.BALL_SPEED + carry, true, aimDirection * startDistance, lite, trailScale, handSpot, MEGA_HAND_BLEND_TIME)
+			spawnBall(ray.Origin + offset, aimDirection * Config.BALL_SPEED + carry, true, aimDirection * startDistance, lite, trailScale, handSpot, MEGA_HAND_BLEND_TIME)
 		else
-			local velocity = velocityAlong(aimDirection, carry)
-			local flightTime = (aimDistance - startDistance) / velocity.Magnitude
-			if i == 1 and aimHit then
-				lift = Vector3.yAxis * (0.5 * Config.BALL_GRAVITY * math.min(flightTime, MAX_LIFT_TIME))
-			end
-			local lineTime = math.clamp(flightTime, HAND_LINE_MIN, HAND_LINE_MAX)
-			spawnBall(ray.Origin + aimDirection * startDistance + laneOffset, velocity + lift, false, nil, lite, trailScale, handSpot, lineTime)
+			spawnBall(ray.Origin + aimDirection * startDistance + offset, velocity + lift, false, nil, lite, trailScale, handSpot, lineTime)
 		end
 	end
 
@@ -13125,11 +13130,14 @@ function TrackBuilder:addGlass(room, position, size, optional)
 	-- and disappears with the pane when it shatters. Hidden until the room is
 	-- near (setOutlinesNear), and edges only on Low graphics.
 	if not optional or #room.outlines < OUTLINE_CAP_PER_ROOM then
-		local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+		local theme = room.theme
+		local edge = theme and theme.GlassEdge
+		local accent = edge or (if theme and theme.Accent then theme.Accent else Color3.fromRGB(90, 200, 255))
 		local outline = Instance.new("SelectionBox")
 		outline.Name = "Outline"
 		outline.Adornee = glass
-		outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+		-- A zone's own glass color (GlassEdge) is used as is; the accent is lightened a bit.
+		outline.Color3 = if edge then edge else accent:Lerp(Color3.new(1, 1, 1), 0.25)
 		outline.LineThickness = GLASS_OUTLINE_THICKNESS
 		outline.SurfaceColor3 = accent
 		outline.SurfaceTransparency = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE
