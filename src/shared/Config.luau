@@ -47,11 +47,11 @@ Config.DAILY_REWARD_COOLDOWN = 20 * 60 * 60 -- 20 hours, so it fits any daily ro
 Config.DAILY_STREAK_RESET = 48 * 60 * 60
 Config.DailyStreak = {
 	{ Gems = 50 },
-	{ Gems = 75 },
+	{ Gems = 75, Boost = "Shield" },
 	{ Gems = 100 },
 	{ Gems = 150, Balls = 10 }, -- bonus balls added to the next run
-	{ Gems = 200 },
-	{ Gems = 250 },
+	{ Gems = 200, Boost = "MegaBall" },
+	{ Gems = 250, Boost = "DoubleGems" },
 	{ Gems = 500, Fx = "Prism" }, -- exclusive shatter effect
 }
 Config.DAILY_REWARD_GEMS = Config.DailyStreak[1].Gems -- kept for older UI text
@@ -102,7 +102,7 @@ Config.SEASON_ENDS = 0 -- os.time() the season ends (0 = no countdown shown)
 Config.SEASON_TIER_XP = 300
 Config.SeasonTiers = {} -- filled below: SeasonTiers[tier] = { Free = reward?, Premium = reward }
 for tier = 1, 30 do
-	local free = if tier % 3 == 0 then { Gems = 50 + tier * 5 } else nil
+	local free = if tier % 3 == 0 then { Gems = 50 + tier * 5 } elseif tier % 4 == 1 then { Boost = "Shield" } else nil
 	local premium = { Gems = 40 + tier * 6 }
 	if tier == 5 then
 		premium = { Skin = "Neonite" }
@@ -197,7 +197,38 @@ Config.Products = {
 	StarterPack = { Id = 0, Gems = 1000, Skin = "Starter", Fx = "Frost", OneTime = true }, -- ~49 R$
 	-- Unlocks the premium track of the current season pass.
 	SeasonPremium = { Id = 0 }, -- ~199 R$
+
+	-- Impulse buys -----------------------------------------------------------
+	-- Boosts bought with Robux: into your inventory (or used right away mid-run).
+	BoostShield = { Id = 0, Boost = "Shield" }, -- ~10 R$
+	BoostMagnet = { Id = 0, Boost = "Magnet" }, -- ~10 R$
+	BoostDoubleGems = { Id = 0, Boost = "DoubleGems" }, -- ~15 R$
+	BoostMegaBall = { Id = 0, Boost = "MegaBall" }, -- ~15 R$
+	BoostSlowMo = { Id = 0, Boost = "SlowMo" }, -- ~10 R$
+	-- Small gem top-up, offered when a player is just short for something.
+	GemTopUp = { Id = 0, Gems = 150 }, -- ~15 R$
+	-- Extra daily mission reroll.
+	ExtraReroll = { Id = 0 }, -- ~5 R$
+	-- Keeps a broken login streak going (only offered right after it breaks).
+	StreakSaver = { Id = 0 }, -- ~15 R$
 }
+
+-- Boosts --------------------------------------------------------------------------
+-- Picked before a run (from inventory), or bought mid-run. Also earned for free
+-- from streaks, level ups and the season pass so players get a taste first.
+Config.Boosts = {
+	Shield = { Name = "SHIELD", Text = "YOUR NEXT CRASH IS FREE", Gems = 150, Color = Color3.fromRGB(80, 200, 255) },
+	Magnet = { Name = "MAGNET", Text = "CRYSTALS FLY TO YOU", Gems = 120, Duration = 20, Range = 22, Color = Color3.fromRGB(255, 80, 120) },
+	DoubleGems = { Name = "2X GEMS", Text = "DOUBLE GEMS THIS RUN", Gems = 200, Color = Color3.fromRGB(255, 200, 50) },
+	MegaBall = { Name = "MEGA BALL", Text = "NEXT 10 THROWS ARE GIANT", Gems = 150, Throws = 10, Scale = 3, Color = Color3.fromRGB(255, 120, 30) },
+	SlowMo = { Name = "SLOW-MO", Text = "SLOW TIME FOR 8 SECONDS", Gems = 100, Duration = 8, TimeScale = 0.5, Color = Color3.fromRGB(150, 110, 255) },
+}
+Config.BOOST_ORDER = { "Shield", "Magnet", "DoubleGems", "MegaBall", "SlowMo" }
+Config.WELCOME_BOOSTS = { Shield = 1, Magnet = 1, DoubleGems = 1, MegaBall = 1, SlowMo = 1 }
+Config.MAX_BOOSTS_PER_RUN = 3
+Config.LOW_BALLS_OFFER = 8 -- show the mid-run Shield quick-buy at or below this many balls
+-- Every level up also gives one boost, cycling through BOOST_ORDER.
+Config.LEVEL_UP_BOOST = true
 
 Config.GamePasses = {
 	VIP = { Id = 0, ExtraStartBalls = 15, GemMultiplier = 2 }, -- ~149 R$
