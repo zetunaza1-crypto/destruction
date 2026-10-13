@@ -43,8 +43,17 @@ plus assets (read/write) for uploads. The key's "experience" scope must include 
 Owner must do by hand in Creator Hub: maturity/content questionnaire, genre, visibility (public),
 icon/thumbnails upload if the API can't (files in assets/images).
 
-## Next session (needs ROBLOX_API_KEY)
-1. Upload assets/sounds (pick one variant each) -> Config.Sounds IDs.
-2. Upload assets/models/*.fbx as Model assets -> Config.Models IDs (Models.place auto-fits size).
-3. Upload images; create passes/products listed in Config.Products / Config.GamePasses (prices in comments) -> IDs. If Open Cloud can't create passes/products, give the owner a click-by-click list.
-4. Rebuild ShatterRun.rbxlx and send it.
+## Next session (needs the Roblox key working)
+Everything is automated in `tools/roblox_setup.py` (sounds, models, passes, products,
+server settings, IDs into Config.luau, rojo build, publish). Saved IDs live in
+`tools/roblox_ids.json`, so re-running never duplicates anything. Manual steps for the
+owner are in `SETUP.md`.
+Blockers found last session:
+- The Roblox key is set up as a network secret for `create.roblox.com`, but the API
+  lives at `apis.roblox.com`, so calls fail with "Invalid authentication data provided".
+  The owner must change the secret's host to `apis.roblox.com` (SETUP.md step 1).
+- The universe ID and place ID are unknown. The owner's only public experience is
+  "Scorched Earth" (universe 10258084678, place 99548007304061). Don't assume that's
+  Shatter Run; ask first, because publishing would overwrite it.
+Then run: `ROJO=<path to rojo> python3 tools/roblox_setup.py --universe <U> --place <P>`
+(try `--dry-run` first), commit Config.luau + roblox_ids.json + ShatterRun.rbxlx, and send the file.
