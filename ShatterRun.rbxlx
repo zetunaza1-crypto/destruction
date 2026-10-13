@@ -9579,6 +9579,7 @@ local CRASH_MARGIN = 0.25 -- small allowance only: if it looks like you missed t
 local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
 local BALL_STEPS = 3 -- collision checks per ball per frame
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
+local BALL_HIT_RADIUS = Config.BALL_RADIUS * 1.1 -- a normal ball's hitbox (a touch bigger than it looks)
 local TUTORIAL_MIN_BALL_SPEED = 0.5 -- balls still fly at least half speed while the tutorial slows time
 local MEGA_STEPS = 8 -- mega balls can smash through several things in one frame
 local KNOCK_SPLASH = 1.2 -- a ball knocking a decoration loose also knocks parts this close (multi-part decorations come apart)
@@ -10049,16 +10050,24 @@ local function stepBall(ball, dt)
 	end
 
 	-- A few iterations so a fast ball can break glass and still bounce this frame.
+	-- The whole ball is the hitbox (a sphere cast, not a thin line through its
+	-- center): if you see the ball touch the glass, it breaks.
 	for _ = 1, BALL_STEPS do
-		local hit = workspace:Raycast(ball.position, travel, raycastParams)
+		local distance = travel.Magnitude
+		if distance < 1e-3 then
+			break
+		end
+		local hit = workspace:Spherecast(ball.position, BALL_HIT_RADIUS, travel, raycastParams)
 		if not hit then
 			ball.position += travel
 			break
 		end
 
 		local kind = hit.Instance:GetAttribute("Kind")
-		local remaining = travel.Magnitude - hit.Distance
-		ball.position = hit.Position
+		local remaining = distance - hit.Distance
+		-- hit.Distance is how far the ball's center got before touching (hit.Position
+		-- is the touching point on the surface, used for the effects).
+		ball.position += travel / distance * hit.Distance
 
 		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
 			-- Armored glass: the first hit only cracks it and the ball bounces off.
