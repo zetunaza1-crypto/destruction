@@ -78,6 +78,7 @@ local LOW_BALLS_OFFER = Config.LOW_BALLS_OFFER or 8
 local BOOST_CHIP_H = 36
 local BOOST_POP_H = 92
 local TOPUP_H = 48
+local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
 
 local TOAST_KINDS = {
 	boost = { tag = "BOOSTS ACTIVE", accent = true },
@@ -3990,6 +3991,7 @@ function UI._resetBoostRail(self)
 	local b = h.boostRail
 	if b then
 		b.shield = nil
+		b.shieldUsedAt = nil
 		for _, item in b.items do
 			item.visible = false
 			item.number = nil
@@ -4231,7 +4233,7 @@ function UI._buildGameOver(self)
 		Size = UDim2.new(1, 0, 0, 54),
 		LayoutOrder = 2,
 		OnClick = function()
-			self:_fire("onPlayAgain")
+			self:_fire("onPlayAgain", self:_pickedBoosts())
 		end,
 	})
 	hardButton(actions, {
@@ -4375,10 +4377,10 @@ function UI._buildFx(self)
 		table.insert(self._vignette, outside)
 	end
 
-	-- Shield break: a tinted wash plus a diamond ring bursting outwards.
+	-- Shield break: a diamond ring bursting outwards (the controller adds the
+	-- shards and tint in the world).
 	local shield = boostInfo("Shield")
 	local color = shield and shield.Color or PAPER
-	local wash = bleed(layer, { Name = "ShieldWash", BackgroundColor3 = color, BackgroundTransparency = 1 })
 	local ring = new("Frame", {
 		Name = "ShieldRing",
 		BackgroundTransparency = 1,
@@ -4390,7 +4392,7 @@ function UI._buildFx(self)
 		Parent = layer,
 	})
 	local ringStroke = stroke(ring, 3, color, 1)
-	self._shieldFlash = { wash = wash, ring = ring, ringStroke = ringStroke, last = 0 }
+	self._shieldFlash = { ring = ring, ringStroke = ringStroke, last = 0 }
 end
 
 function UI._shake(self, target, strength)
@@ -4738,7 +4740,12 @@ function UI:setBoosts(state)
 		end
 		self:_refreshQuickShield()
 	end
-	self:_setIndicator(items.Shield, shield, 1, nil, "ON")
+	local justUsed = not shield and b.shieldUsedAt ~= nil and os.clock() - b.shieldUsedAt < SHIELD_USED_HOLD
+	if shield then
+		self:_setIndicator(items.Shield, true, 1, nil, "ON")
+	else
+		self:_setIndicator(items.Shield, justUsed, 0, nil, "USED")
+	end
 
 	for _, entry in { { "Magnet", "magnet" }, { "SlowMo", "slowmo" } } do
 		local seconds = math.max(0, tonumber(state[entry[2]]) or 0)
@@ -4767,14 +4774,21 @@ function UI:flashShield()
 		return
 	end
 	f.last = now
-	f.wash.BackgroundTransparency = 0.7
-	tween(f.wash, 0.4, { BackgroundTransparency = 1 })
 	f.ring.Visible = true
 	f.ring.Size = UDim2.fromOffset(60, 60)
 	f.ringStroke.Transparency = 0
 	tween(f.ring, 0.45, { Size = UDim2.fromOffset(420, 420) })
 	tween(f.ringStroke, 0.45, { Transparency = 1 })
-	self:_shake(self._hud.root, 3)
+	-- setBoosts keeps the shield plate up for a beat, reading USED.
+	local rail = self._hud.boostRail
+	if rail then
+		rail.shieldUsedAt = now
+		local item = rail.items.Shield
+		if item and item.visible then
+			item.scale.Scale = 1.3
+			tween(item.scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+	end
 end
 
 function UI:showGameOver(info)
@@ -4884,6 +4898,13 @@ function UI:toast(value, kind)
 		return
 	end
 	local style = TOAST_KINDS[kind] or TOAST_KINDS.info
+	-- The same words twice within a second (e.g. controller + server event) show once.
+	local now = os.clock()
+	if value == self._lastToastText and now - (self._lastToastAt or 0) < 1 then
+		return
+	end
+	self._lastToastText = value
+	self._lastToastAt = now
 
 	while #self._toasts >= MAX_TOASTS do
 		self:_dismissToast(self._toasts[1])
@@ -5056,8 +5077,8 @@ function UI:showProgress(event)
 				end
 			end
 		end
-		if #names > 0 then
-			self:toast(table.concat(names, " + "), "boost")
+		if #names > 0 and self._hud.layer.Visible then
+			self:toast(table.concat(names, " + ") .. " ON", "boost")
 		end
 	end
 end

@@ -9,7 +9,16 @@
 	Kinds: "Wall" for solid decoration (balls bounce off), "Prop" for breakable glass.
 	A breakable made of several parts is a Model with attribute Breakable = true:
 	hitting any of its parts shatters the whole thing.
+
+	Props that have a Blender model (Models.luau) use it through Kit:place / Kit:wallProp;
+	when the model isn't loaded (ID 0 in Config.Models) those return nil and the
+	part-built version below is made instead, exactly as before.
 ]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Models = require(script.Parent.Models)
+local ModelStyles = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ModelStyles"))
 
 local Decor = {}
 
@@ -26,6 +35,7 @@ local Material = Enum.Material
 
 local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- turns a cylinder's axis from X to Y
 local ALONG_Z = CFrame.Angles(0, math.rad(90), 0) -- turns a cylinder's axis from X to Z
+local QUARTER_TURN = math.rad(90)
 
 local WHITE = Color3.new(1, 1, 1)
 local BLACK = Color3.new(0, 0, 0)
@@ -190,6 +200,37 @@ function Kit:floorGlyph(segments, x, d, scale, color)
 	end
 end
 
+-- Models -----------------------------------------------------------------------------
+
+-- Places a Blender model in the room folder, or returns nil if it isn't available
+-- (the caller then builds its part version). Breakable models count as breakables.
+function Kit:place(name, cframe, options)
+	local model = Models.place(name, self.folder, cframe, options)
+	if model == nil then
+		return nil
+	end
+	local style = ModelStyles[name]
+	if style and style.Breakable then
+		self.breakables += 1
+	end
+	return model
+end
+
+-- Places a wall model (origin at the center of its back face, front toward -Z in Blender)
+-- with its back `inset` studs off the wall on `side` and its front facing into the corridor.
+-- y is the model's anchor point (options.anchor: "floor", "ceiling" or "center").
+-- The long side of the model ends up running along the corridor.
+function Kit:wallProp(name, side, inset, y, d, options)
+	local style = ModelStyles[name]
+	if style == nil then
+		return nil
+	end
+	options = options or {}
+	local depth = style.Size.Z * (options.scale or 1)
+	local cframe = self:at(self:wallX(side, inset + depth / 2), y, d) * CFrame.Angles(0, side * QUARTER_TURN, 0)
+	return self:place(name, cframe, options)
+end
+
 -- Breakables -----------------------------------------------------------------------
 
 function Kit:canBreak()
@@ -232,6 +273,9 @@ end
 
 -- Round glass vase standing with its base at height y.
 local function vase(kit, x, y, d, color, scale)
+	if kit:place("GlassVase", kit:at(x, y, d), { anchor = "floor", scale = scale * 0.85, colors = { Glass = color } }) then
+		return
+	end
 	local model = kit:breakable("Vase")
 	local body = 1.6 * scale
 	kit:glass(model, BallShape, Vector3.one * body, kit:at(x, y + body / 2, d), color)
@@ -240,6 +284,9 @@ end
 
 -- Wide-bellied urn with a neck and a lip.
 local function urn(kit, x, y, d, color, scale)
+	if kit:place("GlassUrn", kit:at(x, y, d), { anchor = "floor", scale = scale * 0.9, colors = { Glass = color } }) then
+		return
+	end
 	local model = kit:breakable("Urn")
 	kit:glass(model, BallShape, Vector3.one * 1.8 * scale, kit:at(x, y + 0.9 * scale, d), color, 0.25)
 	kit:glass(model, CylinderShape, Vector3.new(0.6, 0.9, 0.9) * scale, kit:at(x, y + 1.95 * scale, d) * UPRIGHT, color, 0.25)
@@ -248,6 +295,14 @@ end
 
 -- Glass ball with a glowing heart.
 local function orb(kit, x, y, d, size, color)
+	local placed = kit:place("GlassOrb", kit:at(x, y, d), {
+		anchor = "center",
+		scale = size / 2.3,
+		colors = { Glass = color, Neon = kit.theme.Accent },
+	})
+	if placed then
+		return
+	end
 	local model = kit:breakable("Orb")
 	kit:glass(model, BallShape, Vector3.one * size, kit:at(x, y, d), color, 0.4)
 	kit:inner(model, BallShape, Vector3.one * size * 0.35, kit:at(x, y, d), kit.theme.Accent)
@@ -255,6 +310,15 @@ end
 
 -- Glass lantern hanging on a chain from the ceiling; y is its bottom.
 local function lantern(kit, x, y, d, color)
+	local placed = kit:place("GlassLantern", kit:at(x, y, d), {
+		anchor = "floor",
+		colors = { Glass = color, Neon = kit.theme.Accent },
+	})
+	if placed then
+		local hook = y + ModelStyles.GlassLantern.Size.Y
+		kit:post(x, hook, kit.height - hook, 0.12, d, Color3.fromRGB(60, 55, 50), Material.Metal)
+		return
+	end
 	local top = y + 1.6
 	kit:post(x, top, kit.height - top, 0.12, d, Color3.fromRGB(60, 55, 50), Material.Metal)
 	local model = kit:breakable("Lantern")
@@ -324,8 +388,20 @@ function Lab.room(kit)
 		end
 		-- Pipes along the ceiling corners.
 		if kit:chance(0.75) then
-			kit:rod(L, 0.7, kit:at(kit:wallX(side, 1.2), H - 0.6, L / 2) * ALONG_Z, METAL, Material.Metal)
-			kit:rod(L, 0.35, kit:at(kit:wallX(side, 2.1), H - 0.35, L / 2) * ALONG_Z, kit.theme.Accent)
+			-- Four pipe segments end to end, hanging from the ceiling corner (the part version is two long rods).
+			local segment = L / 4
+			local pipeScale = segment / ModelStyles.PipeRun.Size.X
+			local placed = 0
+			for i = 1, 4 do
+				local options = { anchor = "ceiling", scale = pipeScale, colors = { Metal = kit.theme.Accent } }
+				if kit:wallProp("PipeRun", side, 0, H, (i - 0.5) * segment, options) then
+					placed += 1
+				end
+			end
+			if placed == 0 then
+				kit:rod(L, 0.7, kit:at(kit:wallX(side, 1.2), H - 0.6, L / 2) * ALONG_Z, METAL, Material.Metal)
+				kit:rod(L, 0.35, kit:at(kit:wallX(side, 2.1), H - 0.35, L / 2) * ALONG_Z, kit.theme.Accent)
+			end
 		end
 		-- Warning stripes along the floor edges.
 		kit:block(Vector3.new(0.6, 0.04, L), kit:at(side * 8.7, 0.02, L / 2), LAB_YELLOW)
@@ -333,7 +409,11 @@ function Lab.room(kit)
 	end
 	-- Ceiling light panels.
 	for d = 10, L - 10, 20 do
-		kit:glow(Vector3.new(5, 0.12, 2.5), kit:at(0, H - 0.06, d), LAB_LIGHT)
+		-- 1.25x: 5 wide, 1.14 deep, so its underside stays above the flight path (y = 12).
+		local light = kit:place("CeilingLight", kit:at(0, H, d), { anchor = "ceiling", scale = 1.25 })
+		if not light then
+			kit:glow(Vector3.new(5, 0.12, 2.5), kit:at(0, H - 0.06, d), LAB_LIGHT)
+		end
 	end
 end
 
@@ -360,7 +440,16 @@ local function labWindow(kit, side, d)
 end
 
 -- Rack of colored test tubes; y is the bench top.
-local function testTubes(kit, x, y, d)
+local function testTubes(kit, x, y, d, side)
+	if Models.has("TestTubeRack") then -- (checked first so the part version draws the same random numbers)
+		local rack = kit:place("TestTubeRack", kit:at(x, y, d) * CFrame.Angles(0, side * QUARTER_TURN, 0), {
+			anchor = "floor",
+			colors = { Neon = kit:pick(LIQUIDS) },
+		})
+		if rack then
+			return
+		end
+	end
 	kit:block(Vector3.new(0.5, 0.25, 2.4), kit:at(x, y + 1.1, d), LAB_DARK)
 	local model = kit:breakable("TestTubes")
 	for _, offset in { -0.75, 0, 0.75 } do
@@ -370,6 +459,15 @@ end
 
 -- Round flask with colored liquid; y is the bench top.
 local function flask(kit, x, y, d)
+	if Models.has("Flask") then
+		local placed = kit:place("Flask", kit:at(x, y, d), {
+			anchor = "floor",
+			colors = { Glass = kit:tint(0.7), Neon = kit:pick(LIQUIDS) },
+		})
+		if placed then
+			return
+		end
+	end
 	local model = kit:breakable("Flask")
 	kit:glass(model, BallShape, Vector3.one * 1.3, kit:at(x, y + 0.65, d), kit:tint(0.7), 0.5)
 	kit:glass(model, CylinderShape, Vector3.new(0.8, 0.32, 0.32), kit:at(x, y + 1.6, d) * UPRIGHT, kit:tint(0.7), 0.5)
@@ -377,10 +475,15 @@ local function flask(kit, x, y, d)
 end
 
 local function labBench(kit, side, d)
-	kit:block(Vector3.new(2.2, 3, 6), kit:at(kit:wallX(side, 1.2), 1.5, d), kit.theme.Wall:Lerp(BLACK, 0.1))
-	kit:block(Vector3.new(2.6, 0.25, 6.4), kit:at(kit:wallX(side, 1.35), 3.125, d), LAB_DARK)
+	-- Scaled so the bench top sits at 3.25, where the glassware stands.
+	local benchScale = 3.25 / ModelStyles.LabBench.Size.Y
+	local bench = kit:wallProp("LabBench", side, 0, 0, d, { anchor = "floor", scale = benchScale })
+	if not bench then
+		kit:block(Vector3.new(2.2, 3, 6), kit:at(kit:wallX(side, 1.2), 1.5, d), kit.theme.Wall:Lerp(BLACK, 0.1))
+		kit:block(Vector3.new(2.6, 0.25, 6.4), kit:at(kit:wallX(side, 1.35), 3.125, d), LAB_DARK)
+	end
 	if kit:canBreak() then
-		testTubes(kit, kit:wallX(side, 1.6), 3.25, d - 1.5)
+		testTubes(kit, kit:wallX(side, 1.6), 3.25, d - 1.5, side)
 	end
 	if kit:canBreak() then
 		flask(kit, kit:wallX(side, 1.5), 3.25, d + 1.5)
@@ -391,8 +494,13 @@ local function serverRacks(kit, side, d)
 	local count = kit:pick({ 1, 2 })
 	for i = 1, count do
 		local rackD = if count == 1 then d else d + (if i == 1 then -1.9 else 1.9)
-		kit:block(Vector3.new(1.8, 9, 3.4), kit:at(kit:wallX(side, 0.9), 4.5, rackD), LAB_RACK)
-		kit:glow(Vector3.new(0.05, 7, 0.2), kit:at(kit:wallX(side, 1.83), 4.8, rackD + 0.9), kit:pick(LED_COLORS))
+		local ledColor = kit:pick(LED_COLORS)
+		-- 1.2x makes the rack 8.4 tall and 3.6 long, which still fits two per bay.
+		local rack = kit:wallProp("ServerRack", side, 0, 0, rackD, { anchor = "floor", scale = 1.2, colors = { Neon = ledColor } })
+		if not rack then
+			kit:block(Vector3.new(1.8, 9, 3.4), kit:at(kit:wallX(side, 0.9), 4.5, rackD), LAB_RACK)
+			kit:glow(Vector3.new(0.05, 7, 0.2), kit:at(kit:wallX(side, 1.83), 4.8, rackD + 0.9), ledColor)
+		end
 	end
 end
 
@@ -508,6 +616,9 @@ end
 
 local function wallVent(kit, side, d)
 	local y = kit:random(3, 10)
+	if kit:wallProp("Vent", side, 0.02, y, d, { anchor = "center", scale = 1.25 }) then
+		return
+	end
 	kit:block(Vector3.new(0.4, 2.4, 3), kit:at(kit:wallX(side, 0.2), y, d), NEON_DARK:Lerp(WHITE, 0.1), Material.Metal)
 	for _, offset in { -0.45, 0.45 } do
 		kit:block(Vector3.new(0.1, 0.18, 2.8), kit:at(kit:wallX(side, 0.45), y + offset, d), NEON_CABLE)
@@ -524,6 +635,12 @@ local function neonTubes(kit, side, d)
 	for i = 1, count do
 		local tubeD = if count == 1 then d else d + (if i == 1 then -1.5 else 1.5)
 		local color = neonColor(kit)
+		-- The model is a horizontal tube on brackets; two of them stack instead of sitting side by side.
+		local tubeY = if count == 1 then 6.5 else 6.5 + (if i == 1 then -1.6 else 1.6)
+		local tube = kit:wallProp("NeonTube", side, 0.05, tubeY, d, { anchor = "center", scale = 1.4, colors = { Neon = color } })
+		if tube then
+			continue
+		end
 		local cframe = kit:at(x, 6.5, tubeD) * UPRIGHT
 		local model = kit:breakable("NeonTube")
 		kit:glass(model, CylinderShape, Vector3.new(6, 0.6, 0.6), cframe, color:Lerp(WHITE, 0.6), 0.6)
@@ -597,8 +714,16 @@ function Temple.room(kit)
 	end
 	for _, d in PILLAR_DEPTHS do
 		for _, side in SIDES do
-			kit:post(side * 8.6, 0, 10, 2.2, d, stone(kit, 0.04), Material.Sandstone)
-			kit:block(Vector3.new(3, 1, 3), kit:at(side * 8.5, 10.5, d), stone(kit, 0.15))
+			-- The model is 14 tall; 13/14 makes it end right under the beam (y = 13).
+			local pillar = kit:place("Pillar", kit:at(side * 8.6, 0, d), {
+				anchor = "floor",
+				scale = 13 / ModelStyles.Pillar.Size.Y,
+				colors = { Stone = stone(kit, 0.04) },
+			})
+			if not pillar then
+				kit:post(side * 8.6, 0, 10, 2.2, d, stone(kit, 0.04), Material.Sandstone)
+				kit:block(Vector3.new(3, 1, 3), kit:at(side * 8.5, 10.5, d), stone(kit, 0.15))
+			end
 			-- Arch shoulder: a wedge between the capital and the beam, sloping toward the middle.
 			-- Its full faces point up (under the beam) and out (against the wall).
 			local shoulder = CFrame.fromMatrix(kit:pos(side * 8.3, 12, d), Vector3.new(0, 0, side), Vector3.new(0, -1, 0))
@@ -619,6 +744,9 @@ end
 
 local function brazier(kit, side, d)
 	local x = kit:wallX(side, 1.8)
+	if kit:place("Brazier", kit:at(x, 0, d), { anchor = "floor", colors = { Neon = kit.theme.Accent } }) then
+		return
+	end
 	kit:post(x, 0, 2.6, 0.5, d, TEMPLE_BRONZE, Material.Metal)
 	kit:post(x, 2.6, 0.5, 1.8, d, TEMPLE_BRONZE, Material.Metal)
 	kit:ball(1.1, kit:at(x, 3.35, d), kit.theme.Accent, Material.Neon)
@@ -715,16 +843,41 @@ function Greenhouse.room(kit)
 			local d = kit:random(3, L - 3)
 			local length = kit:random(2.5, 5)
 			local x = kit:wallX(side, kit:random(0.4, 0.9))
-			kit:block(Vector3.new(0.15, length, 0.15), kit:at(x, H - length / 2, d), LEAVES[2], Material.Grass)
-			if kit:chance(0.6) then
-				kit:ball(0.7, kit:at(x, H - length, d), leaf(kit), Material.Grass)
+			-- The model hangs 5.43 long; scaled to this vine's length and set against the wall.
+			local vineScale = length / ModelStyles.HangingVine.Size.Y
+			local vineX = kit:wallX(side, 0.1 + ModelStyles.HangingVine.Size.X * vineScale / 2)
+			local vine = nil
+			if Models.has("HangingVine") then -- (checked first so the part version draws the same random numbers)
+				vine = kit:place("HangingVine", kit:at(vineX, H, d), {
+					anchor = "ceiling",
+					scale = vineScale,
+					colors = { Plant = leaf(kit) },
+				})
+			end
+			if not vine then
+				kit:block(Vector3.new(0.15, length, 0.15), kit:at(x, H - length / 2, d), LEAVES[2], Material.Grass)
+				if kit:chance(0.6) then
+					kit:ball(0.7, kit:at(x, H - length, d), leaf(kit), Material.Grass)
+				end
 			end
 		end
 	end
 end
 
+-- A leafy Plant model standing on the floor (or a planter); `scale` 1.2 is 3.1 wide, still clear of the flight path.
+local function plantModel(kit, x, y, d, scale)
+	if not Models.has("Plant") then
+		return nil
+	end
+	return kit:place("Plant", kit:at(x, y, d), { anchor = "floor", scale = scale, colors = { Plant = leaf(kit) } })
+end
+
 local function fern(kit, side, d)
 	local x = kit:wallX(side, 1.3)
+	if plantModel(kit, x, 0, d - 1, 1.2) then
+		plantModel(kit, x, 0, d + 1.2, 0.9)
+		return
+	end
 	kit:ball(2.2, kit:at(x, 1, d - 1), leaf(kit), Material.Grass)
 	kit:ball(1.6, kit:at(x, 0.7, d + 1.2), leaf(kit), Material.Grass)
 	if kit:chance(0.5) then
@@ -734,6 +887,14 @@ end
 
 local function planter(kit, side, d)
 	local x = kit:wallX(side, 1.4)
+	-- 1.5x: 6 long, 2.4 deep, 1.8 tall, the same footprint as the block version; two plants grow on top.
+	if kit:wallProp("Planter", side, 0, 0, d, { anchor = "floor", scale = 1.5 }) then
+		local soil = ModelStyles.Planter.Size.Y * 1.5 - 0.1
+		local plantX = kit:wallX(side, 1.8)
+		plantModel(kit, plantX, soil, d - 1.5, 1.2)
+		plantModel(kit, plantX, soil, d + 1.5, 1.2)
+		return
+	end
 	kit:block(Vector3.new(2.4, 1.4, 6), kit:at(x, 0.7, d), GH_POT)
 	kit:post(x, 1.4, 2.8, 0.4, d, GH_TRUNK, Material.Wood)
 	kit:ball(2.4, kit:at(x, 4.9, d), leaf(kit), Material.Grass)
