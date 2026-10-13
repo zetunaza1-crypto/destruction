@@ -16,7 +16,15 @@ First-person on-rails glass smasher inspired by the *gameplay* of the mobile gam
 
 ## Roblox account / uploads
 - Owner's Roblox user ID: 1875004714 (creator for Open Cloud asset uploads).
-- A Roblox Open Cloud key is stored as the environment secret `ROBLOX_API_KEY` (assets read/write). Use it to upload `assets/sounds/*` and `assets/images/*`, then put the resulting asset IDs into `Config.Sounds` and rebuild `ShatterRun.rbxlx`. Never print the key.
+- A Roblox Open Cloud key is set up as a network secret (x-api-key header added automatically for apis.roblox.com). Use it to upload `assets/sounds/*` and `assets/images/*`, then put the resulting asset IDs into `Config.Sounds` and rebuild `ShatterRun.rbxlx`. Never print the key.
+
+## Publishing (owner's rule: ONE game, never new files)
+- Publish every update directly to the owner's existing Shatter Run place with the Place Publishing API
+  (POST https://apis.roblox.com/universes/v1/{universeId}/places/{placeId}/versions?versionType=Published,
+  body = the built .rbxlx, Content-Type application/xml). Don't send .rbxlx files unless asked.
+- The repo is the master copy. The owner doesn't publish from Studio (it would be overwritten); they play on Roblox
+  or File -> Open from Roblox to see the latest.
+- Roblox key: network secret on apis.roblox.com that adds the x-api-key header automatically (no env var).
 
 ## Building
 The owner works from cloud sessions only (no local Rojo/Studio connection). After code changes, rebuild the ready-to-open place file and commit it:
