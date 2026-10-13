@@ -126,6 +126,24 @@ local TOPUP_H = 56
 local TOPUP_BUY_W = 84
 local TOPUP_CLOSE_W = 50
 local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
+-- HUD boost bar (Config.BOOST_BAR): a column of tap-to-use boosts hanging from
+-- the distance plate down the right edge. Clear of the plates, the Ball Pack
+-- button (bottom right), the toasts (left) and the hands: those sit lower and
+-- further in (Viewmodel LAYOUT), even with Mega Ball's bigger balls on a 4:3
+-- tablet, where a column centered at mid height would touch the right hand.
+-- Slots are 52 units tall, so >= 44px on a 640x360 phone.
+local DIST_PLATE_H = 62 -- the distance plate's height (the bar hangs under it)
+local BAR_IDS = Config.BOOST_BAR or {}
+local BAR_SLOT_W = 66
+local BAR_SLOT_H = 52
+local BAR_GAP = 6
+local BAR_BLOCK_W = 18 -- the colored mark block on the left of each slot
+local BAR_HIDE_TIME = 0.18
+local BAR_SHORT = { Magnet = "MAGNET", SlowMo = "SLOW-MO", MegaBall = "MEGA" }
+local BAR_NUMBER_KEYS = { "1", "2", "3" } -- keyboard keys, in BAR_IDS order (RunController binds them)
+local BAR_PAD_DIRECTIONS = { "Left", "Up", "Right" } -- D-pad, in BAR_IDS order
+local TIMED_BOOSTS = { { "Magnet", "magnet" }, { "SlowMo", "slowmo" } } -- { id, setBoosts field }
+local EMPTY = table.freeze({})
 
 -- Save state gate for Robux buttons (see the note at the top).
 local SAVE_FAILED_TEXT = "YOUR SAVE DIDN'T LOAD - REJOIN BEFORE BUYING"
@@ -1071,6 +1089,74 @@ local function shieldGlyph(parent, size, position, color)
 		Rotation = 45,
 		Parent = holder,
 	})
+	return holder
+end
+
+-- Boost-bar marks, drawn in `color` inside a size x size square:
+-- Magnet = a U with paper pole tips, Slow-Mo = an hourglass (caps + diamond),
+-- Mega Ball = a big block with a small hole (a "giant ball").
+local function boostGlyph(parent, id, size, position, color)
+	local holder = new("Frame", {
+		Name = "Glyph",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.fromOffset(size, size),
+		Parent = parent,
+	})
+	local bar = math.max(2, math.floor(size * 0.3 + 0.5))
+	if id == "Magnet" then
+		new("Frame", { BackgroundColor3 = color, Size = UDim2.new(0, bar, 1, 0), Parent = holder })
+		new("Frame", { BackgroundColor3 = color, AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, bar, 1, 0), Parent = holder })
+		new("Frame", { BackgroundColor3 = color, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, bar), Parent = holder })
+		for _, x in { 0, 1 } do
+			new("Frame", { BackgroundColor3 = PAPER, AnchorPoint = Vector2.new(x, 0), Position = UDim2.fromScale(x, 0), Size = UDim2.fromOffset(bar, bar), Parent = holder })
+		end
+	elseif id == "SlowMo" then
+		local cap = math.max(2, math.floor(size * 0.18 + 0.5))
+		new("Frame", { BackgroundColor3 = color, Size = UDim2.new(1, 0, 0, cap), Parent = holder })
+		new("Frame", { BackgroundColor3 = color, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, cap), Parent = holder })
+		local tip = math.floor(size * 0.5 + 0.5)
+		new("Frame", {
+			BackgroundColor3 = color,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(tip, tip),
+			Rotation = 45,
+			Parent = holder,
+		})
+	else
+		local block = new("Frame", { BackgroundColor3 = color, Size = UDim2.fromScale(1, 1), Parent = holder })
+		new("Frame", {
+			BackgroundColor3 = PAPER,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(bar, bar),
+			Parent = block,
+		})
+	end
+	return holder
+end
+
+-- A tiny D-pad: a grey cross with the arm to press (direction "Left" / "Up" /
+-- "Right" / "Down") in solid ink.
+local function padGlyph(parent, direction, size, props)
+	local holder = new("Frame", { Name = "PadHint", BackgroundTransparency = 1, Size = UDim2.fromOffset(size, size), Visible = false })
+	for key, value in props do
+		(holder :: any)[key] = value
+	end
+	local arm = math.max(3, math.floor(size / 3 + 0.5))
+	new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.6, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 0, 0, arm), Parent = holder })
+	new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.6, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, arm, 1, 0), Parent = holder })
+	local spots = {
+		Left = { Vector2.new(0, 0.5), UDim2.fromScale(0, 0.5) },
+		Right = { Vector2.new(1, 0.5), UDim2.fromScale(1, 0.5) },
+		Up = { Vector2.new(0.5, 0), UDim2.fromScale(0.5, 0) },
+		Down = { Vector2.new(0.5, 1), UDim2.fromScale(0.5, 1) },
+	}
+	local spot = spots[direction] or spots.Up
+	new("Frame", { BackgroundColor3 = INK, AnchorPoint = spot[1], Position = spot[2], Size = UDim2.fromOffset(arm, arm), Parent = holder })
+	holder.Parent = parent
 	return holder
 end
 
@@ -4895,7 +4981,7 @@ function UI._buildHud(self)
 		BackgroundTransparency = 0.1,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -EDGE, 0, EDGE - 4),
-		Size = UDim2.fromOffset(150, 62),
+		Size = UDim2.fromOffset(150, DIST_PLATE_H),
 		Parent = root,
 	})
 	fit(dist, HUD_SCALE)
@@ -4979,6 +5065,329 @@ function UI._buildHud(self)
 			quick.sub.Text = "R$ " .. commas(price)
 		end)
 		h.quickShield = quick
+	end
+
+	self:_buildBoostBar(root)
+end
+
+-- Boost bar ---------------------------------------------------------------------------
+-- One slot per Config.BOOST_BAR boost (Magnet, Slow-Mo, Mega Ball), stacked down
+-- the right edge under the distance plate. A slot shows while that boost is ready (picked for
+-- this run, not tapped yet): colored mark + short name + USE (+ a count when
+-- more than one). Tapping it calls onUseBoost(id); the slot pops and turns into
+-- that boost's countdown (seconds / throws left), then folds away when it runs
+-- out. While a slot shows, the same boost's plate under the odometer stays
+-- hidden so it never shows twice. See setBoosts.
+function UI._buildBoostBar(self, root)
+	local h = self._hud
+	local count = #BAR_IDS
+	if count == 0 then
+		return
+	end
+	local column = new("Frame", {
+		Name = "BoostBar",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -EDGE, 0, EDGE + 60), -- placed by _layoutBoostBar
+		Size = UDim2.fromOffset(BAR_SLOT_W, count * BAR_SLOT_H + (count - 1) * BAR_GAP),
+		Parent = root,
+	})
+	fit(column) -- full sheet scale (not HUD_SCALE): every slot stays a >= 44px touch target
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, BAR_GAP),
+		Parent = column,
+	})
+	local bar = { column = column, slots = {} }
+	h.boostBar = bar
+	for order, id in BAR_IDS do
+		local boost = boostInfo(id)
+		if boost then
+			bar.slots[id] = self:_buildBarSlot(column, id, order, boost)
+		end
+	end
+end
+
+-- Keeps the bar just under the distance plate (which is drawn at HUD_SCALE).
+function UI._layoutBoostBar(self)
+	local bar = self._hud and self._hud.boostBar
+	if bar then
+		local top = EDGE - 4 + math.ceil(DIST_PLATE_H * HUD_SCALE * currentScale) + 8
+		bar.column.Position = UDim2.new(1, -EDGE, 0, top)
+	end
+end
+
+function UI._buildBarSlot(self, column, id, order, boost)
+	local color = boost.Color or accentColor
+	-- The holder is the (invisible) button and the layout's fixed-size cell; the
+	-- body inside it does the popping, so the column never reflows mid-animation.
+	-- Not Selectable: a controller's A / R2 throw during a run, and the D-pad
+	-- (RunController) uses these instead.
+	local holder = new("TextButton", {
+		Name = id,
+		AutoButtonColor = false,
+		Text = "",
+		Selectable = false,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(BAR_SLOT_W, BAR_SLOT_H),
+		LayoutOrder = order,
+		Visible = false,
+		Parent = column,
+	})
+	local body = new("Frame", {
+		Name = "Body",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		Parent = holder,
+	})
+	local pop = new("UIScale", { Parent = body })
+	new("Frame", {
+		Name = "Shadow",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(SHADOW, SHADOW),
+		Size = UDim2.new(1, -SHADOW, 1, -SHADOW),
+		Parent = body,
+	})
+	local face = new("Frame", { Name = "Face", BackgroundColor3 = PAPER, Size = UDim2.new(1, -SHADOW, 1, -SHADOW), Parent = body })
+	stroke(face, 2)
+
+	-- Colored mark block on the left, ink hairline on its right edge.
+	local block = new("Frame", { Name = "Mark", BackgroundColor3 = color, Size = UDim2.new(0, BAR_BLOCK_W, 1, 0), Parent = face })
+	rule(block, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 1, 1, 0) })
+	boostGlyph(block, id, 10, UDim2.fromScale(0.5, 0.5), INK)
+
+	local left = BAR_BLOCK_W + 4
+	capText(text({
+		Name = "Name",
+		Text = BAR_SHORT[id] or boostName(id),
+		TextSize = 8,
+		TextColor3 = GREY,
+		Position = UDim2.fromOffset(left, 3),
+		Size = UDim2.new(1, -(left + 3), 0, 10),
+		Parent = face,
+	}), 8, 6)
+	local value = capText(text({
+		Name = "Value",
+		Text = "USE",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(left, 13),
+		Size = UDim2.new(1, -(left + 3), 0, 20),
+		Parent = face,
+	}), 13, 7)
+
+	-- Countdown bar along the bottom (only while running).
+	local track = new("Frame", {
+		Name = "Track",
+		BackgroundColor3 = INK,
+		BackgroundTransparency = 0.82,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, BAR_BLOCK_W, 1, 0),
+		Size = UDim2.new(1, -BAR_BLOCK_W, 0, 4),
+		Visible = false,
+		Parent = face,
+	})
+	local fill = new("Frame", { BackgroundColor3 = color, Size = UDim2.fromScale(1, 1), Parent = track })
+
+	-- Count tag stuck on the top-right corner ("x2" ready, "+1" more waiting while one runs).
+	local countTag = text({
+		Name = "Count",
+		Text = "",
+		Font = FONT_NUM,
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		BackgroundColor3 = INK,
+		BackgroundTransparency = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -2, 0, -2),
+		Size = UDim2.fromOffset(18, 11),
+		Visible = false,
+		Parent = face,
+	})
+
+	-- Input hints in the bottom-right corner: a tiny D-pad (controller) or a
+	-- keycap (keyboard). Touch shows neither. See _refreshBarHints.
+	local hintSpot = { AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -4, 1, -7) }
+	local padHint = padGlyph(face, BAR_PAD_DIRECTIONS[order] or "Up", 11, hintSpot)
+	local keyHint = new("Frame", {
+		Name = "KeyHint",
+		BackgroundColor3 = INK,
+		AnchorPoint = hintSpot.AnchorPoint,
+		Position = hintSpot.Position,
+		Size = UDim2.fromOffset(11, 11),
+		Visible = false,
+		Parent = face,
+	})
+	text({
+		Text = BAR_NUMBER_KEYS[order] or "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.fromScale(1, 1),
+		Parent = keyHint,
+	})
+
+	-- Tap burst: a ring in the boost's color that grows and fades.
+	local ring = new("Frame", {
+		Name = "Burst",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+		Parent = holder,
+	})
+	local ringStroke = stroke(ring, 3, color)
+
+	local slot = {
+		id = id,
+		holder = holder,
+		pop = pop,
+		face = face,
+		value = value,
+		track = track,
+		fill = fill,
+		countTag = countTag,
+		padHint = padHint,
+		keyHint = keyHint,
+		ring = ring,
+		ringStroke = ringStroke,
+		color = color,
+		shown = false,
+		ready = nil, -- ready count last frame (nil = nothing seen yet this run)
+		tapped = false, -- one was tapped from this slot and is still running
+		mode = nil, -- "ready" | "active"
+	}
+	-- Pressed, not released: the boost should fire the instant the finger lands.
+	-- The button sinks the tap, so it never throws a ball too.
+	holder.MouseButton1Down:Connect(function()
+		if not slot.shown then
+			return
+		end
+		if (slot.ready or 0) > 0 then
+			self:_fire("onUseBoost", id)
+		else
+			-- Nothing waiting (only the countdown showing): a small nudge.
+			pop.Scale = 0.92
+			tween(pop, 0.2, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+	end)
+	return slot
+end
+
+-- The boost was just tapped: pop the slot and burst a ring around it.
+function UI._popBarSlot(self, slot)
+	slot.pop.Scale = 1.3
+	tween(slot.pop, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	local ring = slot.ring
+	ring.Visible = true
+	ring.Size = UDim2.fromScale(1, 1)
+	slot.ringStroke.Transparency = 0
+	tween(ring, 0.35, { Size = UDim2.new(1, 34, 1, 34) })
+	local fade = tween(slot.ringStroke, 0.35, { Transparency = 1 })
+	fade.Completed:Once(function()
+		if slot.ringStroke.Transparency >= 0.99 then
+			ring.Visible = false
+		end
+	end)
+end
+
+--[[
+	One boost-bar slot for this frame. readyCount = boosts waiting to be tapped,
+	running = the boost is on right now (number / fraction / label describe its
+	countdown, like _setIndicator). Returns true while the slot shows (the
+	odometer rail then hides the same boost). Only touches instances that change.
+]]
+function UI._setBarSlot(self, slot, readyCount, running, number, fraction, label)
+	if not slot then
+		return false
+	end
+	readyCount = math.max(0, math.floor(tonumber(readyCount) or 0))
+	local previous = slot.ready
+	slot.ready = readyCount
+	if previous ~= nil and readyCount < previous then
+		slot.tapped = true -- runs from this slot now (RunController switched it on)
+		self:_popBarSlot(slot)
+	end
+	if not running then
+		slot.tapped = false -- used up
+	end
+	local show = readyCount > 0 or (slot.tapped and running)
+
+	if show ~= slot.shown then
+		slot.shown = show
+		slot.hideToken = nil
+		if show then
+			slot.holder.Visible = true
+			slot.pop.Scale = 0.6
+			tween(slot.pop, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		else
+			-- Fold away, then hide (unless it came back meanwhile).
+			slot.mode = nil
+			local token = {}
+			slot.hideToken = token
+			tween(slot.pop, BAR_HIDE_TIME, { Scale = 0 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			task.delay(BAR_HIDE_TIME, function()
+				if slot.hideToken == token then
+					slot.hideToken = nil
+					slot.holder.Visible = false
+				end
+			end)
+		end
+	end
+	if not show then
+		return false
+	end
+
+	local mode = if running then "active" else "ready"
+	if mode ~= slot.mode then
+		slot.mode = mode
+		slot.number = nil
+		slot.fraction = nil
+		slot.track.Visible = running
+		slot.face.BackgroundColor3 = if running then PAPER:Lerp(slot.color, 0.22) else PAPER
+		if not running then
+			slot.value.Text = "USE"
+		end
+	end
+	if running then
+		if number ~= slot.number then
+			slot.number = number
+			slot.value.Text = label
+		end
+		local rounded = math.floor(math.clamp(fraction or 0, 0, 1) * 100 + 0.5) / 100
+		if rounded ~= slot.fraction then
+			slot.fraction = rounded
+			slot.fill.Size = UDim2.fromScale(rounded, 1)
+		end
+	end
+
+	-- "x2" = two waiting; "+1" = one more waiting behind the one running.
+	local tag = if running and readyCount > 0 then "+" .. readyCount elseif readyCount > 1 then "x" .. readyCount else ""
+	if tag ~= slot.tag then
+		slot.tag = tag
+		slot.countTag.Text = tag
+		slot.countTag.Visible = tag ~= ""
+	end
+	return true
+end
+
+-- D-pad hints while on a controller, number keycaps on keyboard / mouse, none on touch.
+function UI._refreshBarHints(self)
+	local bar = self._hud and self._hud.boostBar
+	if not bar then
+		return
+	end
+	local gamepad = self._gamepad == true
+	local keys = not gamepad and not self._touch
+	for _, slot in bar.slots do
+		slot.padHint.Visible = gamepad
+		slot.keyHint.Visible = keys
 	end
 end
 
@@ -5139,6 +5548,24 @@ function UI._resetBoostRail(self)
 	end
 	if h.quickShield then
 		h.quickShield.shown = nil
+	end
+	local bar = h.boostBar
+	if bar then
+		for _, slot in bar.slots do
+			-- `tapped` stays: after a revive, a boost tapped before the crash is
+			-- still counting down in its slot (a new run clears it on its first frame).
+			slot.shown = false
+			slot.ready = nil
+			slot.mode = nil
+			slot.number = nil
+			slot.fraction = nil
+			slot.tag = nil
+			slot.hideToken = nil
+			slot.holder.Visible = false
+			slot.pop.Scale = 1
+			slot.ring.Visible = false
+			slot.countTag.Visible = false
+		end
 	end
 end
 
@@ -6520,6 +6947,7 @@ function UI._refreshHints(self)
 	if h.boostRail then
 		h.boostRail.rail.Position = UDim2.new(0.5, 0, 1, if throw then 22 else 6)
 	end
+	self:_refreshBarHints()
 end
 
 function UI._setGamepad(self, gamepad)
@@ -6554,6 +6982,9 @@ function UI.new(callbacks)
 	self._robuxButtons = setmetatable({}, { __mode = "k" }) -- see _robuxButton
 	self._runsEnded = 0 -- game overs this session (the "R2 THROW" hint shows until the first)
 	self._gamepad = gamepadAtStart()
+	-- Last pointer input was touch (no keycap hints on the boost bar).
+	self._touch = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
+		or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled)
 
 	local playerGui = player:WaitForChild("PlayerGui")
 	local old = playerGui:FindFirstChild("ShatterRunUI")
@@ -6607,6 +7038,7 @@ function UI.new(callbacks)
 		end
 		textCaps = live
 		self:_layoutSettings()
+		self:_layoutBoostBar()
 	end
 	refit()
 
@@ -6757,6 +7189,12 @@ function UI.new(callbacks)
 	connect(UserInputService.LastInputTypeChanged, function(inputType)
 		local kind = inputKind(inputType)
 		if kind then
+			-- Touch vs keyboard / mouse only changes the boost bar's key hints.
+			local touch = inputType == Enum.UserInputType.Touch
+			if kind == "pointer" and touch ~= self._touch then
+				self._touch = touch
+				self:_refreshBarHints()
+			end
 			self:_setGamepad(kind == "gamepad" and UserInputService.GamepadEnabled)
 		end
 	end)
@@ -6926,7 +7364,8 @@ end
 
 --[[
 	Active boosts, called every frame by the controller:
-	{ shield = bool, magnet = secondsLeft, slowmo = secondsLeft, megaball = throwsLeft, doubleGems = bool }
+	{ shield = bool, magnet = secondsLeft, slowmo = secondsLeft, megaball = throwsLeft, doubleGems = bool,
+	  ready = { Magnet = n, SlowMo = n, MegaBall = n } (boost-bar boosts not tapped yet; optional) }
 	Only properties that changed are written.
 ]]
 function UI:setBoosts(state)
@@ -6953,18 +7392,26 @@ function UI:setBoosts(state)
 		self:_setIndicator(items.Shield, justUsed, 0, nil, "USED")
 	end
 
-	for _, entry in { { "Magnet", "magnet" }, { "SlowMo", "slowmo" } } do
+	-- Boost-bar boosts show in their bar slot (ready or counting down); the rail
+	-- under the odometer only shows them when they're not in the bar (bought mid-run).
+	local ready = if type(state.ready) == "table" then state.ready else EMPTY
+	local slots = if h.boostBar then h.boostBar.slots else EMPTY
+	for _, entry in TIMED_BOOSTS do
+		local id = entry[1]
 		local seconds = math.max(0, tonumber(state[entry[2]]) or 0)
-		local boost = boostInfo(entry[1])
+		local boost = boostInfo(id)
 		local duration = math.max(tonumber(boost and boost.Duration) or 1, seconds, 0.001)
 		local whole = math.ceil(seconds)
-		self:_setIndicator(items[entry[1]], seconds > 0, whole, seconds / duration, whole .. "S")
+		local fraction = seconds / duration
+		local inBar = self:_setBarSlot(slots[id], ready[id], seconds > 0, whole, fraction, whole .. "S")
+		self:_setIndicator(items[id], seconds > 0 and not inBar, whole, fraction, whole .. "S")
 	end
 
 	local throws = math.max(0, math.floor(tonumber(state.megaball) or 0))
 	local mega = boostInfo("MegaBall")
 	local maxThrows = math.max(tonumber(mega and mega.Throws) or 1, throws, 1)
-	self:_setIndicator(items.MegaBall, throws > 0, throws, throws / maxThrows, "x" .. throws)
+	local megaInBar = self:_setBarSlot(slots.MegaBall, ready.MegaBall, throws > 0, throws, throws / maxThrows, "x" .. throws)
+	self:_setIndicator(items.MegaBall, throws > 0 and not megaInBar, throws, throws / maxThrows, "x" .. throws)
 
 	self:_setIndicator(items.DoubleGems, state.doubleGems == true, 1, nil, "2X GEMS")
 end
@@ -7317,16 +7764,24 @@ function UI:showProgress(event)
 			self:toast(tostring(event.text), "reward")
 		end
 	elseif kind == "BoostsActivated" then
-		local names = {}
+		-- "SHIELD ON / MAGNET + MEGA BALL READY": boost-bar boosts wait to be tapped.
+		local on, waiting = {}, {}
 		if type(event.boosts) == "table" then
 			for _, id in event.boosts do
 				if type(id) == "string" then
-					table.insert(names, boostName(id))
+					table.insert(if table.find(BAR_IDS, id) then waiting else on, boostName(id))
 				end
 			end
 		end
-		if #names > 0 and self._hud.layer.Visible then
-			self:toast(table.concat(names, " + ") .. " ON", "boost")
+		local parts = {}
+		if #on > 0 then
+			table.insert(parts, table.concat(on, " + ") .. " ON")
+		end
+		if #waiting > 0 then
+			table.insert(parts, table.concat(waiting, " + ") .. " READY")
+		end
+		if #parts > 0 and self._hud.layer.Visible then
+			self:toast(table.concat(parts, " / "), "boost")
 		end
 	end
 end
