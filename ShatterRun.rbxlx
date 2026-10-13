@@ -7201,6 +7201,8 @@ function RunController.start()
 
 	setupLighting()
 	showMenu()
+	-- Music plays from the moment you join, not only once a run starts.
+	Sounds.startMusic()
 	task.spawn(disableCharacterControls)
 
 	Remotes.PurchaseGranted.OnClientEvent:Connect(onPurchaseGranted)
