@@ -29,6 +29,20 @@ No Roblox runtime here. Syntax-check Luau with `luau-compile <file>` (download f
 Built: 5 themed zones with detailed decor + breakable props, realistic glass shattering, Future lighting with per-zone presets and room lights, levels/XP, daily missions, 7-day streak, season pass (free + premium), boosts (Shield, Magnet, Mega Ball, Slow-Mo, 2x Gems), skins + shatter FX shop, gem packs, starter pack, impulse buys, leave gift, first-run tutorial + one-time tips, settings menu (volume, vibration, graphics Auto/Low/High, shake, flashes), haptics + hit-stop/camera punch, gamepad aiming/navigation, mobile-safe UI, anti-cheat (RoomReached validation), coalesced saves + autosave.
 Store art: assets/images (Blender renders). Audio: assets/sounds (ElevenLabs). Models: assets/models (Blender FBX, not yet uploaded).
 
+## Experience & server settings (apply via Open Cloud with ROBLOX_API_KEY)
+Runs are client-side and players never see each other, so servers are only for
+presence/chat; bigger servers = fewer servers to fill.
+- Place serverSize (max players per server): 20.
+- Devices: desktop, mobile, tablet, console all enabled (UI + gamepad support built). VR off.
+- Voice chat: off (kids audience). Private servers: off for now (or 0 R$ later for friend groups).
+- Name "Shatter Run"; description: short, kid-friendly, mention smashing glass, 5 zones, daily rewards.
+- Publish ShatterRun.rbxlx to the place via the Place Publishing API instead of asking the owner to republish.
+API key permissions needed for this (the owner must add them to the existing key in
+create.roblox.com/dashboard/credentials): universe (read/write), universe-places (write),
+plus assets (read/write) for uploads. The key's "experience" scope must include the Shatter Run experience.
+Owner must do by hand in Creator Hub: maturity/content questionnaire, genre, visibility (public),
+icon/thumbnails upload if the API can't (files in assets/images).
+
 ## Next session (needs ROBLOX_API_KEY)
 1. Upload assets/sounds (pick one variant each) -> Config.Sounds IDs.
 2. Upload assets/models/*.fbx as Model assets -> Config.Models IDs (Models.place auto-fits size).
