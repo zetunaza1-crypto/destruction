@@ -16,7 +16,7 @@ return {
 		Parts = {
 			Core = { Color = Color3.fromRGB(185, 232, 255), Material = Enum.Material.Glass, Transparency = 0.35 },
 			Heart = { Color = Color3.fromRGB(90, 185, 255), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.86, Max = 1.1, Hz = 0.9 } },
-			Spikes = { Color = Color3.fromRGB(215, 242, 255), Material = Enum.Material.Ice, Transparency = 0, Spin = { Axis = Vector3.new(0, -1, 0), Rps = 0.12 } },
+			Spikes = { Color = Color3.fromRGB(165, 222, 255), Material = Enum.Material.Ice, Transparency = 0, Spin = { Axis = Vector3.new(0, -1, 0), Rps = 0.12 } },
 			Shards = { Color = Color3.fromRGB(120, 205, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.913, 0.407), Rps = 0.32 } },
 		},
 		Fx = {
@@ -64,9 +64,9 @@ return {
 	},
 	MagmaHeart = {
 		Diameter = 2,
-		Size = Vector3.new(1.813, 1.462, 1.879),
+		Size = Vector3.new(1.804, 1.405, 1.843),
 		Parts = {
-			Shell = { Color = Color3.fromRGB(52, 40, 38), Material = Enum.Material.Basalt, Transparency = 0 },
+			Shell = { Color = Color3.fromRGB(42, 32, 30), Material = Enum.Material.Basalt, Transparency = 0 },
 			Seams = { Color = Color3.fromRGB(255, 150, 25), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.96, Max = 1.05, Hz = 1.2 } },
 			Core = { Color = Color3.fromRGB(255, 72, 8), Material = Enum.Material.Neon, Transparency = 0 },
 			Chunks = { Color = Color3.fromRGB(255, 105, 35), Material = Enum.Material.CrackedLava, Transparency = 0, Spin = { Axis = Vector3.new(0.259, 0.908, -0.33), Rps = 0.4 } },
@@ -103,10 +103,10 @@ return {
 		Size = Vector3.new(1.775, 1.639, 1.732),
 		Parts = {
 			Core = { Color = Color3.fromRGB(255, 246, 215), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.88, Max = 1.14, Hz = 1.5 } },
-			Corona = { Color = Color3.fromRGB(255, 150, 20), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.22 } },
+			Corona = { Color = Color3.fromRGB(255, 112, 10), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.22 } },
 			Flares = { Color = Color3.fromRGB(255, 228, 150), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.282, 0.941, 0.188), Rps = -0.15 }, Pulse = { Min = 0.9, Max = 1.06, Hz = 2.2 } },
 			RingA = { Color = Color3.fromRGB(255, 205, 70), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.951, 0.309), Rps = 0.55 } },
-			RingB = { Color = Color3.fromRGB(255, 135, 35), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.765, 0.469, 0.442), Rps = -0.75 } },
+			RingB = { Color = Color3.fromRGB(255, 80, 30), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.765, 0.469, 0.442), Rps = -0.75 } },
 			RingC = { Color = Color3.fromRGB(255, 238, 170), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(-0.765, 0.469, 0.442), Rps = 0.95 } },
 		},
 		Fx = {

@@ -55,6 +55,133 @@
       </Properties>
       <Item class="ModuleScript" referent="10">
         <Properties>
+          <string name="Name">BallStyles</string>
+          <string name="Source"><![CDATA[--[[
+	Look + animation of each premium ball's parts, and its trail / particles / light.
+	Generated from assets/balls/manifest.json by tools/roblox_setup.py (write_ball_styles) - edit the
+	manifest and run it again instead of editing this by hand.
+	Parts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own
+	space (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).
+	src/client/BallFx.luau uses this.
+	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse? } },
+	                   Fx = { Trail?, Particles = { ... }, Light? } }
+]]
+
+return {
+	Frostbite = {
+		Diameter = 2,
+		Size = Vector3.new(1.848, 1.566, 1.812),
+		Parts = {
+			Core = { Color = Color3.fromRGB(185, 232, 255), Material = Enum.Material.Glass, Transparency = 0.35 },
+			Heart = { Color = Color3.fromRGB(90, 185, 255), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.86, Max = 1.1, Hz = 0.9 } },
+			Spikes = { Color = Color3.fromRGB(165, 222, 255), Material = Enum.Material.Ice, Transparency = 0, Spin = { Axis = Vector3.new(0, -1, 0), Rps = 0.12 } },
+			Shards = { Color = Color3.fromRGB(120, 205, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.913, 0.407), Rps = 0.32 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(210, 240, 255), Color2 = Color3.fromRGB(110, 190, 255), Lifetime = 0.35, WidthScale = 1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(225, 245, 255), Rate = 18, Size = { 0.12, 0.28 }, Lifetime = { 0.6, 1.2 }, Speed = { 0.4, 1.4 }, LightEmission = 0.7 },
+			},
+			Light = { Color = Color3.fromRGB(150, 215, 255), Range = 8, Brightness = 1.2 },
+		},
+	},
+	CyberCore = {
+		Diameter = 2,
+		Size = Vector3.new(1.866, 1.903, 1.643),
+		Parts = {
+			Shell = { Color = Color3.fromRGB(38, 44, 56), Material = Enum.Material.Metal, Transparency = 0 },
+			Circuits = { Color = Color3.fromRGB(0, 235, 255), Material = Enum.Material.Neon, Transparency = 0 },
+			RingA = { Color = Color3.fromRGB(0, 220, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.927, 0.375), Rps = 0.45 } },
+			RingB = { Color = Color3.fromRGB(165, 175, 192), Material = Enum.Material.Metal, Transparency = 0, Spin = { Axis = Vector3.new(0.47, 0.342, 0.814), Rps = -0.6 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(0, 240, 255), Color2 = Color3.fromRGB(0, 120, 255), Lifetime = 0.3, WidthScale = 0.9 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(120, 245, 255), Rate = 14, Size = { 0.08, 0.18 }, Lifetime = { 0.3, 0.6 }, Speed = { 1, 3 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(0, 220, 255), Range = 8, Brightness = 1.5 },
+		},
+	},
+	PlasmaCore = {
+		Diameter = 2,
+		Size = Vector3.new(1.999, 1.4, 1.427),
+		Parts = {
+			Core = { Color = Color3.fromRGB(255, 70, 230), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.84, Max = 1.12, Hz = 1.6 } },
+			Arcs = { Color = Color3.fromRGB(215, 150, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.195, 0.976, -0.098), Rps = 0.85 } },
+			Shell = { Color = Color3.fromRGB(235, 205, 255), Material = Enum.Material.Glass, Transparency = 0.55 },
+			RingA = { Color = Color3.fromRGB(255, 80, 235), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.743, 0.669), Rps = 1.2 } },
+			RingB = { Color = Color3.fromRGB(140, 80, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.743, -0.669), Rps = -1.5 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(230, 100, 255), Color2 = Color3.fromRGB(120, 60, 255), Lifetime = 0.4, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 150, 255), Rate = 22, Size = { 0.12, 0.3 }, Lifetime = { 0.3, 0.7 }, Speed = { 1, 2.5 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(220, 90, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	MagmaHeart = {
+		Diameter = 2,
+		Size = Vector3.new(1.804, 1.405, 1.843),
+		Parts = {
+			Shell = { Color = Color3.fromRGB(42, 32, 30), Material = Enum.Material.Basalt, Transparency = 0 },
+			Seams = { Color = Color3.fromRGB(255, 150, 25), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.96, Max = 1.05, Hz = 1.2 } },
+			Core = { Color = Color3.fromRGB(255, 72, 8), Material = Enum.Material.Neon, Transparency = 0 },
+			Chunks = { Color = Color3.fromRGB(255, 105, 35), Material = Enum.Material.CrackedLava, Transparency = 0, Spin = { Axis = Vector3.new(0.259, 0.908, -0.33), Rps = 0.4 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(255, 140, 30), Color2 = Color3.fromRGB(200, 40, 10), Lifetime = 0.35, WidthScale = 1 },
+			Particles = {
+				{ Texture = "fire", Color = Color3.fromRGB(255, 120, 30), Rate = 20, Size = { 0.25, 0.6 }, Lifetime = { 0.3, 0.6 }, Speed = { 0.5, 1.5 }, LightEmission = 1 },
+				{ Texture = "smoke", Color = Color3.fromRGB(70, 60, 60), Rate = 6, Size = { 0.4, 1 }, Lifetime = { 0.6, 1.2 }, Speed = { 0.3, 0.8 }, LightEmission = 0 },
+			},
+			Light = { Color = Color3.fromRGB(255, 120, 30), Range = 10, Brightness = 2 },
+		},
+	},
+	BlackHole = {
+		Diameter = 2,
+		Size = Vector3.new(1.988, 1.195, 1.925),
+		Parts = {
+			Core = { Color = Color3.fromRGB(6, 4, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Disk = { Color = Color3.fromRGB(255, 125, 35), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.961, 0.276), Rps = 0.5 } },
+			DiskInner = { Color = Color3.fromRGB(255, 238, 195), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.961, 0.276), Rps = 0.95 } },
+			Lens = { Color = Color3.fromRGB(150, 85, 255), Material = Enum.Material.ForceField, Transparency = 0, Pulse = { Min = 0.96, Max = 1.06, Hz = 0.6 } },
+			Debris = { Color = Color3.fromRGB(205, 175, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.961, 0.276), Rps = 0.7 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(110, 40, 190), Color2 = Color3.fromRGB(25, 0, 50), Lifetime = 0.45, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(200, 150, 255), Rate = 20, Size = { 0.08, 0.2 }, Lifetime = { 0.4, 0.8 }, Speed = { -1.5, -0.5 }, LightEmission = 0.8 },
+			},
+			Light = { Color = Color3.fromRGB(170, 80, 255), Range = 9, Brightness = 1.5 },
+		},
+	},
+	Supernova = {
+		Diameter = 2,
+		Size = Vector3.new(1.775, 1.639, 1.732),
+		Parts = {
+			Core = { Color = Color3.fromRGB(255, 246, 215), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.88, Max = 1.14, Hz = 1.5 } },
+			Corona = { Color = Color3.fromRGB(255, 112, 10), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.22 } },
+			Flares = { Color = Color3.fromRGB(255, 228, 150), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.282, 0.941, 0.188), Rps = -0.15 }, Pulse = { Min = 0.9, Max = 1.06, Hz = 2.2 } },
+			RingA = { Color = Color3.fromRGB(255, 205, 70), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.951, 0.309), Rps = 0.55 } },
+			RingB = { Color = Color3.fromRGB(255, 80, 30), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.765, 0.469, 0.442), Rps = -0.75 } },
+			RingC = { Color = Color3.fromRGB(255, 238, 170), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(-0.765, 0.469, 0.442), Rps = 0.95 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(255, 200, 60), Color2 = Color3.fromRGB(255, 255, 235), Lifetime = 0.5, WidthScale = 1.3 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 240, 180), Rate = 40, Size = { 0.15, 0.45 }, Lifetime = { 0.3, 0.8 }, Speed = { 1.5, 4 }, LightEmission = 1 },
+				{ Texture = "fire", Color = Color3.fromRGB(255, 150, 40), Rate = 25, Size = { 0.3, 0.8 }, Lifetime = { 0.25, 0.5 }, Speed = { 0.5, 1.5 }, LightEmission = 1 },
+			},
+			Light = { Color = Color3.fromRGB(255, 200, 110), Range = 14, Brightness = 3 },
+		},
+	},
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="11">
+        <Properties>
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[--[[
 	All the numbers that control the game live here.
@@ -75,14 +202,32 @@ Config.ROOM_LENGTH = 80
 Config.ROOMS_AHEAD = 3 -- how many rooms are visible in front of the camera (the fog hides the far end);
 -- rooms start building one room earlier than that, a few parts per frame
 Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
-Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
+Config.ROOMS_PER_CHECKPOINT = 14 -- rooms per zone: new colors + "ZONE" every N rooms
 Config.CAMERA_HEIGHT = 6
 Config.STUDS_PER_METER = 3
 
 -- Speed ----------------------------------------------------------------------
+-- A run warms up from START_SPEED (+SPEED_GAIN_PER_ROOM every room), but each
+-- zone has its own top speed, so every new zone is a little faster than the last.
+-- The server's anti-cheat uses Config.speedForRoom too, so keep all speed rules in it.
 Config.START_SPEED = 22 -- studs per second
-Config.MAX_SPEED = 55
+Config.MAX_SPEED = 60 -- never faster than this (zone 10 and beyond)
 Config.SPEED_GAIN_PER_ROOM = 0.8
+-- Top speed in each zone (1 = the first zone). Zones after the last use MAX_SPEED.
+Config.ZoneTopSpeed = { 34, 40, 46, 50, 53, 55, 56.5, 58, 59, 60 }
+-- A Checkpoints-pass run starting in a later zone starts this much below that zone's top speed.
+Config.CHECKPOINT_WARMUP_DROP = 12
+
+-- Speed while the camera is in room `roomIndex`, for a run that started in room `startRoom`.
+function Config.speedForRoom(roomIndex, startRoom)
+	local function topSpeed(room)
+		local zone = room // Config.ROOMS_PER_CHECKPOINT + 1
+		return math.min(Config.ZoneTopSpeed[zone] or Config.MAX_SPEED, Config.MAX_SPEED)
+	end
+	local warmStart = math.max(Config.START_SPEED, topSpeed(startRoom) - Config.CHECKPOINT_WARMUP_DROP)
+	local warm = warmStart + math.max(0, roomIndex - startRoom) * Config.SPEED_GAIN_PER_ROOM
+	return math.min(topSpeed(roomIndex), warm)
+end
 
 -- Balls ----------------------------------------------------------------------
 Config.START_BALLS = 25
@@ -227,6 +372,41 @@ Config.Skins = {
 	{ Id = "Neonite", Name = "Neonite", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 70, 200), Material = Enum.Material.Neon, Trail = Color3.fromRGB(255, 70, 200) },
 	{ Id = "Diamond", Name = "Diamond", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(200, 240, 255), Material = Enum.Material.Glass, Trail = Color3.fromRGB(255, 255, 255) },
 	{ Id = "Shatterborn", Name = "Shatterborn", Price = 0, Source = "SEASON PASS", Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Rainbow = true },
+	-- Free reward for reaching ZONE 10 (Config.ZoneRewards): a rainbow glass ball.
+	{ Id = "PrismShard", Name = "Prism Shard", Price = 0, Source = "REACH ZONE 10", Color = Color3.fromRGB(235, 225, 255), Material = Enum.Material.Glass, Rainbow = true, Trail = Color3.fromRGB(200, 160, 255) },
+	-- Premium balls: Robux only (Config.Products.Ball<Id>), never sold for gems.
+	-- Robux = price shown if the live price can't be loaded. Each one is an animated
+	-- Blender model (Config.BallModels, styled by Shared.BallStyles). Until that's
+	-- uploaded they're built from parts: a Color core, a Shell, spinning Ring(s) and a Trail.
+	{ Id = "Frostbite", Name = "Frostbite", Price = 0, Premium = true, Robux = 79, ProductKey = "BallFrostbite", Text = "AN ICE CORE WITH FROST SHARDS CIRCLING IT", Color = Color3.fromRGB(150, 225, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(220, 245, 255), Ring = Color3.fromRGB(190, 240, 255), Trail = Color3.fromRGB(170, 230, 255) },
+	{ Id = "CyberCore", Name = "Cyber Core", Price = 0, Premium = true, Robux = 79, ProductKey = "BallCyberCore", Text = "A GLOWING CHIP INSIDE SPINNING DATA RINGS", Color = Color3.fromRGB(0, 255, 170), Material = Enum.Material.Neon, Shell = Color3.fromRGB(30, 40, 50), Ring = Color3.fromRGB(0, 230, 255), Trail = Color3.fromRGB(0, 255, 200) },
+	{ Id = "PlasmaCore", Name = "Plasma Core", Price = 0, Premium = true, Robux = 99, ProductKey = "BallPlasmaCore", Text = "CRACKLING PLASMA TRAPPED IN A FORCE FIELD", Color = Color3.fromRGB(210, 90, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 120, 230), Ring = Color3.fromRGB(255, 90, 220), Trail = Color3.fromRGB(220, 100, 255) },
+	{ Id = "MagmaHeart", Name = "Magma Heart", Price = 0, Premium = true, Robux = 99, ProductKey = "BallMagmaHeart", Text = "A MOLTEN HEART IN A CRACKED ROCK SHELL", Color = Color3.fromRGB(255, 110, 20), Material = Enum.Material.Neon, Shell = Color3.fromRGB(60, 30, 25), Ring = Color3.fromRGB(255, 170, 40), Trail = Color3.fromRGB(255, 90, 20) },
+	{ Id = "BlackHole", Name = "Black Hole", Price = 0, Premium = true, Robux = 149, ProductKey = "BallBlackHole", Text = "PURE DARKNESS WITH A BLAZING SPINNING DISK", Color = Color3.fromRGB(8, 4, 16), Material = Enum.Material.Neon, Shell = Color3.fromRGB(120, 60, 255), Ring = Color3.fromRGB(255, 150, 60), Trail = Color3.fromRGB(150, 80, 255) },
+	{ Id = "Supernova", Name = "Supernova", Price = 0, Premium = true, Robux = 199, ProductKey = "BallSupernova", Text = "A STAR ABOUT TO EXPLODE, WITH BLAZING RINGS", Color = Color3.fromRGB(255, 245, 210), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 200, 80), Ring = Color3.fromRGB(255, 180, 50), Trail = Color3.fromRGB(255, 220, 120) },
+}
+
+-- Ids of the premium (Robux) balls above, in shop order.
+Config.PremiumBalls = {}
+for _, skin in Config.Skins do
+	if skin.Premium then
+		table.insert(Config.PremiumBalls, skin.Id)
+	end
+end
+
+-- Gems given instead when someone buys a premium ball they already own
+-- (e.g. bought twice while a save was failing): Robux price x this.
+Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
+
+-- Blender models of the premium balls (assets/balls/*.fbx), uploaded as Model
+-- assets. 0 = not uploaded yet: the part-built version above is used instead.
+Config.BallModels = {
+	Frostbite = 95405037753431,
+	CyberCore = 128733885861068,
+	PlasmaCore = 124458067173363,
+	MagmaHeart = 108350449356111,
+	BlackHole = 116620455419343,
+	Supernova = 72233037920626,
 }
 
 function Config.getSkin(skinId)
@@ -273,6 +453,15 @@ Config.Products = {
 	ExtraReroll = { Id = 3718291678 }, -- ~5 R$
 	-- Keeps a broken login streak going (only offered right after it breaks).
 	StreakSaver = { Id = 3718291682 }, -- ~15 R$
+
+	-- Premium balls (see Config.Skins): yours forever and equipped right away.
+	-- Already owned? You get gems instead (Robux price x PREMIUM_BALL_REFUND_GEMS_PER_ROBUX).
+	BallFrostbite = { Id = 3718303689, Skin = "Frostbite" }, -- 79 R$
+	BallCyberCore = { Id = 3718303691, Skin = "CyberCore" }, -- 79 R$
+	BallPlasmaCore = { Id = 3718303699, Skin = "PlasmaCore" }, -- 99 R$
+	BallMagmaHeart = { Id = 3718303702, Skin = "MagmaHeart" }, -- 99 R$
+	BallBlackHole = { Id = 3718303711, Skin = "BlackHole" }, -- 149 R$
+	BallSupernova = { Id = 3718303716, Skin = "Supernova" }, -- 199 R$
 }
 
 -- Boosts --------------------------------------------------------------------------
@@ -352,6 +541,10 @@ Config.Hints = {
 	Double = "TWO PANES IN A ROW - THROW TWICE",
 	Multiball = "MULTIBALL! EVERY TAP NOW THROWS MORE BALLS",
 	Props = "BREAK DECORATIONS FOR MISSIONS AND XP",
+	ArmoredGlass = "ARMORED GLASS! HIT IT TWICE TO BREAK IT",
+	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
+	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
+	RingSpinner = "SPINNING RING! SMASH THE PANE COMING DOWN",
 }
 
 -- 3D models ------------------------------------------------------------------
@@ -378,6 +571,26 @@ Config.Models = {
 	PipeRun = 107736602209422,
 	Vent = 98915355039928,
 	Crate = 88284134622799,
+	IceCluster = 135974111689068,
+	Icicle = 103318764223255,
+	FrozenPillar = 106145180585770,
+	IceSculpture = 102761384524681,
+	LavaRock = 81609490559178,
+	MagmaVent = 136823192487667,
+	ForgeAnvil = 83253142226801,
+	MagmaJar = 112905056304068,
+	Coral = 130798422387948,
+	Seaweed = 126294631253711,
+	Anchor = 138452985127382,
+	FishTank = 126166432025303,
+	JellyLamp = 91066068920671,
+	CloudCluster = 90787914879077,
+	WindTurbine = 97056550572148,
+	SkyLantern = 73176633283022,
+	Banner = 121228017765972,
+	EnergyPylon = 117945811591028,
+	CoreCrystal = 89654016722562,
+	FloatingRing = 137020398082328,
 }
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
@@ -418,15 +631,95 @@ Config.Themes = {
 		Style = "Void", -- decoration set used by Decor.luau
 		Name = "THE VOID",
 	},
+	{
+		Wall = Color3.fromRGB(196, 222, 240),
+		Accent = Color3.fromRGB(110, 215, 255),
+		Fog = Color3.fromRGB(165, 200, 228),
+		Style = "Frost", -- decoration set used by Decor.luau
+		Name = "FROST CAVERNS",
+	},
+	{
+		Wall = Color3.fromRGB(62, 38, 32),
+		Accent = Color3.fromRGB(255, 110, 30),
+		Fog = Color3.fromRGB(70, 30, 18),
+		Style = "Magma", -- decoration set used by Decor.luau
+		Name = "MAGMA FORGE",
+	},
+	{
+		Wall = Color3.fromRGB(28, 72, 88),
+		Accent = Color3.fromRGB(60, 255, 215),
+		Fog = Color3.fromRGB(14, 58, 74),
+		Style = "Aquarium", -- decoration set used by Decor.luau
+		Name = "DEEP AQUARIUM",
+	},
+	{
+		Wall = Color3.fromRGB(236, 240, 248),
+		Accent = Color3.fromRGB(255, 185, 50),
+		Fog = Color3.fromRGB(190, 220, 250),
+		Style = "Sky", -- decoration set used by Decor.luau
+		Name = "SKY CITADEL",
+	},
+	{
+		Wall = Color3.fromRGB(38, 24, 58),
+		Accent = Color3.fromRGB(215, 140, 255),
+		Fog = Color3.fromRGB(34, 20, 54),
+		Style = "Core", -- decoration set used by Decor.luau
+		Name = "CRYSTAL CORE",
+	},
 }
 
--- Which obstacles show up in each zone. Zones after the last one use all of them.
+-- Which obstacles show up in each zone (1 = the first zone). Zones after the last one use the last list.
+-- Zones 6-10 bring new obstacles: ArmoredGlass (2 hits), BobbingPane, FallingPane, RingSpinner.
 Config.ZonePatterns = {
 	{ "Window", "Pillars", "Beam" },
 	{ "Window", "Pillars", "Beam", "FullWall", "Moving" },
 	{ "Pillars", "Beam", "FullWall", "Moving", "Door", "Grid" },
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double" },
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
+	{ "FullWall", "Moving", "Door", "Grid", "Double", "Pillars", "ArmoredGlass", "ArmoredGlass", "BobbingPane" },
+	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "BobbingPane", "FallingPane", "FallingPane" },
+	{ "Moving", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner", "RingSpinner" },
+	{ "FullWall", "Door", "Grid", "Spinner", "Double", "Moving", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner" },
+	{ "FullWall", "Door", "Grid", "Spinner", "Double", "ArmoredGlass", "ArmoredGlass", "BobbingPane", "FallingPane", "RingSpinner", "RingSpinner" },
+}
+
+-- How hard each zone starts (0 = easy, 1 = very busy). It climbs a little more
+-- inside every zone (ZONE_DIFFICULTY_RAMP over the zone's rooms). Zones after the
+-- last keep adding ZONE_DIFFICULTY_AFTER per zone, so the endless part only gets harder.
+-- More difficulty = more obstacle groups per room (up to 4).
+Config.ZoneDifficulty = { 0.05, 0.15, 0.28, 0.4, 0.5, 0.58, 0.66, 0.74, 0.82, 0.9 }
+Config.ZONE_DIFFICULTY_RAMP = 0.45
+Config.ZONE_DIFFICULTY_AFTER = 0.06
+
+function Config.difficultyFor(zone, roomInZone)
+	local base = Config.ZoneDifficulty[zone + 1]
+	if base == nil then
+		base = Config.ZoneDifficulty[#Config.ZoneDifficulty]
+			+ (zone + 1 - #Config.ZoneDifficulty) * Config.ZONE_DIFFICULTY_AFTER
+	end
+	return base + roomInZone / Config.ROOMS_PER_CHECKPOINT * Config.ZONE_DIFFICULTY_RAMP
+end
+
+-- Crystals (extra balls) per room: { min, max } per zone. Later zones give fewer,
+-- so every throw counts. Zones after the last use the last entry.
+Config.ZoneCrystals = { { 1, 2 }, { 1, 2 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 } }
+-- Chance that armored glass hides a bonus crystal right behind it.
+Config.ARMOR_BONUS_CRYSTAL_CHANCE = 0.4
+
+-- First time you fly into a zone you get a reward (once per account, saved in
+-- ZonesRewarded). Keys are the zone number the game shows ("ZONE 05"; START is 0).
+-- ZONE 10 means you made it through all 10 zones.
+Config.ZoneRewards = {
+	[1] = { Gems = 50 },
+	[2] = { Gems = 100 },
+	[3] = { Gems = 150, Boost = "Shield" },
+	[4] = { Gems = 200, Boost = "MegaBall" },
+	[5] = { Gems = 250, Boost = "DoubleGems" },
+	[6] = { Gems = 350, Boost = "Shield" },
+	[7] = { Gems = 450, Boost = "SlowMo" },
+	[8] = { Gems = 600, Boost = "MegaBall" },
+	[9] = { Gems = 800, Boost = "DoubleGems" },
+	[10] = { Gems = 1000, Skin = "PrismShard" },
 }
 
 -- Smoothness (frame budgets) ---------------------------------------------------
@@ -477,7 +770,7 @@ return Config
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="11">
+      <Item class="ModuleScript" referent="12">
         <Properties>
           <string name="Name">ModelStyles</string>
           <string name="Source"><![CDATA[--[[
@@ -633,21 +926,174 @@ return {
 		Body = { Color = Color3.fromRGB(195, 155, 105), Material = Enum.Material.WoodPlanks, Transparency = 0.0 },
 		Metal = { Color = Color3.fromRGB(70, 72, 80), Material = Enum.Material.Metal, Transparency = 0.0 },
 	},
+	IceCluster = {
+		Size = Vector3.new(3.29, 2.31, 2.81),
+		Anchor = "floor",
+		Breakable = false,
+		Ice = { Color = Color3.fromRGB(165, 220, 255), Material = Enum.Material.Ice, Transparency = 0.15 },
+		Body = { Color = Color3.fromRGB(240, 246, 255), Material = Enum.Material.Snow, Transparency = 0.0 },
+	},
+	Icicle = {
+		Size = Vector3.new(3.21, 3.7, 1.28),
+		Anchor = "ceiling",
+		Breakable = false,
+		Ice = { Color = Color3.fromRGB(185, 230, 255), Material = Enum.Material.Ice, Transparency = 0.15 },
+		Body = { Color = Color3.fromRGB(240, 246, 255), Material = Enum.Material.Snow, Transparency = 0.0 },
+	},
+	FrozenPillar = {
+		Size = Vector3.new(3.19, 14.0, 3.11),
+		Anchor = "floor",
+		Breakable = false,
+		Stone = { Color = Color3.fromRGB(105, 120, 145), Material = Enum.Material.Slate, Transparency = 0.0 },
+		Ice = { Color = Color3.fromRGB(165, 220, 255), Material = Enum.Material.Ice, Transparency = 0.2 },
+		Body = { Color = Color3.fromRGB(240, 246, 255), Material = Enum.Material.Snow, Transparency = 0.0 },
+	},
+	IceSculpture = {
+		Size = Vector3.new(2.21, 3.08, 1.75),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(200, 240, 255), Material = Enum.Material.Glass, Transparency = 0.35 },
+		Stone = { Color = Color3.fromRGB(215, 225, 238), Material = Enum.Material.Marble, Transparency = 0.0 },
+	},
+	LavaRock = {
+		Size = Vector3.new(3.46, 1.79, 2.59),
+		Anchor = "floor",
+		Breakable = false,
+		Stone = { Color = Color3.fromRGB(48, 40, 42), Material = Enum.Material.Basalt, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 110, 30), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	MagmaVent = {
+		Size = Vector3.new(4.36, 3.31, 4.15),
+		Anchor = "floor",
+		Breakable = false,
+		Stone = { Color = Color3.fromRGB(58, 46, 44), Material = Enum.Material.Basalt, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 120, 35), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	ForgeAnvil = {
+		Size = Vector3.new(3.01, 2.86, 2.07),
+		Anchor = "floor",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(62, 62, 70), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Wood = { Color = Color3.fromRGB(110, 72, 45), Material = Enum.Material.Wood, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 150, 40), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	MagmaJar = {
+		Size = Vector3.new(2.22, 2.46, 1.71),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(255, 225, 200), Material = Enum.Material.Glass, Transparency = 0.5 },
+		Metal = { Color = Color3.fromRGB(72, 60, 56), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 100, 20), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	Coral = {
+		Size = Vector3.new(2.87, 2.08, 2.13),
+		Anchor = "floor",
+		Breakable = false,
+		Body = { Color = Color3.fromRGB(255, 105, 130), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Plant = { Color = Color3.fromRGB(165, 95, 235), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(120, 255, 230), Material = Enum.Material.Neon, Transparency = 0.0 },
+		Stone = { Color = Color3.fromRGB(130, 118, 104), Material = Enum.Material.Rock, Transparency = 0.0 },
+	},
+	Seaweed = {
+		Size = Vector3.new(2.34, 7.45, 1.76),
+		Anchor = "floor",
+		Breakable = false,
+		Plant = { Color = Color3.fromRGB(70, 175, 95), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Stone = { Color = Color3.fromRGB(120, 112, 104), Material = Enum.Material.Rock, Transparency = 0.0 },
+	},
+	Anchor = {
+		Size = Vector3.new(3.79, 4.49, 2.85),
+		Anchor = "floor",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(80, 88, 96), Material = Enum.Material.CorrodedMetal, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(225, 205, 155), Material = Enum.Material.Sand, Transparency = 0.0 },
+		Plant = { Color = Color3.fromRGB(80, 170, 90), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+	},
+	FishTank = {
+		Size = Vector3.new(3.2, 3.06, 1.6),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(205, 240, 255), Material = Enum.Material.Glass, Transparency = 0.6 },
+		Metal = { Color = Color3.fromRGB(45, 52, 64), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(60, 175, 255), Material = Enum.Material.Neon, Transparency = 0.6 },
+		Body = { Color = Color3.fromRGB(255, 145, 40), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Plant = { Color = Color3.fromRGB(80, 200, 110), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Stone = { Color = Color3.fromRGB(235, 215, 170), Material = Enum.Material.Sand, Transparency = 0.0 },
+	},
+	JellyLamp = {
+		Size = Vector3.new(2.01, 3.83, 2.01),
+		Anchor = "ceiling",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(255, 170, 240), Material = Enum.Material.Glass, Transparency = 0.4 },
+		Neon = { Color = Color3.fromRGB(255, 120, 220), Material = Enum.Material.Neon, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(200, 205, 220), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	CloudCluster = {
+		Size = Vector3.new(5.57, 2.45, 2.85),
+		Anchor = "floor",
+		Breakable = false,
+		Body = { Color = Color3.fromRGB(250, 252, 255), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+	},
+	WindTurbine = {
+		Size = Vector3.new(3.63, 3.63, 2.28),
+		Anchor = "wall",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(215, 222, 235), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Body = { Color = Color3.fromRGB(70, 125, 230), Material = Enum.Material.SmoothPlastic, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(90, 200, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	SkyLantern = {
+		Size = Vector3.new(3.33, 3.12, 1.54),
+		Anchor = "ceiling",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(255, 236, 185), Material = Enum.Material.Glass, Transparency = 0.45 },
+		Metal = { Color = Color3.fromRGB(235, 185, 70), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(255, 215, 110), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	Banner = {
+		Size = Vector3.new(3.56, 5.07, 0.48),
+		Anchor = "wall",
+		Breakable = false,
+		Body = { Color = Color3.fromRGB(60, 110, 220), Material = Enum.Material.Fabric, Transparency = 0.0 },
+		Metal = { Color = Color3.fromRGB(240, 190, 70), Material = Enum.Material.Metal, Transparency = 0.0 },
+	},
+	EnergyPylon = {
+		Size = Vector3.new(2.27, 6.75, 2.62),
+		Anchor = "floor",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(58, 62, 82), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(80, 240, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
+	CoreCrystal = {
+		Size = Vector3.new(2.62, 3.6, 2.45),
+		Anchor = "floor",
+		Breakable = true,
+		Glass = { Color = Color3.fromRGB(170, 110, 255), Material = Enum.Material.Glass, Transparency = 0.3 },
+		Neon = { Color = Color3.fromRGB(230, 175, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+		Stone = { Color = Color3.fromRGB(62, 56, 82), Material = Enum.Material.Slate, Transparency = 0.0 },
+	},
+	FloatingRing = {
+		Size = Vector3.new(9.0, 9.0, 1.14),
+		Anchor = "center",
+		Breakable = false,
+		Metal = { Color = Color3.fromRGB(70, 72, 95), Material = Enum.Material.Metal, Transparency = 0.0 },
+		Neon = { Color = Color3.fromRGB(120, 230, 255), Material = Enum.Material.Neon, Transparency = 0.0 },
+	},
 }
 ]]></string>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="12">
+  <Item class="ServerScriptService" referent="13">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="13">
+    <Item class="Folder" referent="14">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="Script" referent="14">
+      <Item class="Script" referent="15">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -730,36 +1176,52 @@ local sessionStarts = {}
 local runCounts = {}
 
 -- The furthest anyone can legitimately travel in `seconds`, following the same
--- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
--- The ramp (about 40 rooms) is worked out once here; after it the speed never
--- changes, so longer times are a simple multiplication.
-local rampRoomTimes = {} -- seconds to fly through each ramp room
-local rampTime, rampStuds = 0, 0
-do
-	local gain = Config.SPEED_GAIN_PER_ROOM
-	local rampRooms = 0
-	if gain > 0 and Config.START_SPEED < Config.MAX_SPEED then
-		rampRooms = math.ceil((Config.MAX_SPEED - Config.START_SPEED) / gain)
+-- speeds as the client (Config.speedForRoom: a warm-up from the start room, and a
+-- top speed per zone). Once the speed can't change any more (MAX_SPEED reached
+-- in the last zone with its own top speed), longer times are a simple multiplication.
+-- Worked out once per start checkpoint: { roomTimes, time, studs, finalSpeed }.
+local speedRamps = {}
+
+local function speedRamp(startCheckpoint)
+	local ramp = speedRamps[startCheckpoint]
+	if ramp then
+		return ramp
 	end
-	for room = 0, rampRooms - 1 do
-		local speed = math.min(Config.MAX_SPEED, Config.START_SPEED + room * gain)
-		local seconds = Config.ROOM_LENGTH / speed
-		table.insert(rampRoomTimes, seconds)
-		rampTime += seconds
+	ramp = { roomTimes = {}, time = 0, studs = 0, finalSpeed = Config.MAX_SPEED }
+	local startRoom = startCheckpoint * Config.ROOMS_PER_CHECKPOINT
+	-- After this room every zone runs at MAX_SPEED (zones past the ZoneTopSpeed list).
+	local lastSpeedZoneRoom = #Config.ZoneTopSpeed * Config.ROOMS_PER_CHECKPOINT
+	local room = startRoom
+	while true do
+		local speed = Config.speedForRoom(room, startRoom)
+		if speed >= Config.MAX_SPEED and room >= lastSpeedZoneRoom then
+			break
+		end
+		if #ramp.roomTimes > 2000 then
+			ramp.finalSpeed = Config.MAX_SPEED -- safety net (bad Config): assume top speed from here
+			break
+		end
+		local seconds = Config.ROOM_LENGTH / math.max(speed, 1)
+		table.insert(ramp.roomTimes, seconds)
+		ramp.time += seconds
+		ramp.studs += Config.ROOM_LENGTH
+		room += 1
 	end
-	rampStuds = rampRooms * Config.ROOM_LENGTH
+	speedRamps[startCheckpoint] = ramp
+	return ramp
 end
 
-local function maxStudsIn(seconds)
+local function maxStudsIn(seconds, startCheckpoint)
 	if seconds <= 0 then
 		return 0
 	end
-	if seconds >= rampTime then
-		return rampStuds + (seconds - rampTime) * Config.MAX_SPEED
+	local ramp = speedRamp(startCheckpoint)
+	if seconds >= ramp.time then
+		return ramp.studs + (seconds - ramp.time) * ramp.finalSpeed
 	end
-	-- Still speeding up: walk the (at most ~40) ramp rooms.
+	-- Still speeding up: walk the ramp rooms.
 	local studs, time = 0, 0
-	for _, roomSeconds in rampRoomTimes do
+	for _, roomSeconds in ramp.roomTimes do
 		if time + roomSeconds >= seconds then
 			local speed = Config.ROOM_LENGTH / roomSeconds
 			return studs + (seconds - time) * speed
@@ -780,11 +1242,11 @@ end
 local function maxStudsForRun(run)
 	if run.pausedAt then
 		if not run.pausedMaxStuds then
-			run.pausedMaxStuds = maxStudsIn(activeSeconds(run))
+			run.pausedMaxStuds = maxStudsIn(activeSeconds(run), run.startCheckpoint)
 		end
 		return run.pausedMaxStuds
 	end
-	return maxStudsIn(activeSeconds(run))
+	return maxStudsIn(activeSeconds(run), run.startCheckpoint)
 end
 
 local function pauseRun(run)
@@ -1296,6 +1758,13 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 		changes.Checkpoint = reachedZone
 	end
 
+	-- First-time zone rewards (Config.ZoneRewards), only for zones flown into on
+	-- this run. Saved in ZonesRewarded so each one is given once.
+	local zoneRewards = Progression.grantZoneRewards(data, run.startCheckpoint, reachedZone)
+	if #zoneRewards > 0 then
+		PlayerData.publish(player, Progression.REWARD_FIELDS)
+	end
+
 	-- Personal best + global leaderboard only count runs from the very start,
 	-- so a Checkpoints pass can't buy a higher score.
 	-- One run can never put more than MAX_RUN_METERS on the board.
@@ -1313,6 +1782,9 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	end
 	for _, event in events do
 		Progression.fire(player, event)
+	end
+	for _, text in zoneRewards do
+		Progression.fire(player, { type = "Reward", text = text, source = "Zone" })
 	end
 	Progression.fire(player, {
 		type = "RunSummary",
@@ -1380,13 +1852,14 @@ end)
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Script" referent="15">
+      <Item class="Script" referent="16">
         <Properties>
           <string name="Name">ModelLoader</string>
           <token name="RunContext">0</token>
           <string name="Source"><![CDATA[--[[
 	Loads the uploaded Blender models (Config.Models) into
 	ReplicatedStorage.ModelLibrary so every player's device can clone them.
+	Premium ball models (Config.BallModels) go into ModelLibrary.Balls.
 	Models must be owned by the same account/group that owns the game.
 ]]
 
@@ -1399,38 +1872,51 @@ local library = Instance.new("Folder")
 library.Name = "ModelLibrary"
 library.Parent = ReplicatedStorage
 
-for name, assetId in Config.Models do
-	if assetId ~= 0 then
-		task.spawn(function()
-			local ok, container = pcall(InsertService.LoadAsset, InsertService, assetId)
-			if not ok then
-				warn("Could not load model", name, assetId, container)
-				return
-			end
+local balls = Instance.new("Folder")
+balls.Name = "Balls"
+balls.Parent = library
 
-			-- LoadAsset wraps the asset in a Model; unwrap a single inner Model.
-			local model = container
-			local children = container:GetChildren()
-			if #children == 1 and children[1]:IsA("Model") then
-				model = children[1]
-				model.Parent = nil
-				container:Destroy()
-			end
-
-			model.Name = name
-			for _, part in model:GetDescendants() do
-				if part:IsA("BasePart") then
-					part.Anchored = true
-				end
-			end
-			model.Parent = library
-		end)
+-- Loads one model asset (in its own thread) and puts it in `folder` as `name`.
+local function load(folder, name, assetId)
+	if assetId == 0 then
+		return
 	end
+	task.spawn(function()
+		local ok, container = pcall(InsertService.LoadAsset, InsertService, assetId)
+		if not ok then
+			warn("Could not load model", name, assetId, container)
+			return
+		end
+
+		-- LoadAsset wraps the asset in a Model; unwrap a single inner Model.
+		local model = container
+		local children = container:GetChildren()
+		if #children == 1 and children[1]:IsA("Model") then
+			model = children[1]
+			model.Parent = nil
+			container:Destroy()
+		end
+
+		model.Name = name
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.Anchored = true
+			end
+		end
+		model.Parent = folder
+	end)
+end
+
+for name, assetId in Config.Models do
+	load(library, name, assetId)
+end
+for name, assetId in Config.BallModels or {} do
+	load(balls, name, assetId)
 end
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">Monetization</string>
           <string name="Source"><![CDATA[--[[
@@ -1562,11 +2048,42 @@ local function ballsReward(amount)
 	end
 end
 
+-- Premium ball products (BallSupernova...): the ball is theirs forever and is
+-- equipped right away. Already owned (bought twice, e.g. while an earlier save
+-- failed)? They get gems worth the price instead, so a purchase is never wasted.
+local function premiumBallReward(skin)
+	return function(player, data)
+		local name = string.upper(skin.Name)
+		if Progression.ownsSkin(data, skin.Id) then
+			local gems = math.floor((tonumber(skin.Robux) or 0) * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
+			data.Gems += gems
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY OWN " .. name .. ": +" .. gems .. " GEMS INSTEAD",
+			})
+			return
+		end
+		table.insert(data.OwnedSkins, skin.Id)
+		data.EquippedSkin = skin.Id
+		PlayerData.publish(player, { "OwnedSkins", "EquippedSkin" })
+		Progression.fire(player, { type = "Reward", text = name .. " BALL UNLOCKED AND EQUIPPED" })
+	end
+end
+
 -- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
 -- Gems that has no special handler above.
 local function rewardFor(productKey, product)
 	if serverRewards[productKey] then
 		return serverRewards[productKey]
+	end
+	if product.Skin then
+		local skin = Progression.findSkin(product.Skin)
+		if skin and skin.Premium then
+			return premiumBallReward(skin)
+		end
+		warn("Product", productKey, "sells an unknown premium ball:", product.Skin)
+		return nil
 	end
 	if product.Boost and Progression.isBoost(product.Boost) then
 		return boostReward(product.Boost)
@@ -1715,7 +2232,7 @@ return Monetization
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">PlayerData</string>
           <string name="Source"><![CDATA[--[[
@@ -2119,7 +2636,7 @@ return PlayerData
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">Progression</string>
           <string name="Source"><![CDATA[--[[
@@ -2273,6 +2790,31 @@ end
 
 -- Fields grantReward can touch (for publishing).
 Progression.REWARD_FIELDS = { "Gems", "BonusBalls", "OwnedSkins", "OwnedFx", "Boosts" }
+
+-- Zone rewards ---------------------------------------------------------------------
+
+-- First-time zone rewards (Config.ZoneRewards). A run that started in zone
+-- `startZone` and flew into zone `reachedZone` earns the reward of every zone
+-- after startZone up to reachedZone that this account hasn't had yet
+-- (data.ZonesRewarded). The zone a Checkpoints-pass run starts in doesn't count:
+-- only zones you actually flew into.
+-- Returns the messages to show, e.g. { "ZONE 06 REACHED: +350 GEMS, SHIELD BOOST" }.
+function Progression.grantZoneRewards(data, startZone, reachedZone)
+	local messages = {}
+	for zone = startZone + 1, reachedZone do
+		local reward = Config.ZoneRewards[zone]
+		if reward and not table.find(data.ZonesRewarded, zone) then
+			table.insert(data.ZonesRewarded, zone)
+			local given = Progression.grantReward(data, reward)
+			local text = string.format("ZONE %02d REACHED", zone)
+			if given ~= "" then
+				text ..= ": " .. string.upper(given)
+			end
+			table.insert(messages, text)
+		end
+	end
+	return messages
+end
 
 -- Levels + season pass ------------------------------------------------------------
 
@@ -2715,6 +3257,17 @@ function Progression.normalize(data, now)
 		data.EquippedFx = "Classic"
 	end
 
+	-- Zones whose first-time reward was given: whole numbers, each once.
+	local zonesRewarded = {}
+	if type(data.ZonesRewarded) == "table" then
+		for _, zone in data.ZonesRewarded do
+			if type(zone) == "number" and zone == math.floor(zone) and zone > 0 and not table.find(zonesRewarded, zone) then
+				table.insert(zonesRewarded, zone)
+			end
+		end
+	end
+	data.ZonesRewarded = zonesRewarded
+
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)
 	data.SeasonXP = wholeNumber(data.SeasonXP, 0)
@@ -2726,7 +3279,7 @@ return Progression
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">Shop</string>
           <string name="Source"><![CDATA[--[[
@@ -2778,6 +3331,10 @@ function actions.BuySkin(player, data, skinId)
 	local ok, message = checkBuyable(skin, Progression.ownsSkin(data, skin.Id))
 	if not ok then
 		return false, message
+	end
+	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>).
+	if skin.Premium or skin.Price <= 0 then
+		return false, skin.Name .. " can't be bought with gems"
 	end
 	if data.Gems < skin.Price then
 		return false, "Not enough gems"
@@ -3000,19 +3557,713 @@ return Shop
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="20">
+  <Item class="StarterPlayer" referent="21">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="21">
+    <Item class="StarterPlayerScripts" referent="22">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="22">
+      <Item class="Folder" referent="23">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="23">
+        <Item class="ModuleScript" referent="24">
+          <Properties>
+            <string name="Name">BallFx</string>
+            <string name="Source"><![CDATA[--[[
+	What a thrown ball looks like.
+
+	Plain skins (Steel, Gold, Ruby...) are one ball part, like always.
+	Premium balls (bought with Robux, Config.Skins entries with Premium = true)
+	are little animated models: the Blender model from Config.BallModels once it
+	has loaded (ReplicatedStorage.ModelLibrary.Balls), styled and animated by
+	Shared.BallStyles. Until then a part-built version (glowing core, see-through
+	shell, spinning rings / orbiting shards) so they already look special.
+
+	BallFx.create(skinId, radius, options?) -> BasePart
+		The ball to throw. Move it by setting its CFrame (it never needs to turn).
+		Everything else (model parts, trail, particles, light) is welded to it /
+		parented under it, so it follows on its own and :Destroy() removes it all.
+		radius is the collision radius; premium balls are drawn 2.6x that across
+		so their details read in flight.
+		options = {
+			mega = bool,      -- MegaBall boost ball (plain skins get a trail)
+			lite = bool,      -- cheap version: no rings / particles / light (extra multiball balls)
+			parent = Instance,
+		}
+	BallFx.destroy(ball)  -- use this instead of ball:Destroy() (frees its budget)
+	BallFx.isPremium(skinId)
+	BallFx.hasMesh(skinId) -- the Blender model has loaded
+	BallFx.preview(skinId, diameter) -> { model, mesh, step(t), destroy() }
+		Anchored copy for the shop's ViewportFrame. step(os.clock()) animates it.
+
+	Keeping phones smooth:
+	  - one RenderStepped loop animates every live premium ball (no per-ball connections)
+	  - at most MAX_FULL full-detail balls at once; more become lite versions
+	  - particle rates are shared: the more full balls, the less each one emits
+	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
+	  - balls far from the camera aren't animated
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local BallStyles = require(Shared:WaitForChild("BallStyles"))
+local Settings = require(script.Parent.Settings)
+
+local BallFx = {}
+
+local VISUAL_SCALE = 2.6 -- premium balls are drawn this many times the collision radius across
+local MAX_FULL = { High = 8, Low = 4 } -- full-detail premium balls alive at once
+local MAX_LIGHTS = { High = 3, Low = 0 } -- newest balls that get a PointLight
+local PARTICLE_SHARE = 3 -- up to this many full balls emit at full rate; more share it
+local MIN_RATE_SCALE = 0.15
+local LOW_PARTICLE_SCALE = 0.4 -- Low graphics: fewer particles (and only the first emitter)
+local ANIMATE_RANGE = 120 -- studs; balls further from the camera stop animating
+local TAU = math.pi * 2
+local MEGA_COLOR = Config.Boosts.MegaBall.Color
+
+local TEXTURES = {
+	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
+	smoke = "rbxasset://textures/particles/smoke_main.dds",
+	fire = "rbxasset://textures/particles/fire_main.dds",
+}
+
+-- Part-built look (no Blender model yet). Colors come from Config.Skins (Color, Shell, Ring).
+-- rings: spinning ForceField hoops (a BlackHole "disk" is a flat glowing plate).
+local FALLBACK = {
+	Frostbite = { shell = Enum.Material.Glass, shellAlpha = 0.45, rings = 0, shards = 5 },
+	CyberCore = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 0 },
+	PlasmaCore = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 1, shards = 3 },
+	MagmaHeart = { shell = Enum.Material.Glass, shellAlpha = 0.35, rings = 0, shards = 4 },
+	BlackHole = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 0, disk = true, shards = 0 },
+	Supernova = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 3 },
+}
+local DEFAULT_FALLBACK = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 1, shards = 0 }
+local EMPTY_STYLE = { Diameter = 2, Parts = {}, Fx = { Particles = {} } }
+local CENTER_PARTS = { "Core", "Heart", "Shell" } -- model parts that sit on the ball's center
+
+local camera = workspace.CurrentCamera
+
+-- Helpers -----------------------------------------------------------------------
+
+local function graphicsLevel()
+	local ok, level = pcall(Settings.graphicsLevel)
+	return if ok and level == "Low" then "Low" else "High"
+end
+
+local function styleOf(skinId)
+	local style = BallStyles[skinId]
+	return if type(style) == "table" then style else EMPTY_STYLE
+end
+
+function BallFx.isPremium(skinId)
+	local skin = Config.getSkin(skinId)
+	return skin.Id == skinId and skin.Premium == true
+end
+
+local function meshTemplate(skinId)
+	local library = ReplicatedStorage:FindFirstChild("ModelLibrary")
+	local folder = library and library:FindFirstChild("Balls")
+	return folder and folder:FindFirstChild(skinId)
+end
+
+function BallFx.hasMesh(skinId)
+	return meshTemplate(skinId) ~= nil
+end
+
+-- Every part of a ball: no collisions, no queries (the game's raycasts skip it).
+local function quiet(part, anchored)
+	part.Anchored = anchored
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Massless = true
+end
+
+local function newPart(name, shape, size, color, material, transparency)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Shape = shape
+	part.Size = size
+	part.Color = color
+	part.Material = material
+	part.Transparency = transparency or 0
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	quiet(part, false)
+	return part
+end
+
+-- The invisible anchored center every premium ball hangs off.
+local function newRoot(diameter)
+	local root = Instance.new("Part")
+	root.Name = "Ball"
+	root.Shape = Enum.PartType.Ball
+	root.Size = Vector3.one * math.max(0.2, diameter * 0.5)
+	root.Transparency = 1
+	quiet(root, true)
+	root.CFrame = CFrame.new()
+	return root
+end
+
+-- Welds `part` to the root at `rest` (its place in the ball's own space) and records
+-- its animation, if any. Spins turn around the ball's center; pulses scale.
+local function attach(proto, part, rest, spin, pulse)
+	local joint = Instance.new("Weld")
+	joint.Name = "Joint"
+	joint.Part0 = proto.root
+	joint.Part1 = part
+	joint.C0 = rest
+	joint.Parent = part
+	part.CFrame = proto.root.CFrame * rest -- already in place (the preview has no welds)
+	part.Parent = proto.root
+	if spin or pulse then
+		local axis = spin and spin.Axis
+		table.insert(proto.anims, {
+			name = part.Name,
+			rest = rest,
+			axis = if axis and axis.Magnitude > 1e-3 then axis.Unit else nil,
+			rps = spin and tonumber(spin.Rps) or 0,
+			pulse = pulse,
+			baseSize = part.Size,
+			phase = spin and spin.Phase or 0,
+		})
+	end
+end
+
+-- Prototypes ------------------------------------------------------------------------
+-- Each look is built once per size and cloned for every throw.
+
+local function buildFallback(proto, skin, style, diameter, lite)
+	local look = FALLBACK[skin.Id] or DEFAULT_FALLBACK
+	local parts = style.Parts or {}
+	local coreStyle = parts.Core
+	local core = newPart("Core", Enum.PartType.Ball, Vector3.one * diameter * 0.56, skin.Color, skin.Material or Enum.Material.Neon)
+	attach(proto, core, CFrame.new(), nil, if lite or not coreStyle then nil else coreStyle.Pulse)
+
+	local shellColor = skin.Shell or skin.Color
+	local shell = newPart("Shell", Enum.PartType.Ball, Vector3.one * diameter * 0.78, shellColor, look.shell, look.shellAlpha)
+	attach(proto, shell, CFrame.new())
+	if lite then
+		return
+	end
+
+	local ringColor = skin.Ring or skin.Color
+	-- ForceField hoops glow mostly at their rim, so a thin disc reads as a ring.
+	-- A cylinder's flat faces point along X; rest tilts it, the spin swings it around.
+	local ringSpins = {
+		{ tilt = CFrame.Angles(0, 0, math.rad(70)), axis = Vector3.yAxis, rps = 0.45 },
+		{ tilt = CFrame.Angles(math.rad(60), math.rad(90), 0), axis = Vector3.new(1, 0.3, 0), rps = -0.6 },
+	}
+	for i = 1, math.min(look.rings or 0, #ringSpins) do
+		local spec = ringSpins[i]
+		local ring = newPart("Ring" .. i, Enum.PartType.Cylinder, Vector3.new(diameter * 0.04, diameter, diameter), ringColor, Enum.Material.ForceField)
+		attach(proto, ring, spec.tilt, { Axis = spec.axis, Rps = spec.rps, Phase = i * 0.37 })
+	end
+	if look.disk then
+		local disk = newPart("Disk", Enum.PartType.Cylinder, Vector3.new(diameter * 0.03, diameter, diameter), ringColor, Enum.Material.Neon, 0.35)
+		attach(proto, disk, CFrame.Angles(0, 0, math.rad(80)), { Axis = Vector3.new(0.17, 1, 0), Rps = 0.8 })
+	end
+	-- Shards circling the ball on a tilted orbit.
+	local count = look.shards or 0
+	local orbitAxis = Vector3.new(0.3, 1, 0.15).Unit
+	for i = 1, count do
+		local angle = (i - 1) / count * TAU
+		local shard = newPart(
+			"Shard" .. i,
+			Enum.PartType.Block,
+			Vector3.new(diameter * 0.09, diameter * 0.2, diameter * 0.09),
+			ringColor,
+			Enum.Material.Neon
+		)
+		local offset = CFrame.fromAxisAngle(orbitAxis, angle) * CFrame.new(diameter * 0.5, 0, 0)
+		attach(proto, shard, offset * CFrame.Angles(math.rad(25), angle, math.rad(35)), { Axis = orbitAxis, Rps = 0.7 })
+	end
+end
+
+-- "<Id>_<Part>" -> "<Part>" ("Core", "RingA"...).
+local function partKey(skinId, part)
+	local name = part.Name
+	local prefix = skinId .. "_"
+	if string.sub(name, 1, #prefix) == prefix then
+		return string.sub(name, #prefix + 1)
+	end
+	return string.match(name, "_(%w+)$") or name
+end
+
+local function buildMesh(proto, skinId, style, template, diameter, lite)
+	local model = template:Clone()
+	if model:IsA("BasePart") then
+		local wrapper = Instance.new("Model")
+		model.Parent = wrapper
+		model = wrapper
+	end
+	if not model:IsA("Model") then
+		model:Destroy()
+		return false
+	end
+	-- Imported FBX units can be off: fit the model's longest side to its real
+	-- size from the manifest (style.Size at style.Diameter), drawn at `diameter`.
+	local _, size = model:GetBoundingBox()
+	local longest = math.max(size.X, size.Y, size.Z)
+	if longest < 1e-3 then
+		model:Destroy()
+		return false
+	end
+	local target = diameter
+	local styleSize = style.Size
+	if typeof(styleSize) == "Vector3" then
+		local real = math.max(styleSize.X, styleSize.Y, styleSize.Z)
+		target = diameter * real / (tonumber(style.Diameter) or 2)
+	end
+	model:ScaleTo(model:GetScale() * target / longest)
+
+	local parts = {}
+	for _, item in model:GetDescendants() do
+		if item:IsA("BasePart") then
+			table.insert(parts, item)
+		end
+	end
+	-- Center on the core / heart / shell (centered on the model's origin), or
+	-- else the middle of the whole model.
+	local center = nil
+	for _, key in CENTER_PARTS do
+		for _, part in parts do
+			if partKey(skinId, part) == key then
+				center = part.Position
+				break
+			end
+		end
+		if center then
+			break
+		end
+	end
+	if not center then
+		center = model:GetBoundingBox().Position
+	end
+
+	local partStyles = style.Parts or {}
+	-- Lite: only the parts that don't spin (usually the core and shell).
+	local keepStatic = false
+	if lite then
+		for _, part in parts do
+			local partStyle = partStyles[partKey(skinId, part)]
+			if not (partStyle and partStyle.Spin) then
+				keepStatic = true
+			end
+		end
+	end
+
+	for index, part in parts do
+		local key = partKey(skinId, part)
+		local partStyle = partStyles[key]
+		if keepStatic and partStyle and partStyle.Spin then
+			continue
+		end
+		if partStyle then
+			part.Color = partStyle.Color
+			part.Material = partStyle.Material
+			part.Transparency = partStyle.Transparency or 0
+		end
+		quiet(part, false)
+		part.Name = key .. "_" .. index -- unique, so a clone can find its animated parts
+		local rest = CFrame.new(part.Position - center) * part.CFrame.Rotation
+		if lite or not partStyle then
+			attach(proto, part, rest)
+		else
+			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse)
+		end
+	end
+	model:Destroy()
+	return true
+end
+
+local function addFx(proto, skin, style, diameter, lite, scale)
+	local root = proto.root
+	local fx = style.Fx or {}
+
+	-- Trail: two attachments above / below the center (the root never turns).
+	local trailStyle = fx.Trail
+	local trailColor = if trailStyle then trailStyle.Color else (skin.Trail or skin.Color)
+	local trailColor2 = if trailStyle then (trailStyle.Color2 or trailColor) else trailColor
+	local width = diameter * 0.3 * (if trailStyle then (trailStyle.WidthScale or 1) else 1)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, width, 0)
+	a0.Parent = root
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -width, 0)
+	a1.Parent = root
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = if trailStyle then (trailStyle.Lifetime or 0.3) else 0.3
+	trail.LightEmission = 1
+	trail.FaceCamera = true
+	trail.Color = ColorSequence.new(trailColor, trailColor2)
+	trail.Transparency = NumberSequence.new(0.15, 1)
+	trail.WidthScale = NumberSequence.new(1, 0.2)
+	trail.Parent = root
+	if lite then
+		return
+	end
+
+	local low = graphicsLevel() == "Low"
+	for index, spec in fx.Particles or {} do
+		if low and index > 1 then
+			break
+		end
+		local size = spec.Size or { 0.3, 0 }
+		local lifetime = spec.Lifetime or { 0.3, 0.6 }
+		local speed = spec.Speed or { 1, 3 }
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "Particles" .. index
+		emitter.Texture = TEXTURES[spec.Texture] or TEXTURES.sparkle
+		emitter.Color = ColorSequence.new(spec.Color or skin.Color)
+		emitter.Size = NumberSequence.new(size[1] * scale, size[2] * scale)
+		emitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		emitter.Lifetime = NumberRange.new(lifetime[1], math.max(lifetime[1], lifetime[2]))
+		emitter.Speed = NumberRange.new(speed[1] * scale, math.max(speed[1], speed[2]) * scale)
+		emitter.SpreadAngle = Vector2.new(180, 180)
+		emitter.Rotation = NumberRange.new(0, 360)
+		emitter.RotSpeed = NumberRange.new(-120, 120)
+		emitter.Drag = 3
+		emitter.LightEmission = spec.LightEmission or 1
+		emitter.Rate = spec.Rate or 10
+		emitter.Parent = root
+		table.insert(proto.emitters, { name = emitter.Name, rate = spec.Rate or 10 })
+	end
+
+	local light = fx.Light
+	if light and MAX_LIGHTS.High > 0 then
+		local pointLight = Instance.new("PointLight")
+		pointLight.Name = "Glow"
+		pointLight.Color = light.Color
+		pointLight.Range = math.clamp((light.Range or 8) * math.sqrt(scale), 4, 20)
+		pointLight.Brightness = light.Brightness or 1
+		pointLight.Shadows = false
+		pointLight.Enabled = false -- switched on by the light budget
+		pointLight.Parent = root
+		proto.hasLight = true
+	end
+end
+
+local prototypes = {} -- key -> prototype
+
+local function prototypeFor(skin, radius, lite)
+	local template = meshTemplate(skin.Id)
+	local key = skin.Id .. ":" .. string.format("%.2f", radius) .. (if lite then ":lite" else "") .. (if template then ":mesh" else "")
+	local proto = prototypes[key]
+	if proto then
+		return proto
+	end
+
+	local style = styleOf(skin.Id)
+	local diameter = radius * VISUAL_SCALE
+	local scale = diameter / (tonumber(style.Diameter) or 2)
+	proto = { root = newRoot(diameter), anims = {}, emitters = {}, hasLight = false, mesh = false }
+	if template then
+		local ok, built = pcall(buildMesh, proto, skin.Id, style, template, diameter, lite)
+		if ok and built then
+			proto.mesh = true
+		else
+			if not ok then
+				warn("[BallFx] could not use the model for", skin.Id, built)
+			end
+			proto.root:Destroy()
+			proto = { root = newRoot(diameter), anims = {}, emitters = {}, hasLight = false, mesh = false }
+		end
+	end
+	if not proto.mesh then
+		buildFallback(proto, skin, style, diameter, lite)
+	end
+	addFx(proto, skin, style, diameter, lite, scale)
+	prototypes[key] = proto
+	return proto
+end
+
+-- Live premium balls + the one animation loop -------------------------------------------
+
+local live = {} -- full-detail premium balls, oldest first
+local entries = setmetatable({}, { __mode = "k" }) -- root -> entry
+
+-- Shares particles and lights out over the live balls (newest get the light).
+local function rebalance()
+	local level = graphicsLevel()
+	local count = #live
+	local rateScale = math.clamp(PARTICLE_SHARE / math.max(count, 1), MIN_RATE_SCALE, 1)
+	if level == "Low" then
+		rateScale *= LOW_PARTICLE_SCALE
+	end
+	local lightsLeft = MAX_LIGHTS[level]
+	for i = count, 1, -1 do
+		local entry = live[i]
+		for _, item in entry.emitters do
+			item.emitter.Rate = item.rate * rateScale
+		end
+		if entry.light then
+			entry.light.Enabled = lightsLeft > 0
+			lightsLeft -= 1
+		end
+	end
+end
+
+local function animate(entry, t, pulses)
+	for _, anim in entry.anims do
+		local c0 = anim.rest
+		local pulse = anim.pulse
+		if pulse and pulses then
+			local s = pulse.Min + (pulse.Max - pulse.Min) * (0.5 + 0.5 * math.sin((t * pulse.Hz + entry.phase) * TAU))
+			anim.part.Size = anim.baseSize * s
+			c0 = CFrame.new(c0.Position * s) * c0.Rotation
+		end
+		if anim.axis then
+			c0 = CFrame.fromAxisAngle(anim.axis, (t * anim.rps + anim.phase + entry.phase) * TAU) * c0
+		end
+		anim.joint.C0 = c0
+	end
+end
+
+local function step()
+	if #live == 0 then
+		return
+	end
+	local t = os.clock()
+	local cameraPosition = camera.CFrame.Position
+	local pulses = graphicsLevel() ~= "Low"
+	local removed = false
+	for i = #live, 1, -1 do
+		local entry = live[i]
+		local root = entry.root
+		if root.Parent == nil then
+			table.remove(live, i)
+			entries[root] = nil
+			removed = true
+		elseif (root.Position - cameraPosition).Magnitude < ANIMATE_RANGE then
+			animate(entry, t, pulses)
+		end
+	end
+	if removed then
+		rebalance()
+	end
+end
+
+local bound = false
+local function ensureLoop()
+	if bound then
+		return
+	end
+	bound = true
+	-- Right after RunController's step (Camera + 1), which moves the balls.
+	RunService:BindToRenderStep("ShatterRunBallFx", Enum.RenderPriority.Camera.Value + 2, step)
+end
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	camera = workspace.CurrentCamera or camera
+end)
+
+local function fullCount()
+	local count = 0
+	for _, entry in live do
+		if entry.root.Parent then
+			count += 1
+		end
+	end
+	return count
+end
+
+-- Plain skins: one ball part (the look the game always had).
+local function plainBall(skin, radius, mega)
+	local part = Instance.new("Part")
+	part.Name = if mega then "MegaBall" else "Ball"
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.one * radius * 2
+	part.Material = skin.Material
+	part.Color = skin.Color
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+
+	if skin.Rainbow then
+		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
+	end
+
+	if skin.Trail or skin.Rainbow or mega then
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, radius * 0.6, 0)
+		a0.Parent = part
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -radius * 0.6, 0)
+		a1.Parent = part
+
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = a0
+		trail.Attachment1 = a1
+		trail.Lifetime = 0.25
+		trail.LightEmission = 1
+		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA_COLOR else part.Color))
+		trail.Transparency = NumberSequence.new(0.2, 1)
+		trail.Parent = part
+	end
+	return part
+end
+
+function BallFx.create(skinId, radius, options)
+	options = options or {}
+	local skin = Config.getSkin(skinId)
+	local root
+	if not skin.Premium then
+		root = plainBall(skin, radius, options.mega)
+		root.Parent = options.parent
+		return root
+	end
+
+	local lite = options.lite == true or fullCount() >= MAX_FULL[graphicsLevel()]
+	local proto = prototypeFor(skin, radius, lite)
+	root = proto.root:Clone()
+	root.Name = if options.mega then "MegaBall" else "Ball"
+	if not lite then
+		local entry = { root = root, anims = {}, emitters = {}, light = nil, phase = math.random() }
+		for _, anim in proto.anims do
+			local part = root:FindFirstChild(anim.name)
+			local joint = part and part:FindFirstChild("Joint")
+			if joint then
+				table.insert(entry.anims, {
+					part = part,
+					joint = joint,
+					rest = anim.rest,
+					axis = anim.axis,
+					rps = anim.rps,
+					pulse = anim.pulse,
+					baseSize = anim.baseSize,
+					phase = anim.phase,
+				})
+			end
+		end
+		for _, item in proto.emitters do
+			local emitter = root:FindFirstChild(item.name)
+			if emitter then
+				table.insert(entry.emitters, { emitter = emitter, rate = item.rate })
+			end
+		end
+		entry.light = if proto.hasLight then root:FindFirstChild("Glow") else nil
+		table.insert(live, entry)
+		entries[root] = entry
+		ensureLoop()
+		rebalance()
+	end
+	root.Parent = options.parent
+	return root
+end
+
+function BallFx.destroy(ball)
+	if ball == nil then
+		return
+	end
+	local entry = entries[ball]
+	if entry then
+		entries[ball] = nil
+		local index = table.find(live, entry)
+		if index then
+			table.remove(live, index)
+		end
+		ball:Destroy()
+		rebalance()
+		return
+	end
+	ball:Destroy()
+end
+
+-- Shop preview ----------------------------------------------------------------------------
+-- An anchored copy (ViewportFrames have no physics, so the parts are placed directly).
+
+function BallFx.preview(skinId, diameter)
+	local skin = Config.getSkin(skinId)
+	local radius = diameter / VISUAL_SCALE
+	local model = Instance.new("Model")
+	model.Name = "BallPreview"
+	local anims = {}
+
+	if skin.Premium then
+		local proto = prototypeFor(skin, radius, false)
+		local root = proto.root:Clone()
+		for _, item in root:GetDescendants() do
+			if item:IsA("BasePart") then
+				item.Anchored = true
+			elseif item:IsA("JointInstance") or item:IsA("Trail") or item:IsA("ParticleEmitter") or item:IsA("Light") then
+				item:Destroy()
+			end
+		end
+		-- Every part starts at its rest place (the clone keeps the prototype's).
+		for _, anim in proto.anims do
+			local part = root:FindFirstChild(anim.name)
+			if part then
+				table.insert(anims, {
+					part = part,
+					rest = anim.rest,
+					axis = anim.axis,
+					rps = anim.rps,
+					pulse = anim.pulse,
+					baseSize = anim.baseSize,
+					phase = anim.phase,
+				})
+			end
+		end
+		root.Parent = model
+		model.PrimaryPart = root
+	else
+		local part = plainBall(skin, diameter / 2, false)
+		for _, item in part:GetChildren() do
+			item:Destroy() -- no trail in a viewport
+		end
+		part.Parent = model
+		model.PrimaryPart = part
+	end
+
+	local preview = { model = model, mesh = skin.Premium == true and BallFx.hasMesh(skinId) }
+	function preview.step(t)
+		for _, anim in anims do
+			local c0 = anim.rest
+			local pulse = anim.pulse
+			if pulse then
+				local s = pulse.Min + (pulse.Max - pulse.Min) * (0.5 + 0.5 * math.sin(t * pulse.Hz * TAU))
+				anim.part.Size = anim.baseSize * s
+				c0 = CFrame.new(c0.Position * s) * c0.Rotation
+			end
+			if anim.axis then
+				c0 = CFrame.fromAxisAngle(anim.axis, (t * anim.rps + anim.phase) * TAU) * c0
+			end
+			anim.part.CFrame = c0
+		end
+	end
+	function preview.destroy()
+		model:Destroy()
+	end
+	return preview
+end
+
+-- Settings: switching graphics re-shares particles / lights right away.
+Settings.changed:Connect(function(key)
+	if key == "graphics" then
+		rebalance()
+	end
+end)
+
+return BallFx
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="25">
           <Properties>
             <string name="Name">Decor</string>
             <string name="Source"><![CDATA[--[[
@@ -3033,6 +4284,7 @@ return Shop
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Models = require(script.Parent.Models)
 local ModelStyles = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ModelStyles"))
@@ -3067,6 +4319,14 @@ local GLYPHS = {
 	Chevrons = { { -1.8, 1.2, -0.6, 0 }, { -0.6, 0, -1.8, -1.2 }, { 0.2, 1.2, 1.4, 0 }, { 1.4, 0, 0.2, -1.2 } },
 	Star = { { -1.5, 0, 1.5, 0 }, { 0, -1.5, 0, 1.5 }, { -1, -1, 1, 1 }, { -1, 1, 1, -1 } },
 	Eye = { { -1.6, 0, 0, 1 }, { 0, 1, 1.6, 0 }, { 1.6, 0, 0, -1 }, { 0, -1, -1.6, 0 }, { 0, 0.35, 0, -0.35 } },
+	Hex = {
+		{ 1.5, 0, 0.75, 1.3 },
+		{ 0.75, 1.3, -0.75, 1.3 },
+		{ -0.75, 1.3, -1.5, 0 },
+		{ -1.5, 0, -0.75, -1.3 },
+		{ -0.75, -1.3, 0.75, -1.3 },
+		{ 0.75, -1.3, 1.5, 0 },
+	},
 }
 local GLYPH_NAMES = { "Arrow", "Bolt", "Diamond", "Chevrons", "Star", "Eye" }
 
@@ -3090,6 +4350,7 @@ local function newKit(builder, room, info)
 		theme = info.theme,
 		breakables = 0,
 		maxBreakables = info.rng:NextInteger(5, 8),
+		low = info.low == true, -- Low graphics: no little animations
 	}, Kit)
 end
 
@@ -3246,6 +4507,68 @@ function Kit:wallProp(name, side, inset, y, d, options)
 	local depth = style.Size.Z * (options.scale or 1)
 	local cframe = self:at(self:wallX(side, inset + depth / 2), y, d) * CFrame.Angles(0, side * QUARTER_TURN, 0)
 	return self:place(name, cframe, options)
+end
+
+-- Places a Blender model scaled to fit inside `box` (X across the corridor, Y up,
+-- Z along it), so it stays in its spot whatever size the model was made at.
+-- Returns nil if the model isn't available (the caller builds its part version).
+-- options.spin (radians) turns it around its up axis; then the box must hold it at any angle.
+function Kit:fitted(name, cframe, box, options)
+	local style = ModelStyles[name]
+	if style == nil or style.Size == nil or not Models.has(name) then
+		return nil
+	end
+	options = table.clone(options or {})
+	local size = style.Size
+	local scale
+	if options.spin then
+		local footprint = math.sqrt(size.X * size.X + size.Z * size.Z)
+		scale = math.min(math.min(box.X, box.Z) / footprint, box.Y / size.Y)
+		cframe = cframe * CFrame.Angles(0, options.spin, 0)
+		options.spin = nil
+	else
+		scale = math.min(box.X / size.X, box.Y / size.Y, box.Z / size.Z)
+	end
+	options.scale = scale
+	return self:place(name, cframe, options)
+end
+
+-- Like Kit:wallProp, but scaled to fit `box` (X along the wall, Y up, Z out of the wall).
+function Kit:wallFitted(name, side, inset, y, d, box, options)
+	local style = ModelStyles[name]
+	if style == nil or style.Size == nil or not Models.has(name) then
+		return nil
+	end
+	local size = style.Size
+	options = table.clone(options or {})
+	options.scale = math.min(box.X / size.X, box.Y / size.Y, box.Z / size.Z)
+	local depth = size.Z * options.scale
+	local cframe = self:at(self:wallX(side, inset + depth / 2), y, d) * CFrame.Angles(0, side * QUARTER_TURN, 0)
+	return self:place(name, cframe, options)
+end
+
+-- Marks a part as fixed in place: balls never knock it loose (moving parts, light strips).
+function Kit:fixed(part)
+	part:SetAttribute("Shell", true)
+	return part
+end
+
+-- A small looping animation (TweenService). Skipped on Low graphics.
+-- The part is marked fixed, so a ball never knocks it loose mid-animation.
+function Kit:animate(part, goal, duration, reverses, style)
+	self:fixed(part)
+	if self.low then
+		return
+	end
+	local info = TweenInfo.new(duration, style or Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, reverses == true)
+	TweenService:Create(part, info, goal):Play()
+end
+
+-- Solid see-through decoration (water, light haze).
+function Kit:haze(size, cframe, color, transparency, material)
+	return self:part(self.folder, "Wall", Block, size, cframe, color, material or Material.Neon, {
+		Transparency = transparency,
+	})
 end
 
 -- Breakables -----------------------------------------------------------------------
@@ -4075,6 +5398,857 @@ function Void.gate(kit, d)
 	kit:glow(Vector3.new(15.2, 0.04, 0.5), kit:at(0, 0.02, d), kit.theme.Accent)
 end
 
+-- Frost caverns: glacier walls, icicles, snow drifts, ice sculptures --------------------
+
+local FROST_ICE = Color3.fromRGB(190, 230, 250)
+local FROST_DEEP = Color3.fromRGB(110, 170, 220)
+local FROST_SNOW = Color3.fromRGB(240, 247, 255)
+local FROST_ROCK = Color3.fromRGB(95, 118, 145)
+local FROST_CAVE = Color3.fromRGB(20, 45, 80) -- the dark ice seen through frozen windows
+
+local Frost = {}
+
+-- One icicle hanging from the ceiling at (x, d), `length` long.
+-- glassy = true makes it a breakable (glass) icicle on its own.
+local function icicle(kit, x, d, length, glassy)
+	local H = kit.height
+	if not glassy then
+		local placed = kit:fitted("Icicle", kit:at(x, H, d), Vector3.new(0.9, length, 0.9), { anchor = "ceiling" })
+		if placed then
+			return
+		end
+		kit:block(Vector3.new(0.55, length * 0.6, 0.55), kit:at(x, H - length * 0.3, d), FROST_ICE, Material.Ice)
+		kit:block(Vector3.new(0.3, length * 0.45, 0.3), kit:at(x, H - length * 0.775 + 0.05, d) * CFrame.Angles(0, math.rad(45), 0), FROST_ICE, Material.Ice)
+		return
+	end
+	local shard = kit:glass(nil, Block, Vector3.new(0.35, length, 0.35), kit:at(x, H - length / 2, d) * CFrame.Angles(0, math.rad(45), 0), kit:tint(0.7), 0.25)
+	shard.Name = "GlassIcicle"
+end
+
+-- Snow drift against a wall: a long wedge, tall at the wall and low toward the middle.
+local function snowDrift(kit, side, d, length, height, depth)
+	local position = kit:pos(kit:wallX(side, depth / 2), height / 2, d)
+	local cframe = CFrame.fromMatrix(position, Vector3.new(0, 0, -side), Vector3.yAxis)
+	kit:wedge(Vector3.new(length, height, depth), cframe, FROST_SNOW, Material.Snow)
+end
+
+function Frost.room(kit)
+	local L, H = kit.length, kit.height
+	for _, side in SIDES do
+		-- Snow drifts along the bottom of the walls.
+		local d = kit:random(1, 6)
+		while d < L - 8 do
+			local length = kit:random(8, 14)
+			snowDrift(kit, side, math.min(d + length / 2, L - length / 2), length, kit:random(0.7, 1.5), kit:random(2, 3.2))
+			d += length + kit:random(8, 16)
+		end
+		-- Icy light along the ceiling corners.
+		kit:fixed(kit:glow(Vector3.new(0.25, 0.25, L), kit:at(kit:wallX(side, 0.3), H - 0.3, L / 2), kit.theme.Accent:Lerp(WHITE, 0.5)))
+		-- Rock and ice bulging out of the walls.
+		for _ = 1, 2 do
+			local size = Vector3.new(1.2, kit:random(1.5, 3), kit:random(2, 4))
+			local cframe = kit:at(kit:wallX(side, 0.6), kit:random(2.5, 11.5), kit:random(4, L - 4)) * CFrame.Angles(kit:random(-0.6, 0.6), 0, 0)
+			kit:block(size, cframe, if kit:chance(0.5) then FROST_ROCK else FROST_DEEP, Material.Glacier)
+		end
+	end
+	-- Icicles: long ones near the walls, short ones over the middle (above the flight path).
+	for _ = 1, kit.rng:NextInteger(4, 7) do
+		local nearWall = kit:chance(0.6)
+		if nearWall then
+			icicle(kit, kit:pick(SIDES) * kit:random(7.2, 9.2), kit:random(2, L - 2), kit:random(1.5, 4))
+		else
+			icicle(kit, kit:random(-6, 6), kit:random(2, L - 2), kit:random(0.8, 1.6))
+		end
+	end
+	-- Cracks in the frozen floor.
+	for _ = 1, kit.rng:NextInteger(1, 2) do
+		local x, d = kit:random(-5, 5), kit:random(8, L - 8)
+		for _ = 1, 3 do
+			local nx, nd = math.clamp(x + kit:random(-2.5, 2.5), -7, 7), math.clamp(d + kit:random(-3.5, 3.5), 2, L - 2)
+			kit:bar(kit:pos(x, 0.03, d), kit:pos(nx, 0.03, nd), 0.12, 0.03, Vector3.yAxis, kit.theme.Accent:Lerp(WHITE, 0.6), Material.Neon)
+			x, d = nx, nd
+		end
+	end
+end
+
+-- A clump of ice crystals growing from the floor by the wall.
+local function iceCluster(kit, side, d)
+	local x = kit:wallX(side, 1.5)
+	if kit:fitted("IceCluster", kit:at(x, 0, d), Vector3.new(2.6, 3.2, 3.4), { anchor = "floor", spin = kit:random(0, math.pi) }) then
+		return
+	end
+	for i = 1, 4 do
+		local height = kit:random(1.4, 3.2)
+		local width = kit:random(0.7, 1.1)
+		local tilt = CFrame.Angles(kit:random(-0.2, 0.2), kit:random(0, math.pi), side * kit:random(0.05, 0.2))
+		local cframe = kit:at(kit:wallX(side, kit:random(1.3, 1.8)), height / 2 + 0.15, d + (i - 2.5) * 0.8) * tilt
+		kit:block(Vector3.new(width, height, width), cframe, if i % 2 == 0 then FROST_ICE else FROST_DEEP, Material.Ice)
+	end
+	kit:ball(1.4, kit:at(kit:wallX(side, 1.3), 0.6, d), FROST_SNOW, Material.Snow)
+end
+
+-- A tall frozen column from floor to ceiling.
+local function frozenPillar(kit, side, d)
+	local x = kit:wallX(side, 1.5)
+	if kit:fitted("FrozenPillar", kit:at(x, 0, d), Vector3.new(2.6, kit.height, 2.6), { anchor = "floor" }) then
+		return
+	end
+	kit:post(x, 0, kit.height, 2.2, d, FROST_ICE, Material.Glacier)
+	kit:block(Vector3.new(3, 0.7, 3), kit:at(x, 0.35, d), FROST_SNOW, Material.Snow)
+	kit:block(Vector3.new(3, 1, 3), kit:at(x, kit.height - 0.5, d), FROST_DEEP, Material.Ice)
+end
+
+-- An ice sculpture (a glowing star of ice) on a snow block. Breakable.
+local function iceSculpture(kit, side, d)
+	if not kit:canBreak() then
+		return iceCluster(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.6)
+	kit:block(Vector3.new(2, 1.2, 2), kit:at(x, 0.6, d), FROST_SNOW, Material.Snow)
+	local placed = kit:fitted("IceSculpture", kit:at(x, 1.2, d), Vector3.new(2, 3.4, 2), {
+		anchor = "floor",
+		spin = kit:random(0, math.pi),
+		colors = { Glass = kit:tint(0.7) },
+	})
+	if placed then
+		return
+	end
+	local model = kit:breakable("IceSculpture")
+	local center = kit:at(x, 3.2, d)
+	for i = 0, 2 do
+		local arm = center * CFrame.Angles(i * math.pi / 3, 0, 0)
+		kit:glass(model, Block, Vector3.new(0.4, 2.6, 0.4), arm, kit:tint(0.7), 0.2)
+	end
+	kit:glass(model, BallShape, Vector3.one * 1.1, kit:at(x, 1.75, d), kit:tint(0.75), 0.25)
+	kit:inner(model, BallShape, Vector3.one * 0.5, center, kit.theme.Accent)
+end
+
+-- A window of thick ice with a glowing crystal frozen inside. Breakable.
+local function frozenWindow(kit, side, d)
+	if not kit:canBreak() then
+		return iceCluster(kit, side, d)
+	end
+	kit:block(Vector3.new(0.1, 6, 7), kit:at(kit:wallX(side, 0.07), 6.5, d), FROST_CAVE)
+	local spin = CFrame.Angles(kit:random(0, math.pi), 0, 0)
+	kit:glow(Vector3.new(0.3, 1.8, 0.9), kit:at(kit:wallX(side, 0.3), kit:random(5.5, 7.5), d + kit:random(-1.5, 1.5)) * spin, kit.theme.Accent)
+	for _, y in { 3.35, 9.65 } do
+		kit:block(Vector3.new(0.7, 0.35, 7.4), kit:at(kit:wallX(side, 0.35), y, d), FROST_DEEP, Material.Glacier)
+	end
+	local pane = kit:glass(nil, Block, Vector3.new(0.15, 6, 7), kit:at(kit:wallX(side, 0.45), 6.5, d), kit:tint(0.65), 0.45)
+	pane.Name = "IceWindow"
+end
+
+-- Glass icicles hanging by the wall, each one breakable.
+local function hangingIcicles(kit, side, d)
+	if not kit:canBreak() then
+		return iceCluster(kit, side, d)
+	end
+	kit:block(Vector3.new(1.2, 0.4, 5), kit:at(kit:wallX(side, 0.6), kit.height - 0.2, d), FROST_SNOW, Material.Snow)
+	for i = 1, kit.rng:NextInteger(2, 3) do
+		if not kit:canBreak() then
+			break
+		end
+		icicle(kit, kit:wallX(side, kit:random(0.9, 2.2)), d + (i - 2) * 1.6, kit:random(1.6, 3.5), true)
+	end
+end
+
+-- Glowing crystal veins in the ice wall.
+local function frostVein(kit, side, d)
+	kit:wallGlyph(GLYPHS[kit:pick({ "Diamond", "Star", "Bolt" })], side, 0.1, d, kit:random(5, 8), kit:random(0.7, 0.9), 0.18, kit.theme.Accent:Lerp(WHITE, 0.3))
+end
+
+Frost.features = {
+	{ 3, iceCluster },
+	{ 2, frozenPillar },
+	{ 3, iceSculpture },
+	{ 2, frozenWindow },
+	{ 2, hangingIcicles },
+	{ 1, frostVein },
+	{ 3, nothing },
+}
+
+-- Two glacier blocks with an ice beam and the zone name, icicles hanging off it.
+function Frost.gate(kit, d)
+	local H = kit.height
+	for _, side in SIDES do
+		kit:block(Vector3.new(3.4, 13, 3), kit:at(side * 8.3, 6.5, d), FROST_DEEP, Material.Glacier)
+		kit:fixed(kit:glow(Vector3.new(0.6, 11, 0.1), kit:at(side * 7.1, 6, d - 1.55), kit.theme.Accent))
+		for i = 1, 3 do
+			icicle(kit, side * (6.9 + i * 0.5), d - 1.8, kit:random(1.5, 3.5))
+		end
+		snowDrift(kit, side, d + 4, 6, 1.4, 3)
+	end
+	local beam = kit:block(Vector3.new(20, 1.2, 3.4), kit:at(0, H - 0.6, d), FROST_ICE, Material.Ice)
+	nameplate(kit, beam, Color3.fromRGB(20, 60, 110))
+	for x = -5, 5, 2.5 do
+		icicle(kit, x, d - 1.9, kit:random(0.8, 1.6))
+	end
+end
+
+-- Magma forge: lava channels, iron girders, anvils, glowing jars ----------------------
+
+local MAGMA_LAVA = Color3.fromRGB(255, 95, 20)
+local MAGMA_HOT = Color3.fromRGB(255, 200, 70)
+local MAGMA_ROCK = Color3.fromRGB(45, 30, 28)
+local MAGMA_IRON = Color3.fromRGB(72, 68, 66)
+local MAGMA_WOOD = Color3.fromRGB(80, 50, 35)
+
+local Magma = {}
+
+function Magma.room(kit)
+	local L, H = kit.length, kit.height
+	for _, side in SIDES do
+		-- Lava channel with stone curbs along the floor edge (also the room's main light).
+		kit:fixed(kit:glow(Vector3.new(1.2, 0.08, L), kit:at(kit:wallX(side, 1.2), 0.04, L / 2), MAGMA_LAVA))
+		for _, inset in { 0.35, 2 } do
+			kit:block(Vector3.new(0.4, 0.35, L), kit:at(kit:wallX(side, inset), 0.175, L / 2), MAGMA_ROCK, Material.Basalt)
+		end
+		-- Chains hanging by the walls.
+		local chainD = kit:random(6, L - 6)
+		local length = kit:random(2, 5)
+		local x = kit:wallX(side, 1.6)
+		kit:block(Vector3.new(0.15, length, 0.15), kit:at(x, H - length / 2, chainD), MAGMA_IRON, Material.Metal)
+		kit:block(Vector3.new(0.5, 0.5, 0.15), kit:at(x, H - length - 0.2, chainD), MAGMA_IRON, Material.Metal)
+	end
+	-- Iron girders across the ceiling.
+	for _, d in { 20, 40, 60 } do
+		kit:block(Vector3.new(20, 0.9, 0.9), kit:at(0, H - 0.45, d), MAGMA_IRON, Material.Metal)
+		kit:block(Vector3.new(20, 0.15, 1.3), kit:at(0, H - 0.95, d), MAGMA_IRON:Lerp(BLACK, 0.3), Material.Metal)
+	end
+	-- Floor grates with lava glowing underneath.
+	for _ = 1, 2 do
+		local x, d = kit:random(-3, 3), kit:random(10, L - 10)
+		kit:glow(Vector3.new(2.8, 0.03, 2), kit:at(x, 0.015, d), MAGMA_LAVA)
+		for i = -1, 1 do
+			kit:block(Vector3.new(0.25, 0.08, 2.2), kit:at(x + i * 0.9, 0.06, d), MAGMA_IRON, Material.DiamondPlate)
+		end
+	end
+end
+
+-- A lump of cooled lava with glowing cracks.
+local function lavaRock(kit, side, d)
+	local x = kit:wallX(side, 1.6)
+	if kit:fitted("LavaRock", kit:at(x, 0, d), Vector3.new(2.8, 2.6, 3.4), { anchor = "floor", spin = kit:random(0, math.pi), colors = { Neon = MAGMA_LAVA } }) then
+		return
+	end
+	kit:block(Vector3.new(2.2, 1.6, 2.6), kit:at(x, 0.7, d) * CFrame.Angles(0, kit:random(-0.4, 0.4), 0), MAGMA_ROCK, Material.Basalt)
+	kit:block(Vector3.new(1.4, 1.1, 1.6), kit:at(kit:wallX(side, 1.4), 1.8, d + 0.3) * CFrame.Angles(kit:random(-0.3, 0.3), 0.6, 0), MAGMA_ROCK, Material.Basalt)
+	for _ = 1, 2 do
+		local a = kit:pos(kit:wallX(side, kit:random(1, 2.2)), 1.52, d + kit:random(-1.2, 1.2))
+		local b = kit:pos(kit:wallX(side, kit:random(1, 2.2)), 1.52, d + kit:random(-1.2, 1.2))
+		kit:bar(a, b, 0.14, 0.06, Vector3.yAxis, MAGMA_LAVA, Material.Neon)
+	end
+end
+
+-- A small volcano vent puffing heat (glowing mouth).
+local function magmaVent(kit, side, d)
+	local x = kit:wallX(side, 1.5)
+	if kit:fitted("MagmaVent", kit:at(x, 0, d), Vector3.new(2.6, 2.4, 2.6), { anchor = "floor", colors = { Neon = MAGMA_LAVA } }) then
+		return
+	end
+	kit:post(x, 0, 1.2, 2.4, d, MAGMA_ROCK, Material.Basalt)
+	kit:post(x, 1.2, 0.7, 1.6, d, MAGMA_ROCK, Material.Basalt)
+	kit:post(x, 1.9, 0.1, 1.1, d, MAGMA_HOT, Material.Neon)
+end
+
+-- An anvil on a wooden stump with a glowing hot bar on it.
+local function forgeAnvil(kit, side, d)
+	local x = kit:wallX(side, 1.6)
+	if kit:fitted("ForgeAnvil", kit:at(x, 0, d), Vector3.new(1.8, 2.4, 3.2), { anchor = "floor", colors = { Neon = MAGMA_HOT } }) then
+		return
+	end
+	kit:post(x, 0, 1.2, 1.6, d, MAGMA_WOOD, Material.Wood)
+	kit:block(Vector3.new(1.1, 0.7, 2.4), kit:at(x, 1.55, d), MAGMA_IRON, Material.Metal)
+	kit:block(Vector3.new(0.6, 0.45, 0.9), kit:at(x, 1.65, d + 1.6), MAGMA_IRON, Material.Metal)
+	kit:glow(Vector3.new(0.25, 0.2, 1.4), kit:at(x, 2, d - 0.2), MAGMA_HOT)
+end
+
+-- Glass jars of glowing lava on a stone stand. Breakable.
+local function magmaJars(kit, side, d)
+	if not kit:canBreak() then
+		return lavaRock(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.5)
+	local count = if kit.breakables + 1 < kit.maxBreakables and kit:chance(0.5) then 2 else 1
+	kit:block(Vector3.new(1.8, 1.4, if count == 2 then 4.4 else 2), kit:at(x, 0.7, d), MAGMA_ROCK, Material.Basalt)
+	for i = 1, count do
+		local jarD = if count == 1 then d else d + (if i == 1 then -1.2 else 1.2)
+		local placed = kit:fitted("MagmaJar", kit:at(x, 1.4, jarD), Vector3.new(1.6, 2.4, 1.6), {
+			anchor = "floor",
+			colors = { Neon = MAGMA_LAVA },
+		})
+		if not placed then
+			local model = kit:breakable("MagmaJar")
+			kit:glass(model, CylinderShape, Vector3.new(1.8, 1.3, 1.3), kit:at(x, 2.3, jarD) * UPRIGHT, kit:tint(0.5), 0.3)
+			kit:inner(model, CylinderShape, Vector3.new(1.1, 1.05, 1.05), kit:at(x, 2, jarD) * UPRIGHT, MAGMA_LAVA)
+			kit:inner(model, CylinderShape, Vector3.new(0.25, 1.45, 1.45), kit:at(x, 3.3, jarD) * UPRIGHT, MAGMA_IRON, Material.Metal)
+		end
+	end
+end
+
+-- A furnace window: fire roaring behind a glass pane in an iron frame. Breakable.
+local function forgeWindow(kit, side, d)
+	if not kit:canBreak() then
+		return lavaRock(kit, side, d)
+	end
+	kit:glow(Vector3.new(0.1, 4.5, 5.5), kit:at(kit:wallX(side, 0.06), 5.5, d), MAGMA_LAVA)
+	kit:glow(Vector3.new(0.12, 1.6, 4), kit:at(kit:wallX(side, 0.12), 4.2, d), MAGMA_HOT)
+	for _, y in { 3, 8 } do
+		kit:block(Vector3.new(0.6, 0.5, 6.4), kit:at(kit:wallX(side, 0.3), y, d), MAGMA_IRON, Material.DiamondPlate)
+	end
+	for _, offset in { -1.4, 1.4 } do
+		kit:block(Vector3.new(0.3, 4.6, 0.25), kit:at(kit:wallX(side, 0.25), 5.5, d + offset), MAGMA_IRON, Material.Metal)
+	end
+	local pane = kit:glass(nil, Block, Vector3.new(0.15, 4.5, 6), kit:at(kit:wallX(side, 0.5), 5.5, d), MAGMA_HOT:Lerp(WHITE, 0.4), 0.5)
+	pane.Name = "FurnaceWindow"
+end
+
+-- A wooden board with hammers and tongs.
+local function toolRack(kit, side, d)
+	kit:block(Vector3.new(0.2, 3, 5), kit:at(kit:wallX(side, 0.1), 7, d), MAGMA_WOOD, Material.Wood)
+	for _, offset in { -1.5, 0, 1.5 } do
+		local length = kit:random(1.6, 2.4)
+		kit:block(Vector3.new(0.18, length, 0.18), kit:at(kit:wallX(side, 0.35), 7.6 - length / 2, d + offset), MAGMA_WOOD:Lerp(WHITE, 0.15), Material.Wood)
+		kit:block(Vector3.new(0.4, 0.4, 0.9), kit:at(kit:wallX(side, 0.4), 7.6 - length, d + offset), MAGMA_IRON, Material.Metal)
+	end
+end
+
+-- Lava pouring down the wall into a little pool.
+local function lavaFall(kit, side, d)
+	kit:fixed(kit:glow(Vector3.new(0.1, 12, 1.4), kit:at(kit:wallX(side, 0.06), 6.5, d), MAGMA_LAVA))
+	kit:block(Vector3.new(0.8, 0.6, 2.2), kit:at(kit:wallX(side, 0.4), 12.4, d), MAGMA_ROCK, Material.Basalt)
+	kit:glow(Vector3.new(1.6, 0.06, 2.6), kit:at(kit:wallX(side, 0.9), 0.03, d), MAGMA_HOT)
+end
+
+Magma.features = {
+	{ 3, lavaRock },
+	{ 2, magmaVent },
+	{ 2, forgeAnvil },
+	{ 3, magmaJars },
+	{ 2, forgeWindow },
+	{ 1, toolRack },
+	{ 1, lavaFall },
+	{ 3, nothing },
+}
+
+-- Iron forge gate with glowing seams and the zone name, vents on either side.
+function Magma.gate(kit, d)
+	local H = kit.height
+	for _, side in SIDES do
+		kit:block(Vector3.new(2.6, H, 2.6), kit:at(side * 8.7, H / 2, d), MAGMA_IRON, Material.DiamondPlate)
+		kit:fixed(kit:glow(Vector3.new(0.3, 11, 0.2), kit:at(side * 7.35, 6, d - 1.2), MAGMA_LAVA))
+		magmaVent(kit, side, d + 4)
+	end
+	local lintel = kit:block(Vector3.new(20, 1.6, 2.4), kit:at(0, H - 0.8, d), MAGMA_IRON:Lerp(BLACK, 0.3), Material.Metal)
+	nameplate(kit, lintel, MAGMA_HOT)
+	kit:fixed(kit:glow(Vector3.new(14.4, 0.2, 0.3), kit:at(0, 12.3, d - 1.2), MAGMA_LAVA))
+end
+
+-- Deep aquarium: tank windows, coral, kelp, jellyfish lamps, light rippling on the sand ----
+
+local AQ_WATER = Color3.fromRGB(45, 160, 180)
+local AQ_DEEP = Color3.fromRGB(12, 45, 70)
+local AQ_HATCH = Color3.fromRGB(70, 82, 90)
+local AQ_RUST = Color3.fromRGB(120, 72, 48)
+local AQ_KELP = { Color3.fromRGB(50, 130, 70), Color3.fromRGB(80, 150, 60), Color3.fromRGB(35, 105, 75) }
+local AQ_PEBBLES = { Color3.fromRGB(150, 140, 120), Color3.fromRGB(110, 115, 120), Color3.fromRGB(180, 165, 140) }
+local AQ_FISH = { Color3.fromRGB(255, 150, 40), Color3.fromRGB(255, 230, 80), Color3.fromRGB(90, 200, 255), Color3.fromRGB(255, 90, 140) }
+local AQ_CORAL = { Color3.fromRGB(255, 110, 120), Color3.fromRGB(255, 160, 80), Color3.fromRGB(200, 110, 255), Color3.fromRGB(255, 220, 120) }
+local HAZARD_YELLOW = Color3.fromRGB(255, 205, 40)
+
+local Aquarium = {}
+
+function Aquarium.room(kit)
+	local L, H = kit.length, kit.height
+	-- The water surface glowing above (the room's main light), with ripples shimmering across it.
+	kit:fixed(kit:haze(Vector3.new(19, 0.05, L), kit:at(0, H - 0.03, L / 2), AQ_WATER:Lerp(kit.theme.Accent, 0.25), 0.25))
+	for _ = 1, 2 do
+		local ripple = kit:haze(Vector3.new(19, 0.04, kit:random(0.4, 0.9)), kit:at(0, H - 0.08, kit:random(4, L - 4)), AQ_WATER:Lerp(WHITE, 0.6), 0.5)
+		ripple.CanQuery = false
+		kit:animate(ripple, { Transparency = 0.95 }, kit:random(0.9, 1.6), true, Enum.EasingStyle.Sine)
+	end
+	-- Rippling light (caustics) on the sand.
+	for _ = 1, 4 do
+		local size = kit:random(1.2, 2.4)
+		local cframe = kit:at(kit:random(-7.5, 7.5), 0.02, kit:random(3, L - 3)) * CFrame.Angles(0, kit:random(0, math.pi), 0)
+		local patch = kit:haze(Vector3.new(size, 0.03, size * kit:random(0.6, 1)), cframe, kit.theme.Accent:Lerp(WHITE, 0.7), 0.55)
+		patch.CanQuery = false
+		kit:animate(patch, { Transparency = 0.92 }, kit:random(0.8, 1.8), true, Enum.EasingStyle.Sine)
+	end
+	-- Pebbles by the walls.
+	for _ = 1, 3 do
+		local size = kit:random(0.4, 0.9)
+		kit:ball(size, kit:at(kit:pick(SIDES) * kit:random(7, 9), size / 2 - 0.1, kit:random(2, L - 2)), kit:pick(AQ_PEBBLES), Material.Pebble)
+	end
+	-- A big pipe along one ceiling corner.
+	local pipeSide = kit:pick(SIDES)
+	kit:rod(L, 0.9, kit:at(kit:wallX(pipeSide, 0.8), H - 0.8, L / 2) * ALONG_Z, AQ_HATCH, Material.Metal)
+	for d = 15, L - 15, 25 do
+		kit:rod(0.5, 1.15, kit:at(kit:wallX(pipeSide, 0.8), H - 0.8, d) * ALONG_Z, AQ_RUST, Material.Metal)
+	end
+	-- Bubbles rising by the walls (they pass through balls).
+	for _ = 1, kit.rng:NextInteger(1, 2) do
+		local x = kit:wallX(kit:pick(SIDES), kit:random(1, 1.6))
+		local d = kit:random(5, L - 5)
+		for i = 1, 3 do
+			local size = kit:random(0.3, 0.6)
+			local y = 1 + i * 3
+			local bubble = kit:part(kit.folder, "Wall", BallShape, Vector3.one * size, kit:at(x, y, d), AQ_WATER:Lerp(WHITE, 0.8), Material.Glass, {
+				Transparency = 0.5,
+				CanQuery = false,
+			})
+			kit:animate(bubble, { CFrame = kit:at(x, H - 0.6, d + kit:random(-0.4, 0.4)) }, (H - 0.6 - y) / 3, false)
+		end
+	end
+end
+
+-- Coral growing on a rock.
+local function coral(kit, side, d)
+	local x = kit:wallX(side, 1.6)
+	local color = kit:pick(AQ_CORAL)
+	if kit:fitted("Coral", kit:at(x, 0, d), Vector3.new(2.6, 3.2, 3), { anchor = "floor", spin = kit:random(0, math.pi), colors = { Coral = color, Body = color } }) then
+		return
+	end
+	kit:block(Vector3.new(2, 0.6, 2.4), kit:at(x, 0.3, d), AQ_PEBBLES[2], Material.Rock)
+	for _ = 1, 3 do
+		local length = kit:random(1.4, 2.6)
+		local bx, bd = x + kit:random(-0.5, 0.5), d + kit:random(-0.9, 0.9)
+		local tilt = kit:random(-0.4, 0.4)
+		local base = kit:at(bx, 0.6, bd) * CFrame.Angles(tilt, 0, 0)
+		kit:rod(length, 0.35, base * CFrame.new(0, length / 2, 0) * UPRIGHT, color)
+		kit:ball(0.6, base * CFrame.new(0, length, 0), color:Lerp(WHITE, 0.3))
+	end
+end
+
+-- Tall kelp swaying up from the sand.
+local function seaweed(kit, side, d)
+	local x = kit:wallX(side, 1.2)
+	local color = kit:pick(AQ_KELP)
+	if kit:fitted("Seaweed", kit:at(x, 0, d - 1), Vector3.new(1.6, 9, 1.6), { anchor = "floor", colors = { Plant = color } }) then
+		kit:fitted("Seaweed", kit:at(x, 0, d + 1.5), Vector3.new(1.4, 6, 1.4), { anchor = "floor", colors = { Plant = kit:pick(AQ_KELP) } })
+		return
+	end
+	for strand = 1, 2 do
+		local sx = kit:wallX(side, kit:random(1, 1.4))
+		local sd = d + (strand - 1.5) * 2
+		for segment = 0, 2 do
+			local lean = if segment % 2 == 0 then 0.15 else -0.15
+			kit:block(Vector3.new(0.15, 3, 0.7), kit:at(sx, 1.5 + segment * 2.9, sd) * CFrame.Angles(lean, 0, 0), color, Material.Grass)
+		end
+	end
+end
+
+-- A rusty ship anchor leaning on the wall.
+local function anchor(kit, side, d)
+	if kit:wallFitted("Anchor", side, 0, 0, d, Vector3.new(3.2, 4.5, 1.2), { anchor = "floor", colors = { Metal = AQ_RUST } }) then
+		return
+	end
+	local x = kit:wallX(side, 0.8)
+	kit:block(Vector3.new(0.4, 4, 0.4), kit:at(x, 2.2, d), AQ_RUST, Material.Metal)
+	kit:block(Vector3.new(0.3, 0.3, 2.6), kit:at(x, 3.9, d), AQ_RUST, Material.Metal)
+	for _, s in { -1, 1 } do
+		kit:block(Vector3.new(0.35, 0.35, 1.7), kit:at(x, 0.75, d + s * 0.55) * CFrame.Angles(s * -0.7, 0, 0), AQ_RUST, Material.Metal)
+	end
+	kit:rod(0.2, 0.9, kit:at(x, 4.6, d), AQ_RUST, Material.Metal)
+end
+
+-- A little fish tank on a cabinet. Breakable.
+local function fishTank(kit, side, d)
+	if not kit:canBreak() then
+		return coral(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.1)
+	kit:block(Vector3.new(2, 2.2, 3.4), kit:at(x, 1.1, d), AQ_HATCH, Material.Metal)
+	if kit:fitted("FishTank", kit:at(x, 2.2, d), Vector3.new(1.8, 2.2, 3.2), { anchor = "floor", colors = { Glass = kit:tint(0.7) } }) then
+		return
+	end
+	local model = kit:breakable("FishTank")
+	kit:glass(model, Block, Vector3.new(1.7, 1.8, 3), kit:at(x, 3.1, d), kit:tint(0.7), 0.55)
+	kit:inner(model, Block, Vector3.new(1.6, 0.3, 2.9), kit:at(x, 2.35, d), Color3.fromRGB(215, 195, 140), Material.Sand)
+	for _, offset in { -0.7, 0.8 } do
+		kit:inner(model, Block, Vector3.new(0.15, 0.3, 0.55), kit:at(x, kit:random(3, 3.6), d + offset), kit:pick(AQ_FISH))
+	end
+	kit:inner(model, Block, Vector3.new(0.15, 1, 0.35), kit:at(x, 3, d - 1.1), kit:pick(AQ_KELP), Material.Grass)
+end
+
+-- A big aquarium window in the wall, fish swimming behind it. Breakable.
+local function tankWindow(kit, side, d)
+	if not kit:canBreak() then
+		return seaweed(kit, side, d)
+	end
+	kit:glow(Vector3.new(0.1, 6.4, 7.2), kit:at(kit:wallX(side, 0.06), 6.5, d), AQ_DEEP:Lerp(AQ_WATER, 0.45))
+	for _ = 1, 2 do
+		local height = kit:random(3, 5)
+		kit:block(Vector3.new(0.08, height, 0.4), kit:at(kit:wallX(side, 0.14), 3.3 + height / 2, d + kit:random(-3, 3)), AQ_KELP[3])
+	end
+	for _ = 1, 2 do
+		kit:glow(Vector3.new(0.08, 0.35, 0.7), kit:at(kit:wallX(side, 0.2), kit:random(4.5, 8.5), d + kit:random(-2.8, 2.8)), kit:pick(AQ_FISH))
+	end
+	for _, y in { 3.15, 9.85 } do
+		kit:block(Vector3.new(0.6, 0.35, 7.6), kit:at(kit:wallX(side, 0.3), y, d), AQ_HATCH, Material.Metal)
+	end
+	local pane = kit:glass(nil, Block, Vector3.new(0.15, 6.2, 7), kit:at(kit:wallX(side, 0.5), 6.5, d), kit:tint(0.7), 0.5)
+	pane.Name = "TankWindow"
+end
+
+-- A glowing glass jellyfish lamp hanging from the ceiling. Breakable.
+local function jellyLamp(kit, side, d)
+	if not kit:canBreak() then
+		return anchor(kit, side, d)
+	end
+	local H = kit.height
+	local x = kit:wallX(side, 2.2)
+	kit:post(x, H - 0.5, 0.5, 0.1, d, AQ_HATCH, Material.Metal)
+	if kit:fitted("JellyLamp", kit:at(x, H - 0.5, d), Vector3.new(1.6, 3, 1.6), { anchor = "ceiling", colors = { Glass = kit:tint(0.6), Neon = kit.theme.Accent } }) then
+		return
+	end
+	local model = kit:breakable("JellyLamp")
+	kit:glass(model, BallShape, Vector3.one * 1.4, kit:at(x, H - 1.2, d), kit:tint(0.6), 0.4)
+	kit:inner(model, BallShape, Vector3.one * 0.6, kit:at(x, H - 1.2, d), kit.theme.Accent)
+	for _, offset in { -0.35, 0, 0.35 } do
+		kit:inner(model, Block, Vector3.new(0.08, 1.4, 0.08), kit:at(x, H - 2.5, d + offset), kit.theme.Accent:Lerp(WHITE, 0.4))
+	end
+end
+
+Aquarium.features = {
+	{ 3, coral },
+	{ 2, seaweed },
+	{ 1, anchor },
+	{ 2, fishTank },
+	{ 3, tankWindow },
+	{ 2, jellyLamp },
+	{ 3, nothing },
+}
+
+-- A submarine hatch frame with hazard stripes, a valve wheel and the zone name.
+function Aquarium.gate(kit, d)
+	local H = kit.height
+	for _, side in SIDES do
+		kit:block(Vector3.new(1.4, H, 1.6), kit:at(side * 9.3, H / 2, d), AQ_HATCH, Material.Metal)
+		for i = 0, 4 do
+			kit:block(Vector3.new(0.06, 0.8, 1.2), kit:at(side * 8.57, 1.5 + i * 2.4, d), if i % 2 == 0 then HAZARD_YELLOW else AQ_DEEP)
+		end
+		local brace = CFrame.fromMatrix(kit:pos(side * 7.7, 11, d), Vector3.new(0, 0, side), Vector3.new(0, -1, 0))
+		kit:wedge(Vector3.new(1.6, 2, 2), brace, AQ_HATCH, Material.Metal)
+		kit:rod(0.25, 1.4, kit:at(side * 8.9, 6, d - 1) * ALONG_Z, AQ_RUST, Material.Metal)
+	end
+	local beam = kit:block(Vector3.new(20, 1.6, 1.6), kit:at(0, H - 0.8, d), AQ_HATCH, Material.Metal)
+	nameplate(kit, beam, kit.theme.Accent)
+	for x = -8, 8, 4 do
+		kit:ball(0.35, kit:at(x, 12.55, d - 0.8), AQ_HATCH:Lerp(WHITE, 0.2), Material.Metal)
+	end
+	kit:block(Vector3.new(17.2, 0.4, 1.6), kit:at(0, 0.2, d), AQ_HATCH, Material.DiamondPlate)
+	kit:fixed(kit:glow(Vector3.new(14, 0.15, 0.3), kit:at(0, 12.1, d - 0.85), kit.theme.Accent))
+end
+
+-- Sky citadel: white marble, gold trim, windows open to the sky, wind turbines, banners ----
+
+local SKY_GOLD = Color3.fromRGB(235, 190, 75)
+local SKY_BLUE = Color3.fromRGB(125, 195, 255)
+local SKY_CLOUD = Color3.fromRGB(250, 252, 255)
+local SKY_LANTERN = Color3.fromRGB(255, 220, 150)
+local SKY_FLAME = Color3.fromRGB(255, 170, 60)
+local SKY_FABRICS = { Color3.fromRGB(70, 110, 220), Color3.fromRGB(220, 70, 90), Color3.fromRGB(250, 250, 250) }
+
+local Sky = {}
+
+function Sky.room(kit)
+	local L, H = kit.length, kit.height
+	local beam = kit.theme.Wall:Lerp(BLACK, 0.1)
+	-- Gold inlay lines and stars on the marble floor.
+	for _, x in { -4, 4 } do
+		kit:block(Vector3.new(0.25, 0.04, L), kit:at(x, 0.02, L / 2), SKY_GOLD, Material.Metal)
+	end
+	kit:floorGlyph(GLYPHS.Star, 0, L / 2, 0.8, SKY_GOLD)
+	-- Coffered ceiling with two skylights (the room's main lights).
+	for d = 10, L - 10, 20 do
+		kit:block(Vector3.new(20, 0.6, 0.6), kit:at(0, H - 0.3, d), beam, Material.Marble)
+	end
+	for _, d in { 20, 60 } do
+		kit:fixed(kit:glow(Vector3.new(6, 0.06, 6), kit:at(0, H - 0.03, d), SKY_BLUE:Lerp(WHITE, 0.6)))
+		for _, s in { -1, 1 } do
+			kit:block(Vector3.new(6.6, 0.12, 0.3), kit:at(0, H - 0.06, d + s * 3.15), SKY_GOLD, Material.Metal)
+			kit:block(Vector3.new(0.3, 0.12, 6.6), kit:at(s * 3.15, H - 0.06, d), SKY_GOLD, Material.Metal)
+		end
+	end
+	for _, side in SIDES do
+		kit:block(Vector3.new(0.3, 0.3, L), kit:at(kit:wallX(side, 0.15), H - 0.15, L / 2), SKY_GOLD, Material.Metal)
+		kit:block(Vector3.new(0.4, 0.6, L), kit:at(kit:wallX(side, 0.2), 0.3, L / 2), beam, Material.Marble)
+	end
+end
+
+-- A window open to the bright sky, clouds drifting past. Glazed (breakable) when the room has room for it.
+local function skyWindow(kit, side, d)
+	kit:fixed(kit:glow(Vector3.new(0.1, 7, 6), kit:at(kit:wallX(side, 0.06), 6.5, d), SKY_BLUE))
+	local cloudY, cloudD = kit:random(4.5, 8.5), d + kit:random(-1.5, 1.5)
+	for i = -1, 1 do
+		local size = if i == 0 then 1.8 else 1.2
+		kit:rod(0.1, size, kit:at(kit:wallX(side, 0.15), cloudY + (if i == 0 then 0.3 else 0), cloudD + i * 0.9), SKY_CLOUD)
+	end
+	for _, s in { -1, 1 } do
+		kit:block(Vector3.new(0.5, 7.4, 0.5), kit:at(kit:wallX(side, 0.25), 6.5, d + s * 3.2), SKY_GOLD, Material.Metal)
+	end
+	kit:block(Vector3.new(0.5, 0.5, 6.9), kit:at(kit:wallX(side, 0.25), 10.2, d), SKY_GOLD, Material.Metal)
+	kit:block(Vector3.new(0.8, 0.3, 6.9), kit:at(kit:wallX(side, 0.4), 2.85, d), kit.theme.Wall:Lerp(BLACK, 0.08), Material.Marble)
+	if kit:canBreak() then
+		local pane = kit:glass(nil, Block, Vector3.new(0.15, 7, 6), kit:at(kit:wallX(side, 0.45), 6.5, d), SKY_BLUE:Lerp(WHITE, 0.7), 0.6)
+		pane.Name = "SkyWindow"
+	end
+end
+
+-- Fluffy clouds that drifted in and settled on the floor.
+local function cloudCluster(kit, side, d)
+	local x = kit:wallX(side, 1.6)
+	if kit:fitted("CloudCluster", kit:at(x, 0, d), Vector3.new(2.8, 2.4, 4), { anchor = "floor", spin = kit:random(0, math.pi) }) then
+		return
+	end
+	for i = 1, 4 do
+		local size = kit:random(1.4, 2.2)
+		kit:ball(size, kit:at(kit:wallX(side, kit:random(1.4, 1.7)), size / 2 - 0.1 + kit:random(0, 0.5), d + (i - 2.5) * 1.1), SKY_CLOUD)
+	end
+end
+
+-- A little wind turbine on the wall, blades turning.
+local function windTurbine(kit, side, d)
+	local y = kit:random(7, 9)
+	if kit:wallFitted("WindTurbine", side, 0, y, d, Vector3.new(3.6, 3.6, 1.4), { anchor = "center" }) then
+		return
+	end
+	local hubX = kit:wallX(side, 0.9)
+	kit:rod(0.9, 0.7, kit:at(kit:wallX(side, 0.45), y, d), METAL, Material.Metal)
+	kit:ball(0.7, kit:at(hubX, y, d), SKY_GOLD, Material.Metal)
+	local spinTime = kit:random(0.6, 1)
+	for i = 0, 1 do
+		-- Two crossed blades; turning a quarter turn and starting over looks like nonstop spinning.
+		local cframe = kit:at(hubX, y, d) * CFrame.Angles(i * QUARTER_TURN, 0, 0)
+		local blade = kit:block(Vector3.new(0.12, 0.6, 5), cframe, WHITE)
+		kit:animate(blade, { CFrame = cframe * CFrame.Angles(QUARTER_TURN, 0, 0) }, spinTime, false)
+	end
+end
+
+-- A long banner hanging from a gold rod, with a star on it.
+local function banner(kit, side, d)
+	local H = kit.height
+	local color = kit:pick(SKY_FABRICS)
+	if kit:wallFitted("Banner", side, 0.1, H - 0.4, d, Vector3.new(2.6, 6.5, 0.5), { anchor = "ceiling", colors = { Fabric = color, Cloth = color } }) then
+		return
+	end
+	kit:rod(3, 0.25, kit:at(kit:wallX(side, 0.5), H - 1.4, d) * ALONG_Z, SKY_GOLD, Material.Metal)
+	kit:block(Vector3.new(0.1, 6, 2.4), kit:at(kit:wallX(side, 0.35), H - 4.5, d), color, Material.Fabric)
+	kit:block(Vector3.new(0.12, 0.3, 2.4), kit:at(kit:wallX(side, 0.36), H - 7.4, d), SKY_GOLD, Material.Metal)
+	kit:wallGlyph(GLYPHS.Star, side, 0.42, d, H - 4, 0.55, 0.15, SKY_GOLD)
+end
+
+-- A paper-style glass lantern hanging on a gold string. Breakable.
+local function skyLantern(kit, side, d)
+	if not kit:canBreak() then
+		return banner(kit, side, d)
+	end
+	local H = kit.height
+	local x = kit:wallX(side, 2.2)
+	local hang = kit:random(0.4, 1.4)
+	kit:post(x, H - hang, hang, 0.08, d, SKY_GOLD, Material.Metal)
+	if kit:fitted("SkyLantern", kit:at(x, H - hang, d), Vector3.new(1.4, 2, 1.4), { anchor = "ceiling", colors = { Glass = SKY_LANTERN, Neon = SKY_FLAME } }) then
+		return
+	end
+	local model = kit:breakable("SkyLantern")
+	kit:glass(model, Block, Vector3.new(1.1, 1.5, 1.1), kit:at(x, H - hang - 0.75, d), SKY_LANTERN, 0.3)
+	kit:inner(model, BallShape, Vector3.one * 0.5, kit:at(x, H - hang - 0.9, d), SKY_FLAME)
+end
+
+-- A marble pedestal with a glass orb on top. Breakable.
+local function orbPedestal(kit, side, d)
+	if not kit:canBreak() then
+		return cloudCluster(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.4)
+	kit:block(Vector3.new(1.4, 3, 1.4), kit:at(x, 1.5, d), kit.theme.Wall:Lerp(BLACK, 0.05), Material.Marble)
+	kit:block(Vector3.new(1.8, 0.25, 1.8), kit:at(x, 3.125, d), SKY_GOLD, Material.Metal)
+	orb(kit, x, 4.1, d, 1.5, SKY_BLUE:Lerp(WHITE, 0.6))
+end
+
+Sky.features = {
+	{ 3, skyWindow },
+	{ 2, cloudCluster },
+	{ 2, windTurbine },
+	{ 2, skyLantern },
+	{ 2, banner },
+	{ 2, orbPedestal },
+	{ 3, nothing },
+}
+
+-- A grand marble arch with gold capitals, clouds around its feet.
+function Sky.gate(kit, d)
+	local H = kit.height
+	local marble = kit.theme.Wall:Lerp(BLACK, 0.06)
+	for _, side in SIDES do
+		kit:block(Vector3.new(2.4, 11.6, 2.4), kit:at(side * 8.5, 5.8, d), marble, Material.Marble)
+		for _, y in { 0.3, 11.9 } do
+			kit:block(Vector3.new(3, 0.6, 3), kit:at(side * 8.5, y, d), SKY_GOLD, Material.Metal)
+		end
+		for i = 1, 3 do
+			local size = kit:random(1.2, 1.8)
+			kit:ball(size, kit:at(side * kit:random(7.6, 8.6), size / 2 - 0.1, d + 2 + i), SKY_CLOUD)
+		end
+	end
+	local arch = kit:block(Vector3.new(20, 1.8, 3), kit:at(0, H - 0.9, d), marble, Material.Marble)
+	nameplate(kit, arch, SKY_GOLD:Lerp(BLACK, 0.3))
+	kit:fixed(kit:glow(Vector3.new(14, 0.2, 0.3), kit:at(0, 12.3, d - 1.5), SKY_GOLD))
+end
+
+-- Crystal core: dark machinery, purple energy, glowing crystals in glass cells -----------
+
+local CORE_DARK = Color3.fromRGB(26, 18, 42)
+local CORE_METAL = Color3.fromRGB(64, 58, 86)
+local CORE_WHITE = Color3.fromRGB(245, 236, 255)
+local CORE_COLORS = {
+	Color3.fromRGB(215, 140, 255),
+	Color3.fromRGB(160, 120, 255),
+	Color3.fromRGB(255, 170, 240),
+	Color3.fromRGB(240, 230, 255),
+}
+
+local Core = {}
+
+function Core.room(kit)
+	local L, H = kit.length, kit.height
+	local accent = kit.theme.Accent
+	for _, side in SIDES do
+		-- Energy conduits low and high on the walls.
+		for _, y in { 2.5, 11.5 } do
+			kit:fixed(kit:glow(Vector3.new(0.12, 0.2, L), kit:at(kit:wallX(side, 0.06), y, L / 2), accent))
+		end
+		kit:block(Vector3.new(0.2, 0.8, L), kit:at(kit:wallX(side, 0.1), 7, L / 2), CORE_DARK, Material.Metal)
+	end
+	-- An energy beam along the ceiling, on brackets.
+	kit:fixed(kit:rod(L, 0.5, kit:at(0, H - 0.7, L / 2) * ALONG_Z, accent:Lerp(WHITE, 0.4), Material.Neon))
+	for d = 10, L - 10, 20 do
+		kit:block(Vector3.new(2, 0.6, 0.6), kit:at(0, H - 0.3, d), CORE_METAL, Material.Metal)
+	end
+	-- A hexagon on the floor.
+	kit:floorGlyph(GLYPHS.Hex, kit:random(-3, 3), kit:random(25, 55), 1.1, accent:Lerp(BLACK, 0.35))
+	-- Crystals stuck in the ceiling corners.
+	for _ = 1, 2 do
+		local side = kit:pick(SIDES)
+		local cframe = kit:at(kit:wallX(side, 1.2), H - 1.2, kit:random(4, L - 4)) * CFrame.Angles(kit:random(-0.5, 0.5), kit:random(0, math.pi), side * 0.6)
+		kit:block(Vector3.new(0.5, 1.6, 0.5), cframe, kit:pick(CORE_COLORS), Material.Glass)
+	end
+end
+
+-- An energy pylon with glowing rings and a crystal tip.
+local function energyPylon(kit, side, d)
+	local x = kit:wallX(side, 1.4)
+	if kit:fitted("EnergyPylon", kit:at(x, 0, d), Vector3.new(2, 9, 2), { anchor = "floor", colors = { Neon = kit.theme.Accent } }) then
+		return
+	end
+	kit:block(Vector3.new(2, 0.8, 2), kit:at(x, 0.4, d), CORE_METAL, Material.Metal)
+	kit:post(x, 0.8, 6.6, 0.7, d, CORE_DARK, Material.Metal)
+	for _, y in { 2.6, 4.6, 6.6 } do
+		kit:post(x, y, 0.15, 1.4, d, kit.theme.Accent, Material.Neon)
+	end
+	kit:glow(Vector3.new(0.8, 1.6, 0.8), kit:at(x, 8.2, d) * CFrame.Angles(0, math.rad(45), 0), CORE_WHITE)
+end
+
+-- A big glowing crystal on a metal base. Breakable.
+local function coreCrystal(kit, side, d)
+	if not kit:canBreak() then
+		return energyPylon(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.6)
+	kit:post(x, 0, 0.5, 2.2, d, CORE_METAL, Material.Metal)
+	local spin = kit:random(0, math.pi)
+	if kit:fitted("CoreCrystal", kit:at(x, 0.5, d), Vector3.new(2, 3.6, 2), { anchor = "floor", spin = spin, colors = { Glass = kit:tint(0.4), Neon = CORE_WHITE } }) then
+		return
+	end
+	local model = kit:breakable("CoreCrystal")
+	local color = kit:tint(0.35)
+	kit:glass(model, Block, Vector3.new(0.8, 2.8, 0.8), kit:at(x, 1.9, d) * CFrame.Angles(0, spin, 0), color, 0.2)
+	kit:glass(model, Block, Vector3.new(0.55, 1.7, 0.55), kit:at(x, 1.3, d - 0.6) * CFrame.Angles(-0.45, spin, 0), color, 0.2)
+	kit:glass(model, Block, Vector3.new(0.55, 1.7, 0.55), kit:at(x, 1.3, d + 0.6) * CFrame.Angles(0.45, spin, 0), color, 0.2)
+	kit:inner(model, Block, Vector3.one * 0.5, kit:at(x, 1.9, d) * CFrame.Angles(math.rad(45), spin, math.rad(45)), CORE_WHITE)
+end
+
+-- A glowing ring floating by the wall with a spinning crystal in the middle.
+local function floatingRing(kit, side, d)
+	local y = kit:random(5.5, 8.5)
+	if kit:wallFitted("FloatingRing", side, 0.6, y, d, Vector3.new(3.4, 3.4, 0.8), { anchor = "center", colors = { Neon = kit.theme.Accent } }) then
+		return
+	end
+	local x = kit:wallX(side, 1.2)
+	local radius = 1.5
+	local previous = nil
+	for i = 0, 8 do
+		local a = i * math.pi / 4
+		local point = kit:pos(x, y + radius * math.sin(a), d + radius * math.cos(a))
+		if previous then
+			kit:fixed(kit:bar(previous, point, 0.22, 0.22, Vector3.xAxis, kit.theme.Accent, Material.Neon))
+		end
+		previous = point
+	end
+	-- A cube turned a quarter turn looks the same, so this loops without a jump.
+	local cframe = kit:at(x, y, d) * CFrame.Angles(math.rad(45), math.rad(45), 0)
+	local crystal = kit:glow(Vector3.one * 0.6, cframe, CORE_WHITE)
+	kit:animate(crystal, { CFrame = cframe * CFrame.Angles(0, QUARTER_TURN, 0) }, 1.2, false)
+end
+
+-- Wall panel with glowing circuit lines.
+local function circuitPanel(kit, side, d)
+	local y = kit:random(5.5, 7.5)
+	local x = kit:wallX(side, 0.15)
+	kit:block(Vector3.new(0.12, 4, 5), kit:at(kit:wallX(side, 0.06), y, d), CORE_DARK, Material.Metal)
+	for _ = 1, 3 do
+		local u1, v1 = kit:random(-2, 2), kit:random(-1.6, 1.6)
+		local horizontal = kit:chance(0.5)
+		local u2 = if horizontal then kit:random(-2, 2) else u1
+		local v2 = if horizontal then v1 else kit:random(-1.6, 1.6)
+		if math.abs(u2 - u1) + math.abs(v2 - v1) > 0.4 then
+			kit:bar(kit:pos(x, y + v1, d + u1), kit:pos(x, y + v2, d + u2), 0.1, 0.06, Vector3.xAxis, kit.theme.Accent, Material.Neon)
+		end
+	end
+	kit:ball(0.35, kit:at(kit:wallX(side, 0.2), y + 1.6, d + 2), CORE_WHITE, Material.Neon)
+end
+
+-- A glass containment cell with a glowing crystal inside. Breakable.
+local function containmentCell(kit, side, d)
+	if not kit:canBreak() then
+		return circuitPanel(kit, side, d)
+	end
+	local x = kit:wallX(side, 1.3)
+	kit:post(x, 0, 2.6, 2.2, d, CORE_METAL, Material.Metal)
+	kit:post(x, 8.6, 0.6, 2.2, d, CORE_METAL, Material.Metal)
+	kit:block(Vector3.new(0.6, 6.6, 0.6), kit:at(kit:wallX(side, 0.3), 5.9, d), CORE_DARK, Material.Metal)
+	local model = kit:breakable("ContainmentCell")
+	kit:glass(model, CylinderShape, Vector3.new(6, 1.8, 1.8), kit:at(x, 5.6, d) * UPRIGHT, kit:tint(0.65), 0.55)
+	kit:inner(model, Block, Vector3.new(0.6, 1.4, 0.6), kit:at(x, 5.6, d) * CFrame.Angles(0, math.rad(45), 0), CORE_WHITE)
+	kit:inner(model, CylinderShape, Vector3.new(5.8, 0.15, 0.15), kit:at(x, 5.6, d) * UPRIGHT, kit.theme.Accent)
+end
+
+Core.features = {
+	{ 3, energyPylon },
+	{ 3, coreCrystal },
+	{ 2, floatingRing },
+	{ 2, containmentCell },
+	{ 2, circuitPanel },
+	{ 1, shards },
+	{ 3, nothing },
+}
+
+-- Reactor gate: dark frame, energy pillars, a glowing core above the zone name.
+function Core.gate(kit, d)
+	local H = kit.height
+	for _, side in SIDES do
+		kit:block(Vector3.new(2, H, 1.6), kit:at(side * 9, H / 2, d), CORE_DARK, Material.Metal)
+		kit:fixed(kit:glow(Vector3.new(0.5, 12.6, 0.5), kit:at(side * 7.6, 6.3, d), kit.theme.Accent))
+		local brace = CFrame.fromMatrix(kit:pos(side * 7.6, 11.4, d), Vector3.new(0, 0, side), Vector3.new(0, -1, 0))
+		kit:wedge(Vector3.new(1.4, 1.6, 1.8), brace, CORE_METAL, Material.Metal)
+		coreCrystal(kit, side, d + 4)
+	end
+	local header = kit:block(Vector3.new(16, 1.2, 1.2), kit:at(0, H - 0.6, d), CORE_DARK, Material.Metal)
+	nameplate(kit, header, kit.theme.Accent)
+	kit:ball(1.6, kit:at(0, 12.9, d - 1.4), CORE_WHITE, Material.Neon)
+	kit:fixed(kit:glow(Vector3.new(15.2, 0.04, 0.5), kit:at(0, 0.02, d), kit.theme.Accent))
+end
+
 -- Dispatch --------------------------------------------------------------------------
 
 local STYLES = {
@@ -4083,6 +6257,11 @@ local STYLES = {
 	Temple = Temple,
 	Greenhouse = Greenhouse,
 	Void = Void,
+	Frost = Frost,
+	Magma = Magma,
+	Aquarium = Aquarium,
+	Sky = Sky,
+	Core = Core,
 }
 
 function Decor.decorate(builder, room, info)
@@ -4123,7 +6302,7 @@ return Decor
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="24">
+        <Item class="ModuleScript" referent="26">
           <Properties>
             <string name="Name">GamepadAim</string>
             <string name="Source"><![CDATA[--[[
@@ -4478,7 +6657,7 @@ return GamepadAim
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="25">
+        <Item class="ModuleScript" referent="27">
           <Properties>
             <string name="Name">Haptics</string>
             <string name="Source"><![CDATA[--[[
@@ -4796,7 +6975,7 @@ return Haptics
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="26">
+        <Item class="ModuleScript" referent="28">
           <Properties>
             <string name="Name">LeaveGift</string>
             <string name="Source"><![CDATA[--[[
@@ -5417,7 +7596,7 @@ return LeaveGift
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="27">
+        <Item class="ModuleScript" referent="29">
           <Properties>
             <string name="Name">LightingFx</string>
             <string name="Source"><![CDATA[--[[
@@ -5524,6 +7703,71 @@ local PRESETS = {
 		Bloom = { Intensity = 1.3, Size = 34, Threshold = 0.8 },
 		LightBrightness = 2.4,
 		LightRange = 18,
+	},
+	-- Icy blue cave: cold morning light, crisp contrast, a little desaturated.
+	Frost = {
+		ClockTime = 9.5,
+		Brightness = 2.2,
+		Ambient = Color3.fromRGB(92, 118, 150),
+		OutdoorAmbient = Color3.fromRGB(150, 180, 212),
+		ExposureCompensation = 0.15,
+		Atmosphere = { Density = 0.42, Offset = 0.12, Haze = 1.6, Glare = 0.2 },
+		Grade = { Brightness = 0.03, Contrast = 0.12, Saturation = -0.05, TintColor = Color3.fromRGB(222, 238, 255) },
+		Bloom = { Intensity = 0.75, Size = 28, Threshold = 1 },
+		LightBrightness = 1.6,
+		LightRange = 16,
+	},
+	-- Forge: dark dusk outside, everything lit red-orange by the lava.
+	Magma = {
+		ClockTime = 19.6,
+		Brightness = 0.7,
+		Ambient = Color3.fromRGB(105, 45, 26),
+		OutdoorAmbient = Color3.fromRGB(135, 60, 32),
+		ExposureCompensation = 0.1,
+		Atmosphere = { Density = 0.5, Offset = 0.05, Haze = 2.6, Glare = 0.8 },
+		Grade = { Brightness = 0, Contrast = 0.2, Saturation = 0.2, TintColor = Color3.fromRGB(255, 222, 196) },
+		Bloom = { Intensity = 1.2, Size = 32, Threshold = 0.85 },
+		LightBrightness = 2.6,
+		LightRange = 18,
+	},
+	-- Deep teal water: thick haze, soft light from above (the caustic ripples are in Decor).
+	Aquarium = {
+		ClockTime = 13,
+		Brightness = 1.2,
+		Ambient = Color3.fromRGB(28, 84, 96),
+		OutdoorAmbient = Color3.fromRGB(40, 112, 124),
+		ExposureCompensation = 0.12,
+		Atmosphere = { Density = 0.56, Offset = 0.1, Haze = 2.8, Glare = 0 },
+		Grade = { Brightness = 0, Contrast = 0.12, Saturation = 0.1, TintColor = Color3.fromRGB(200, 245, 238) },
+		Bloom = { Intensity = 0.95, Size = 30, Threshold = 0.9 },
+		LightBrightness = 2,
+		LightRange = 18,
+	},
+	-- Bright, airy midday high above the clouds.
+	Sky = {
+		ClockTime = 12,
+		Brightness = 3.2,
+		Ambient = Color3.fromRGB(150, 164, 190),
+		OutdoorAmbient = Color3.fromRGB(190, 205, 232),
+		ExposureCompensation = 0.2,
+		Atmosphere = { Density = 0.3, Offset = 0.25, Haze = 1.2, Glare = 0.5 },
+		Grade = { Brightness = 0.04, Contrast = 0.05, Saturation = 0.06, TintColor = Color3.fromRGB(252, 252, 255) },
+		Bloom = { Intensity = 0.6, Size = 26, Threshold = 1.1 },
+		LightBrightness = 1.2,
+		LightRange = 14,
+	},
+	-- Purple-white crystal core: dark room, glowing crystals, strong bloom.
+	Core = {
+		ClockTime = 0,
+		Brightness = 0.3,
+		Ambient = Color3.fromRGB(70, 46, 96),
+		OutdoorAmbient = Color3.fromRGB(90, 62, 122),
+		ExposureCompensation = 0.3,
+		Atmosphere = { Density = 0.46, Offset = 0, Haze = 1.8, Glare = 0.5 },
+		Grade = { Brightness = 0, Contrast = 0.22, Saturation = 0.25, TintColor = Color3.fromRGB(246, 232, 255) },
+		Bloom = { Intensity = 1.4, Size = 36, Threshold = 0.78 },
+		LightBrightness = 2.6,
+		LightRange = 20,
 	},
 }
 
@@ -5826,7 +8070,7 @@ return LightingFx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="LocalScript" referent="28">
+        <Item class="LocalScript" referent="30">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--[[
@@ -5839,7 +8083,7 @@ RunController.start()
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="29">
+        <Item class="ModuleScript" referent="31">
           <Properties>
             <string name="Name">Models</string>
             <string name="Source"><![CDATA[--[[
@@ -5947,7 +8191,7 @@ return Models
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="30">
+        <Item class="ModuleScript" referent="32">
           <Properties>
             <string name="Name">PerfOverlay</string>
             <string name="Source"><![CDATA[--[[
@@ -6123,7 +8367,7 @@ return PerfOverlay
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="33">
           <Properties>
             <string name="Name">RunController</string>
             <string name="Source"><![CDATA[--[[
@@ -6169,6 +8413,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BallFx = require(script.Parent.BallFx)
 local GamepadAim = require(script.Parent.GamepadAim)
 local Haptics = require(script.Parent.Haptics)
 local LeaveGift = require(script.Parent.LeaveGift)
@@ -6187,7 +8432,7 @@ local camera = workspace.CurrentCamera
 
 local ORIGIN = Config.TRACK_ORIGIN
 local FORWARD = Vector3.new(0, 0, -1)
-local CRASH_MARGIN = 0.8 -- how close to a pane's edge still counts as hitting it
+local CRASH_MARGIN = 0.25 -- small allowance only: if it looks like you missed the glass, you missed it
 local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
 local BALL_STEPS = 3 -- collision checks per ball per frame
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
@@ -6440,46 +8685,15 @@ end)
 -- Balls ----------------------------------------------------------------------
 
 -- mega: a giant MegaBall boost ball (bigger, always has a trail).
-local function makeBallPart(mega)
-	local skin = Config.getSkin(player:GetAttribute("EquippedSkin"))
+-- lite: a cheaper look for the extra balls of a multiball throw (premium balls
+-- only: no rings, particles or light). The look itself is in BallFx.luau.
+local function makeBallPart(mega, lite)
 	local radius = if mega then MEGA_RADIUS else Config.BALL_RADIUS
-
-	local part = Instance.new("Part")
-	part.Name = if mega then "MegaBall" else "Ball"
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.one * radius * 2
-	part.Material = skin.Material
-	part.Color = skin.Color
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-
-	if skin.Rainbow then
-		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
-	end
-
-	if skin.Trail or skin.Rainbow or mega then
-		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, radius * 0.6, 0)
-		a0.Parent = part
-		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -radius * 0.6, 0)
-		a1.Parent = part
-
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = a0
-		trail.Attachment1 = a1
-		trail.Lifetime = 0.25
-		trail.LightEmission = 1
-		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA.Color else part.Color))
-		trail.Transparency = NumberSequence.new(0.2, 1)
-		trail.Parent = part
-	end
-
-	part.Parent = shardFolder
-	return part
+	return BallFx.create(player:GetAttribute("EquippedSkin"), radius, {
+		mega = mega,
+		lite = lite,
+		parent = shardFolder,
+	})
 end
 
 local function collectCrystal(crystal)
@@ -6659,7 +8873,13 @@ local function stepBall(ball, dt)
 		local remaining = travel.Magnitude - hit.Distance
 		ball.position = hit.Position
 
-		if kind == "Glass" then
+		if kind == "Glass" and track:crackArmor(hit.Instance, hit.Position) then
+			-- Armored glass: the first hit only cracks it and the ball bounces off.
+			Shatter.impact(hit.Position, hit.Normal, hit.Instance)
+			Sounds.play("Shatter", 0.55)
+			smashFeedback(false)
+			travel = bounce(ball, hit, remaining)
+		elseif kind == "Glass" then
 			runStats.glass += 1
 			smashGlass(hit.Instance, hit.Position, ball.velocity.Unit, runFx, true)
 			ball.velocity *= 0.7 -- the ball keeps going, a bit slower
@@ -6702,7 +8922,7 @@ local function stepBalls(dt)
 	for i = #activeBalls, 1, -1 do
 		local ball = activeBalls[i]
 		if not stepBall(ball, dt) then
-			ball.part:Destroy()
+			BallFx.destroy(ball.part)
 			table.remove(activeBalls, i)
 		end
 	end
@@ -6710,7 +8930,7 @@ end
 
 local function clearBalls()
 	for _, ball in activeBalls do
-		ball.part:Destroy()
+		BallFx.destroy(ball.part)
 	end
 	table.clear(activeBalls)
 end
@@ -6719,14 +8939,14 @@ end
 -- far before its first frame. A sphere cast can't hit something the sphere
 -- already overlaps at its start, so starting a giant ball out in front would
 -- miss glass, crystals and buttons right in front of the camera.
-local function spawnBall(origin, velocity, mega, preSweep)
+local function spawnBall(origin, velocity, mega, preSweep, lite)
 	-- Too many balls slows phones down: the oldest ones disappear first.
 	while #activeBalls >= Config.MAX_LIVE_BALLS do
 		local oldest = table.remove(activeBalls, 1)
-		oldest.part:Destroy()
+		BallFx.destroy(oldest.part)
 	end
 
-	local part = makeBallPart(mega)
+	local part = makeBallPart(mega, lite)
 	local ball = { part = part, position = origin, velocity = velocity, age = 0, mega = mega }
 	table.insert(activeBalls, ball)
 	if mega and preSweep then
@@ -6762,6 +8982,8 @@ local function throwAlong(ray)
 	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
 
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
+	-- Only the middle ball of a multiball fan gets the full premium look (perf).
+	local hero = math.ceil(multiball / 2)
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
 		local angle = (i - (multiball + 1) / 2) * 0.05
@@ -6769,9 +8991,9 @@ local function throwAlong(ray)
 		local velocity = direction * Config.BALL_SPEED + carry
 		if mega then
 			-- Swept from the camera so anything close is still smashed.
-			spawnBall(ray.Origin, velocity, true, direction * startDistance)
+			spawnBall(ray.Origin, velocity, true, direction * startDistance, i ~= hero)
 		else
-			spawnBall(ray.Origin + direction * startDistance, velocity, false)
+			spawnBall(ray.Origin + direction * startDistance, velocity, false, nil, i ~= hero)
 		end
 	end
 
@@ -7270,8 +9492,8 @@ local function step(dt)
 		ballDt = runDt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
 		Tutorial.scanForTips(runDt, cameraZ, track)
 
-		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
-		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
+		-- Same rule the server's anti-cheat uses (each zone has its own top speed).
+		speed = Config.speedForRoom(currentRoom(), startCheckpoint * Config.ROOMS_PER_CHECKPOINT)
 
 		local prevZ = cameraZ
 		cameraZ -= speed * worldDt
@@ -7680,7 +9902,7 @@ return RunController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="32">
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">Settings</string>
             <string name="Source"><![CDATA[--[[
@@ -7799,7 +10021,7 @@ return Settings
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">Shatter</string>
             <string name="Source"><![CDATA[--[[
@@ -8859,7 +11081,7 @@ return Shatter
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="36">
           <Properties>
             <string name="Name">Sounds</string>
             <string name="Source"><![CDATA[--[[
@@ -8987,7 +11209,7 @@ return Sounds
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="35">
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">TrackBuilder</string>
             <string name="Source"><![CDATA[--[[
@@ -9022,6 +11244,11 @@ return Sounds
 
 	Room shell parts carry the attribute Shell = true. Everything else of
 	kind "Wall" is decoration that a ball can knock loose (see Shatter.knockLoose).
+
+	Zones 6-10 add four obstacles (Config.ZonePatterns): ArmoredGlass (2 hits,
+	see crackArmor), BobbingPane (tween), FallingPane (drops when you get close)
+	and RingSpinner (a turning wheel of panes). The last two are moved by
+	updateMovers every frame, only for finished rooms near the camera.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9084,7 +11311,30 @@ local SURFACES = {
 	Temple = { Wall = Enum.Material.Sandstone, Ceiling = Enum.Material.Sandstone, Floor = Enum.Material.Limestone, FloorTint = Color3.fromRGB(150, 110, 70), FloorTintAmount = 0.3 },
 	Greenhouse = { Wall = Enum.Material.Concrete, Ceiling = Enum.Material.Glass, Floor = Enum.Material.WoodPlanks, FloorTint = Color3.fromRGB(120, 80, 45), FloorTintAmount = 0.6 },
 	Void = { Wall = Enum.Material.Basalt, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.Slate, FloorTint = Color3.fromRGB(10, 5, 20), FloorTintAmount = 0.4 },
+	Frost = { Wall = Enum.Material.Glacier, Ceiling = Enum.Material.Ice, Floor = Enum.Material.Glacier, FloorTint = Color3.fromRGB(150, 190, 225), FloorTintAmount = 0.3 },
+	Magma = { Wall = Enum.Material.Basalt, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.CrackedLava, FloorTint = Color3.fromRGB(35, 18, 12), FloorTintAmount = 0.35 },
+	Aquarium = { Wall = Enum.Material.Slate, Ceiling = Enum.Material.Metal, Floor = Enum.Material.Sand, FloorTint = Color3.fromRGB(200, 180, 130), FloorTintAmount = 0.6 },
+	Sky = { Wall = Enum.Material.Marble, Ceiling = Enum.Material.Marble, Floor = Enum.Material.Marble, FloorTint = Color3.fromRGB(225, 195, 135), FloorTintAmount = 0.25 },
+	Core = { Wall = Enum.Material.Slate, Ceiling = Enum.Material.Basalt, Floor = Enum.Material.Marble, FloorTint = Color3.fromRGB(14, 8, 28), FloorTintAmount = 0.5 },
 }
+
+-- New obstacles (zones 6+) ----------------------------------------------------------
+local ARMOR_COLOR = Color3.fromRGB(105, 150, 185) -- thick tinted glass
+local ARMOR_CRACKED_COLOR = Color3.fromRGB(70, 100, 130)
+local ARMOR_EDGE_COLOR = Color3.fromRGB(45, 52, 62)
+local CRACK_COLOR = Color3.fromRGB(225, 245, 255)
+local WARNING_COLOR = Color3.fromRGB(255, 170, 30)
+local FALL_TRIGGER_DISTANCE = 70 -- a FallingPane drops when the camera is this close (studs)
+local FALL_TIME = 0.4 -- seconds the drop takes
+local RING_SLOTS = 8 -- RingSpinner: 8 places around the wheel, 6 have a pane (a 2-slot gap)
+local RING_PANES = 6
+local RING_CENTER_HEIGHT = 9.5 -- above the floor; the wheel turns above the middle of the corridor
+local RING_INNER, RING_OUTER = 1, 4.4 -- each pane runs from this far from the center to this far
+local SPIN_RANGE = 260 -- RingSpinners further ahead than this (studs) stand still (past the fog)
+
+-- Glass visibility: less see-through than before, plus a glowing outline.
+local GLASS_TRANSPARENCY = 0.2
+local GLASS_OUTLINE_THICKNESS = 0.07
 
 -- Shared with Decor.luau.
 TrackBuilder.newPart = newPart
@@ -9132,9 +11382,23 @@ function TrackBuilder:addGlass(room, position, size)
 		CFrame = CFrame.new(position),
 		Material = Enum.Material.Glass,
 		Color = Config.GLASS_COLOR,
-		Transparency = 0.35,
+		Transparency = GLASS_TRANSPARENCY,
 		Reflectance = 0.15,
 	})
+
+	-- Glowing outline + light tint so glass is always easy to see, even far
+	-- away in the fog or against pale walls. It follows moving/spinning panes
+	-- and disappears with the pane when it shatters.
+	local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+	local outline = Instance.new("SelectionBox")
+	outline.Name = "Outline"
+	outline.Adornee = glass
+	outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+	outline.LineThickness = GLASS_OUTLINE_THICKNESS
+	outline.SurfaceColor3 = accent
+	outline.SurfaceTransparency = 0.82
+	outline.Parent = glass
+
 	table.insert(room.glass, glass)
 	return glass
 end
@@ -9246,6 +11510,165 @@ function Patterns.Grid(self, room, z)
 			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4))
 		end
 	end
+end
+
+-- A see-through detail that belongs to a pane: never hit by balls or crashes
+-- (CanQuery off) and gone when the pane shatters (it's parented to the pane).
+local function paneDetail(pane, size, cframe, color, material)
+	local part = newPart(pane, "Detail", {
+		Name = "Detail",
+		Size = size,
+		CFrame = cframe,
+		Color = color,
+		Material = material,
+		CanQuery = false,
+	})
+	return part
+end
+
+-- Thick tinted glass with a metal edge. The first hit only cracks it
+-- (TrackBuilder:crackArmor), the second one breaks it. Mega balls and crashing
+-- into it break it right away. Sometimes a bonus crystal hides behind it.
+function Patterns.ArmoredGlass(self, room, z)
+	local rng = self.rng
+	local width = rng:NextNumber(9, 11)
+	local height = 9
+	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
+	local center = Vector3.new(x, ORIGIN.Y + 1.5 + height / 2, z)
+	local glass = self:addGlass(room, center, Vector3.new(width, height, 0.8))
+	glass.Name = "ArmoredGlass"
+	glass.Color = ARMOR_COLOR
+	glass.Transparency = 0.2
+	glass.Reflectance = 0.3
+	glass:SetAttribute("Armor", 1) -- extra hits it can take
+	-- Metal edge on the side facing the player.
+	local front = z + 0.45
+	for _, sx in { -1, 1 } do
+		paneDetail(glass, Vector3.new(0.35, height, 0.12), CFrame.new(x + sx * (width / 2 - 0.175), center.Y, front), ARMOR_EDGE_COLOR, Enum.Material.DiamondPlate)
+	end
+	for _, sy in { -1, 1 } do
+		paneDetail(glass, Vector3.new(width, 0.35, 0.12), CFrame.new(x, center.Y + sy * (height / 2 - 0.175), front), ARMOR_EDGE_COLOR, Enum.Material.DiamondPlate)
+	end
+	if rng:NextNumber() < Config.ARMOR_BONUS_CRYSTAL_CHANCE then
+		self:addCrystal(room, Vector3.new(x + rng:NextNumber(-2, 2), EYE_Y + rng:NextNumber(-1, 2), z - 3))
+	end
+end
+
+-- Armored glass was hit: the first hit cracks it (darker, with glowing crack
+-- lines from the hit point) and returns true, so the ball bounces off.
+-- Returns false when the pane should shatter now (plain glass, or already cracked).
+function TrackBuilder:crackArmor(glass, hitPoint)
+	local armor = glass:GetAttribute("Armor")
+	if type(armor) ~= "number" or armor <= 0 then
+		return false
+	end
+	glass:SetAttribute("Armor", armor - 1)
+	glass.Color = ARMOR_CRACKED_COLOR
+	glass.Transparency = 0.25
+	local cf = glass.CFrame
+	local half = glass.Size / 2
+	local hit = cf:PointToObjectSpace(hitPoint)
+	local hx = math.clamp(hit.X, -half.X * 0.8, half.X * 0.8)
+	local hy = math.clamp(hit.Y, -half.Y * 0.8, half.Y * 0.8)
+	local front = half.Z + 0.03
+	for i = 1, 6 do
+		local angle = (i + self.rng:NextNumber(-0.35, 0.35)) * math.pi / 3
+		local length = self.rng:NextNumber(1.8, 3.6)
+		local endX = math.clamp(hx + math.cos(angle) * length, -half.X, half.X)
+		local endY = math.clamp(hy + math.sin(angle) * length, -half.Y, half.Y)
+		local a, b = Vector3.new(hx, hy, front), Vector3.new(endX, endY, front)
+		local mid = (a + b) / 2
+		local span = (b - a).Magnitude
+		if span > 0.2 then
+			local line = cf * CFrame.new(mid) * CFrame.Angles(0, 0, math.atan2(b.Y - a.Y, b.X - a.X))
+			paneDetail(glass, Vector3.new(span, 0.08, 0.05), line, CRACK_COLOR, Enum.Material.Neon)
+		end
+	end
+	return true
+end
+
+-- A pane that bobs up and down across your path.
+function Patterns.BobbingPane(self, room, z)
+	local rng = self.rng
+	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
+	local low = CFrame.new(x, ORIGIN.Y + 3.5, z) -- covers your eyes
+	local high = CFrame.new(x, ORIGIN.Y + 10.5, z) -- you fly under it
+	local startHigh = rng:NextNumber() < 0.5
+	local glass = self:addGlass(room, (if startHigh then high else low).Position, Vector3.new(rng:NextNumber(10, 12), 5, 0.4))
+	local info = TweenInfo.new(rng:NextNumber(1.1, 1.8), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	TweenService:Create(glass, info, { CFrame = if startHigh then low else high }):Play()
+end
+
+-- A pane waiting in a slot in the ceiling (its bottom edge shows, with blinking
+-- warning lights and a stripe on the floor). It drops into your path when you
+-- get close (TrackBuilder:update). Smash the edge early to stop it.
+function Patterns.FallingPane(self, room, z)
+	local rng = self.rng
+	local width = rng:NextNumber(10, 13)
+	local height = 9
+	local x = ORIGIN.X + rng:NextNumber(-1, 1)
+	local downY = ORIGIN.Y + 1.5 + height / 2
+	local upY = ORIGIN.Y + 12.6 + height / 2 -- only the bottom 1.4 studs show below the ceiling
+	local glass = self:addGlass(room, Vector3.new(x, upY, z), Vector3.new(width, height, 0.4))
+	table.insert(room.fallers, { glass = glass, goal = CFrame.new(x, downY, z), dropped = false })
+
+	-- Warning: blinking lights on the ceiling slot and a dashed stripe on the floor.
+	local blink = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	for _, side in { -1, 1 } do
+		local light = newPart(room.folder, "Wall", {
+			Name = "Warning",
+			Size = Vector3.new(0.8, 0.3, 0.8),
+			CFrame = CFrame.new(x + side * (width / 2 + 0.7), ORIGIN.Y + HEIGHT - 0.15, z),
+			Color = WARNING_COLOR,
+			Material = Enum.Material.Neon,
+		})
+		light:SetAttribute("Shell", true)
+		TweenService:Create(light, blink, { Transparency = 0.85 }):Play()
+	end
+	for i = -2, 2 do
+		local stripe = newPart(room.folder, "Wall", {
+			Name = "WarningStripe",
+			Size = Vector3.new(width / 6, 0.04, 0.6),
+			CFrame = CFrame.new(x + i * width / 5, ORIGIN.Y + 0.03, z),
+			Color = WARNING_COLOR,
+			Material = Enum.Material.Neon,
+		})
+		stripe:SetAttribute("Shell", true)
+	end
+end
+
+-- Six panes on a wheel turning above the middle of the corridor, with a gap.
+-- Whatever pane points down when you get there is in your way: smash it, or
+-- time it so the gap is at the bottom. Turned by TrackBuilder:update.
+function Patterns.RingSpinner(self, room, z)
+	local rng = self.rng
+	local center = CFrame.new(ORIGIN.X, ORIGIN.Y + RING_CENTER_HEIGHT, z)
+	local ring = {
+		center = center,
+		angle = rng:NextNumber(0, 2 * math.pi),
+		speed = rng:NextNumber(1.3, 1.9) * (if rng:NextNumber() < 0.5 then -1 else 1),
+		panes = {},
+	}
+	local length = RING_OUTER - RING_INNER
+	local offset = CFrame.new(0, RING_INNER + length / 2, 0)
+	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
+	for i = 0, RING_PANES - 1 do
+		local slotAngle = (firstSlot + i) * 2 * math.pi / RING_SLOTS
+		local glass = self:addGlass(room, center.Position, Vector3.new(1.6, length, 0.4))
+		glass.CFrame = center * CFrame.Angles(0, 0, ring.angle + slotAngle) * offset
+		table.insert(ring.panes, { glass = glass, slotAngle = slotAngle, offset = offset })
+	end
+	-- Hub the panes hang on (above your head, so it never gets in the way).
+	local hub = newPart(room.folder, "Wall", {
+		Name = "RingHub",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.6, 1.4, 1.4),
+		CFrame = center * CFrame.Angles(0, math.rad(90), 0),
+		Color = Color3.fromRGB(60, 64, 74),
+		Material = Enum.Material.Metal,
+	})
+	hub:SetAttribute("Shell", true)
+	table.insert(room.rings, ring)
 end
 
 -- Metal doors you can't break. Hit the red button to open them.
@@ -9373,7 +11796,8 @@ function TrackBuilder:buildShell(roomIndex)
 	local folder = Instance.new("Folder")
 	folder.Name = "Room" .. roomIndex
 	folder.Parent = self.folder
-	local room = { folder = folder, glass = {}, doors = {}, crystals = {}, finished = false }
+	-- fallers: FallingPanes still waiting to drop; rings: RingSpinners to turn (both in update).
+	local room = { folder = folder, theme = theme, glass = {}, doors = {}, crystals = {}, fallers = {}, rings = {}, finished = false }
 	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
@@ -9439,9 +11863,10 @@ function TrackBuilder:buildShell(roomIndex)
 	if self.tutorial and table.find(Config.TUTORIAL_ROOMS, roomIndex) then
 		self:buildTutorialRoom(room, roomIndex, startZ)
 	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
-		-- Difficulty climbs inside each zone and keeps climbing zone to zone.
-		local inZone = (roomIndex % Config.ROOMS_PER_CHECKPOINT) / Config.ROOMS_PER_CHECKPOINT
-		local difficulty = math.min(inZone * 0.6 + zone * 0.15, 1)
+		-- Difficulty climbs inside each zone and keeps climbing zone to zone
+		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4
+		-- (the 4th only once difficulty goes past 1, in the endless zones after zone 10).
+		local difficulty = Config.difficultyFor(zone, roomIndex % Config.ROOMS_PER_CHECKPOINT)
 
 		local groups = 1
 		if rng:NextNumber() < difficulty then
@@ -9450,11 +11875,16 @@ function TrackBuilder:buildShell(roomIndex)
 		if rng:NextNumber() < difficulty * 0.6 then
 			groups += 1
 		end
+		if rng:NextNumber() < (difficulty - 1) * 0.6 then
+			groups += 1
+		end
 		for group = 1, groups do
 			self:addObstacle(room, startZ - LENGTH * group / (groups + 1), zone)
 		end
 
-		for _ = 1, rng:NextInteger(1, 2) do
+		-- Fewer crystals in later zones (Config.ZoneCrystals), so every ball counts.
+		local crystalRange = Config.ZoneCrystals[math.min(zone + 1, #Config.ZoneCrystals)]
+		for _ = 1, rng:NextInteger(crystalRange[1], crystalRange[2]) do
 			local position = Vector3.new(
 				ORIGIN.X + rng:NextNumber(-7, 7),
 				ORIGIN.Y + rng:NextNumber(3, HEIGHT - 3),
@@ -9475,6 +11905,7 @@ function TrackBuilder:buildShell(roomIndex)
 			startZ = startZ,
 			isZoneStart = isZoneStart,
 			rng = rng,
+			low = LightingFx.isLow(), -- Low graphics: Decor skips its little animations
 		}
 end
 
@@ -9586,6 +12017,39 @@ function TrackBuilder:updateShadowRooms(cameraZ, force)
 	LightingFx.setShadowRooms(here and here.folder, nextRoom and nextRoom.folder)
 end
 
+-- FallingPanes drop when the camera gets close; RingSpinners in view turn.
+-- Only finished rooms: a pane still being built has no final CFrame yet.
+function TrackBuilder:updateMovers(cameraZ, dt)
+	for roomIndex, room in self.rooms do
+		if not room.finished then
+			continue
+		end
+		local startZ = TrackBuilder.roomStartZ(roomIndex)
+		if startZ - LENGTH > cameraZ or startZ < cameraZ - SPIN_RANGE then
+			continue -- behind the camera, or too far ahead to see
+		end
+		for _, faller in room.fallers do
+			local glass = faller.glass
+			if not faller.dropped and glass.Parent and cameraZ - glass.Position.Z < FALL_TRIGGER_DISTANCE then
+				faller.dropped = true
+				local info = TweenInfo.new(FALL_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				TweenService:Create(glass, info, { CFrame = faller.goal }):Play()
+			end
+		end
+		if dt > 0 then
+			for _, ring in room.rings do
+				ring.angle = (ring.angle + ring.speed * dt) % (2 * math.pi)
+				for _, pane in ring.panes do
+					local glass = pane.glass
+					if glass.Parent then
+						glass.CFrame = ring.center * CFrame.Angles(0, 0, ring.angle + pane.slotAngle) * pane.offset
+					end
+				end
+			end
+		end
+	end
+end
+
 -- Call every frame with the camera's Z position.
 function TrackBuilder:update(cameraZ, dt)
 	local frameStart = os.clock()
@@ -9606,6 +12070,8 @@ function TrackBuilder:update(cameraZ, dt)
 			end
 		end
 	end
+
+	self:updateMovers(cameraZ, dt)
 
 	self:queueAhead(cameraZ)
 
@@ -9694,7 +12160,7 @@ return TrackBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="36">
+        <Item class="ModuleScript" referent="38">
           <Properties>
             <string name="Name">Tutorial</string>
             <string name="Source"><![CDATA[--[[
@@ -10247,7 +12713,7 @@ return Tutorial
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="37">
+        <Item class="ModuleScript" referent="39">
           <Properties>
             <string name="Name">UI</string>
             <string name="Source"><![CDATA[--[[
@@ -10291,10 +12757,12 @@ local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BallFx = require(script.Parent.BallFx)
 local Settings = require(script.Parent.Settings)
 
 local player = Players.LocalPlayer
@@ -10331,6 +12799,14 @@ local MAX_TOASTS = 3
 local TAB_NAMES = { "PLAY", "MISSIONS", "SEASON", "ZONES", "SHOP" }
 local TAB_MISSIONS, TAB_SEASON = 2, 3
 local GEM_PACKS = { "GemPack", "GemPackMedium", "GemPackLarge" }
+local TAB_SHOP = 5
+-- Premium (Robux) balls at the top of SHOP: a spinning 3D preview + picker.
+local PREMIUM_CARD_H = 170
+local PREMIUM_VIEW = 132 -- the preview square
+local PREMIUM_PREVIEW_DIAMETER = 2 -- studs; the camera is placed to fit this
+local PREMIUM_CAMERA_DISTANCE = 4.6
+local PREMIUM_ORBIT_SPEED = 0.45 -- radians per second the preview camera circles the ball
+local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
 -- The starter offer pops up once per session, the first time the menu opens
 -- after a run (never on the very first screen, and never again once closed).
 local OFFER_AFTER_MENU_OPENS = 2
@@ -12529,6 +15005,9 @@ function UI._buildMenuPanel(self, root)
 
 	-- 05 SHOP
 	local shopPage = m.tabs[5].page
+	if #(Config.PremiumBalls or {}) > 0 then
+		self:_buildPremiumBalls(shopPage, -20)
+	end
 	local starter = Config.Products.StarterPack
 	if starter and starter.Id ~= 0 then
 		m.starterHeader = sectionHeader(shopPage, 1, "05.0", "STARTER PACK")
@@ -12554,9 +15033,11 @@ function UI._buildMenuPanel(self, root)
 	m.skinCards = {}
 	local skinButtons = {}
 	for order, skin in Config.Skins do
-		local entry = self:_buildSkinCard(grid, skin, order)
-		m.skinCards[skin.Id] = entry
-		table.insert(skinButtons, entry.button.holder)
+		if not skin.Premium then -- premium balls have their own section (Robux only)
+			local entry = self:_buildSkinCard(grid, skin, order)
+			m.skinCards[skin.Id] = entry
+			table.insert(skinButtons, entry.button.holder)
+		end
 	end
 	linkGrid(skinButtons, 2)
 
@@ -14362,6 +16843,7 @@ function UI._rebuildZones(self)
 end
 
 function UI._refreshSkins(self)
+	self:_refreshPremium()
 	local m = self._menu
 	if not m or not m.skinCards then
 		return
@@ -14370,7 +16852,12 @@ function UI._refreshSkins(self)
 	local equipped = player:GetAttribute("EquippedSkin") or "Default"
 	local gems = tonumber(player:GetAttribute("Gems")) or 0
 	local ownedCount = 0
+	local total = 0
 	for _, skin in Config.Skins do
+		if skin.Premium then
+			continue
+		end
+		total += 1
 		if owned[skin.Id] then
 			ownedCount += 1
 		end
@@ -14417,7 +16904,351 @@ function UI._refreshSkins(self)
 			end
 		end
 	end
-	m.skinsRight.Text = ownedCount .. " / " .. #Config.Skins .. " OWNED"
+	m.skinsRight.Text = ownedCount .. " / " .. total .. " OWNED"
+end
+
+-- Premium balls (Robux) ---------------------------------------------------------------
+-- Top of SHOP: an ink card with a slowly orbiting 3D preview of the picked ball
+-- (animated like in a run), its name, what it is and its live Robux price, then a
+-- 3x2 picker. BUY is a Robux button (off until the save loads, like every other);
+-- owned balls show EQUIP / EQUIPPED instead. Never sold for gems.
+
+function UI._buildPremiumBalls(self, parent, order)
+	local m = self._menu
+	local p = { chips = {}, prices = {}, busy = false }
+	m.premium = p
+
+	local _, right = sectionHeader(parent, order, "05.P", "PREMIUM BALLS")
+	p.right = right
+
+	local card = new("Frame", {
+		Name = "PremiumBalls",
+		BackgroundColor3 = INK,
+		Size = UDim2.new(1, 0, 0, PREMIUM_CARD_H),
+		LayoutOrder = order + 1,
+		Parent = parent,
+	})
+	notch(card, 12, 1, 0)
+
+	-- 3D preview: a camera circles the ball while the shop is on screen. The
+	-- viewport is see-through, so the faint blueprint grid behind it shows.
+	local backing = new("Frame", {
+		Name = "PreviewBacking",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(PREMIUM_VIEW, PREMIUM_VIEW),
+		Parent = card,
+	})
+	local grid = blueprintGrid(backing, 6, 6, 0.88)
+	for _, line in grid:GetChildren() do
+		line.BackgroundColor3 = PAPER
+	end
+	stroke(backing, 1, PAPER, 0.6)
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = backing,
+	})
+	brackets(backing, 8, 1, 0.2)
+	for _, item in backing:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	p.view = view
+	p.camera = viewCamera
+	p.tagLabel = text({
+		Text = "P-01 / LIVE",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(6, PREMIUM_VIEW + 9),
+		Size = UDim2.fromOffset(PREMIUM_VIEW, 10),
+		Parent = card,
+	})
+
+	-- Right column: name, what it is, price, action.
+	local x = PREMIUM_VIEW + 14
+	setAccent(text({
+		Text = "PREMIUM BALL / YOURS FOREVER",
+		TextSize = 8,
+		Position = UDim2.fromOffset(x, 8),
+		Size = UDim2.new(1, -(x + 22), 0, 10),
+		Parent = card,
+	}), "TextColor3")
+	p.name = capText(text({
+		Name = "BallName",
+		Font = FONT_NUM,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(x, 22),
+		Size = UDim2.new(1, -(x + 8), 0, 20),
+		Parent = card,
+	}), 15, 8)
+	p.desc = text({
+		Name = "Desc",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.15,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(x, 46),
+		Size = UDim2.new(1, -(x + 8), 0, 34),
+		Parent = card,
+	})
+	p.price = setAccent(capText(text({
+		Name = "Price",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(x, 84),
+		Size = UDim2.new(1, -(x + 8), 0, 18),
+		Parent = card,
+	}), 12, 7), "TextColor3")
+
+	local buttonSize = UDim2.new(1, -(x + 6), 0, 56)
+	local buttonPosition = UDim2.fromOffset(x, PREMIUM_CARD_H - 62)
+	p.buy = hardButton(card, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 13,
+		Sub = "",
+		Position = buttonPosition,
+		Size = buttonSize,
+		OnClick = function()
+			self:_buyPremium()
+		end,
+	})
+	self:_robuxButton(p.buy)
+	p.equip = hardButton(card, {
+		Name = "Equip",
+		Fill = "paper",
+		Text = "EQUIP",
+		TextSize = 13,
+		Position = buttonPosition,
+		Size = buttonSize,
+		OnClick = function()
+			self:_equipPremium()
+		end,
+	})
+	p.equip.holder.Visible = false
+
+	-- Picker: 3 x 2 chips, each with the ball's colors along the bottom.
+	local picker = new("Frame", {
+		Name = "PremiumPicker",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = order + 2,
+		Parent = parent,
+	})
+	new("UIGridLayout", {
+		CellSize = UDim2.new(1 / 3, -6, 0, 54),
+		CellPadding = UDim2.fromOffset(8, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = picker,
+	})
+	local holders = {}
+	for index, id in Config.PremiumBalls do
+		local skin = Config.getSkin(id)
+		local chip = hardButton(picker, {
+			Name = id,
+			Fill = "paper",
+			Text = string.upper(skin.Name),
+			TextSize = 9,
+			Sub = "",
+			LayoutOrder = index,
+			OnClick = function()
+				self:_selectPremium(id)
+			end,
+		})
+		local bar = new("Frame", {
+			Name = "Colors",
+			BackgroundColor3 = skin.Color,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 2, 1, -2),
+			Size = UDim2.new(1, -4, 0, 4),
+			Parent = chip.face,
+		})
+		new("UIGradient", {
+			Color = ColorSequence.new(skin.Color, skin.Ring or skin.Trail or skin.Color),
+			Parent = bar,
+		})
+		p.chips[id] = chip
+		table.insert(holders, chip.holder)
+
+		local product = Config.Products[skin.ProductKey or ""]
+		withPrice(product and product.Id, Enum.InfoType.Product, function(price)
+			p.prices[id] = price
+			self:_refreshPremium()
+		end)
+	end
+	linkGrid(holders, 3)
+	p.holders = holders
+
+	-- One frame loop: animates the preview, only while the SHOP page is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		local preview = p.preview
+		if not preview or not m.root.Visible or m.tab ~= TAB_SHOP then
+			return
+		end
+		local now = os.clock()
+		if now - lastMeshCheck > PREMIUM_MESH_CHECK then
+			lastMeshCheck = now
+			-- The Blender model finished loading: swap the part-built stand-in for it.
+			if not preview.mesh and BallFx.hasMesh(p.selected) then
+				self:_showPremiumPreview(p.selected)
+				preview = p.preview
+			end
+		end
+		preview.step(now)
+		local angle = now * PREMIUM_ORBIT_SPEED
+		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		p.camera.CFrame = CFrame.lookAt(eye, Vector3.zero)
+	end))
+
+	-- Start on the first one they don't own (or the first).
+	local owned = ownedSkins()
+	local first = Config.PremiumBalls[1]
+	for _, id in Config.PremiumBalls do
+		if not owned[id] then
+			first = id
+			break
+		end
+	end
+	self:_selectPremium(first)
+end
+
+function UI._showPremiumPreview(self, id)
+	local p = self._menu.premium
+	if p.preview then
+		p.preview.destroy()
+		p.preview = nil
+	end
+	local ok, preview = pcall(BallFx.preview, id, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = p.view
+		p.preview = preview
+	else
+		warn("[UI] ball preview failed:", preview)
+	end
+end
+
+function UI._selectPremium(self, id)
+	local p = self._menu and self._menu.premium
+	if not p or not p.chips[id] then
+		return
+	end
+	if p.selected ~= id then
+		p.selected = id
+		self:_showPremiumPreview(id)
+	end
+	self:_refreshPremium()
+end
+
+-- "R$ 199" from the live price (Config's price until it has loaded).
+local function premiumPrice(p, skin)
+	local price = p.prices[skin.Id] or skin.Robux
+	return if price then "R$ " .. commas(price) else ""
+end
+
+function UI._refreshPremium(self)
+	local p = self._menu and self._menu.premium
+	if not p or not p.selected then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local ownedCount = 0
+	for _, id in Config.PremiumBalls do
+		local skin = Config.getSkin(id)
+		local chip = p.chips[id]
+		if owned[id] then
+			ownedCount += 1
+		end
+		chip.setFill(if id == p.selected then "ink" else "paper")
+		chip.sub.Text = if equipped == id then "EQUIPPED" elseif owned[id] then "OWNED" else premiumPrice(p, skin)
+	end
+	p.right.Text = ownedCount .. " / " .. #Config.PremiumBalls .. " OWNED"
+
+	local skin = Config.getSkin(p.selected)
+	local product = Config.Products[skin.ProductKey or ""]
+	local forSale = product ~= nil and (tonumber(product.Id) or 0) ~= 0
+	local index = table.find(Config.PremiumBalls, skin.Id) or 1
+	p.name.Text = string.upper(skin.Name)
+	p.desc.Text = skin.Text or ""
+	p.tagLabel.Text = "P-" .. twoDigits(index) .. " / " .. (if BallFx.hasMesh(skin.Id) then "3D MODEL" else "LIVE")
+
+	local isOwned = owned[skin.Id] == true
+	p.buy.holder.Visible = not isOwned
+	p.equip.holder.Visible = isOwned
+	if isOwned then
+		p.price.Text = "OWNED / ALL RUNS"
+		if not p.busy then
+			if equipped == skin.Id then
+				p.equip.setFill("accent")
+				p.equip.setText("EQUIPPED")
+				p.equip.setEnabled(false)
+			else
+				p.equip.setFill("paper")
+				p.equip.setText("EQUIP")
+				p.equip.setEnabled(true)
+			end
+		end
+	else
+		p.price.Text = if forSale then premiumPrice(p, skin) else "COMING SOON"
+		p.buy.setText(if forSale then "BUY" else "SOON")
+		p.buy.sub.Text = if forSale then premiumPrice(p, skin) else ""
+	end
+
+	-- Gamepad: action button <-> first row of chips.
+	local action = if isOwned then p.equip.holder else p.buy.holder
+	action.NextSelectionDown = p.holders[1]
+	for i = 1, math.min(3, #p.holders) do
+		p.holders[i].NextSelectionUp = action
+	end
+end
+
+function UI._buyPremium(self)
+	local p = self._menu.premium
+	local skin = Config.getSkin(p.selected)
+	local product = Config.Products[skin.ProductKey or ""]
+	if ownedSkins()[skin.Id] then
+		self:toast("YOU ALREADY OWN " .. string.upper(skin.Name), "info")
+		self:_refreshPremium()
+		return
+	end
+	if not product or (tonumber(product.Id) or 0) == 0 then
+		self:toast(string.upper(skin.Name) .. " IS COMING SOON", "info")
+		return
+	end
+	self:_fire("onBuyProduct", skin.ProductKey)
+end
+
+function UI._equipPremium(self)
+	local p = self._menu.premium
+	if p.busy then
+		return
+	end
+	local id = p.selected
+	p.busy = true
+	p.equip.setEnabled(false)
+	p.equip.setText("EQUIPPING")
+	task.spawn(function()
+		local ok, message = self:_ask("onEquipSkin", id)
+		p.busy = false
+		if ok then
+			self:toast(string.upper(Config.getSkin(id).Name) .. " EQUIPPED", "reward")
+		else
+			self:toast(message or "COULD NOT EQUIP", "error")
+		end
+		self:_refreshSkins()
+	end)
 end
 
 function UI._skinAction(self, card)
@@ -17044,13 +19875,13 @@ return UI
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="38">
+  <Item class="Workspace" referent="40">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="FilteringEnabled">true</bool>
       <bool name="NeedsPivotMigration">false</bool>
     </Properties>
-    <Item class="Part" referent="39">
+    <Item class="Part" referent="41">
       <Properties>
         <string name="Name">Baseplate</string>
         <bool name="Anchored">true</bool>
@@ -17071,7 +19902,7 @@ return UI
         <token name="TopSurface">0</token>
       </Properties>
     </Item>
-    <Item class="SpawnLocation" referent="40">
+    <Item class="SpawnLocation" referent="42">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

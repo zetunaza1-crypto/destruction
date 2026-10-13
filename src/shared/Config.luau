@@ -216,12 +216,12 @@ Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
 -- Blender models of the premium balls (assets/balls/*.fbx), uploaded as Model
 -- assets. 0 = not uploaded yet: the part-built version above is used instead.
 Config.BallModels = {
-	Frostbite = 0,
-	CyberCore = 0,
-	PlasmaCore = 0,
-	MagmaHeart = 0,
-	BlackHole = 0,
-	Supernova = 0,
+	Frostbite = 95405037753431,
+	CyberCore = 128733885861068,
+	PlasmaCore = 124458067173363,
+	MagmaHeart = 108350449356111,
+	BlackHole = 116620455419343,
+	Supernova = 72233037920626,
 }
 
 function Config.getSkin(skinId)
@@ -271,12 +271,12 @@ Config.Products = {
 
 	-- Premium balls (see Config.Skins): yours forever and equipped right away.
 	-- Already owned? You get gems instead (Robux price x PREMIUM_BALL_REFUND_GEMS_PER_ROBUX).
-	BallFrostbite = { Id = 0, Skin = "Frostbite" }, -- 79 R$
-	BallCyberCore = { Id = 0, Skin = "CyberCore" }, -- 79 R$
-	BallPlasmaCore = { Id = 0, Skin = "PlasmaCore" }, -- 99 R$
-	BallMagmaHeart = { Id = 0, Skin = "MagmaHeart" }, -- 99 R$
-	BallBlackHole = { Id = 0, Skin = "BlackHole" }, -- 149 R$
-	BallSupernova = { Id = 0, Skin = "Supernova" }, -- 199 R$
+	BallFrostbite = { Id = 3718303689, Skin = "Frostbite" }, -- 79 R$
+	BallCyberCore = { Id = 3718303691, Skin = "CyberCore" }, -- 79 R$
+	BallPlasmaCore = { Id = 3718303699, Skin = "PlasmaCore" }, -- 99 R$
+	BallMagmaHeart = { Id = 3718303702, Skin = "MagmaHeart" }, -- 99 R$
+	BallBlackHole = { Id = 3718303711, Skin = "BlackHole" }, -- 149 R$
+	BallSupernova = { Id = 3718303716, Skin = "Supernova" }, -- 199 R$
 }
 
 -- Boosts --------------------------------------------------------------------------
@@ -386,26 +386,26 @@ Config.Models = {
 	PipeRun = 107736602209422,
 	Vent = 98915355039928,
 	Crate = 88284134622799,
-	IceCluster = 0,
-	Icicle = 0,
-	FrozenPillar = 0,
-	IceSculpture = 0,
-	LavaRock = 0,
-	MagmaVent = 0,
-	ForgeAnvil = 0,
-	MagmaJar = 0,
-	Coral = 0,
-	Seaweed = 0,
-	Anchor = 0,
-	FishTank = 0,
-	JellyLamp = 0,
-	CloudCluster = 0,
-	WindTurbine = 0,
-	SkyLantern = 0,
-	Banner = 0,
-	EnergyPylon = 0,
-	CoreCrystal = 0,
-	FloatingRing = 0,
+	IceCluster = 135974111689068,
+	Icicle = 103318764223255,
+	FrozenPillar = 106145180585770,
+	IceSculpture = 102761384524681,
+	LavaRock = 81609490559178,
+	MagmaVent = 136823192487667,
+	ForgeAnvil = 83253142226801,
+	MagmaJar = 112905056304068,
+	Coral = 130798422387948,
+	Seaweed = 126294631253711,
+	Anchor = 138452985127382,
+	FishTank = 126166432025303,
+	JellyLamp = 91066068920671,
+	CloudCluster = 90787914879077,
+	WindTurbine = 97056550572148,
+	SkyLantern = 73176633283022,
+	Banner = 121228017765972,
+	EnergyPylon = 117945811591028,
+	CoreCrystal = 89654016722562,
+	FloatingRing = 137020398082328,
 }
 
 -- Visual themes, one per checkpoint (cycles when it runs out) ----------------
