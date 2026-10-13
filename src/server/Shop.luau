@@ -1,5 +1,5 @@
 --[[
-	Gem shop (ball skins + shatter effects), daily streak, mission and season
+	Gem shop (ball skins + shatter effects + boosts), daily streak, mission and season
 	pass claims. The client asks through the ShopRequest RemoteFunction:
 	ShopRequest:InvokeServer(action, argument) -> (ok, message).
 	Every check happens here; the client is never trusted.
@@ -7,6 +7,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Config = require(ReplicatedStorage.Shared.Config)
 local PlayerData = require(script.Parent.PlayerData)
 local Progression = require(script.Parent.Progression)
 
@@ -100,6 +101,26 @@ function actions.EquipFx(player, data, fxId)
 	end
 	PlayerData.update(player, { EquippedFx = fx.Id })
 	return true
+end
+
+-- One boost into the inventory, paid with gems (Config.Boosts[id].Gems).
+function actions.BuyBoost(player, data, boostId)
+	if not Progression.isBoost(boostId) then
+		return false, "That boost doesn't exist"
+	end
+	local boost = Config.Boosts[boostId]
+	local price = boost.Gems
+	if type(price) ~= "number" or price <= 0 then
+		return false, "That boost can't be bought with gems"
+	end
+	if data.Gems < price then
+		return false, "Not enough gems"
+	end
+
+	data.Gems -= price
+	Progression.addBoost(data, boostId, 1)
+	PlayerData.publish(player, { "Gems", "Boosts" })
+	return true, boost.Name .. " boost added"
 end
 
 function actions.ClaimDaily(player, data)

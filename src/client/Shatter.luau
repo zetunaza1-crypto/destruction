@@ -6,6 +6,8 @@
 	becomes a real triangle shard. Shards near the impact blast away, the rest
 	drop and tumble, bounce off the floor and sparkle.
 
+	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
+
 	Shatter.glass / Shatter.prop take an optional shatter effect (an entry of
 	Config.ShatterFx) that tints the shards. nil or "Classic" = normal glass.
 ]]
@@ -347,6 +349,37 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 	end
 
 	root:Destroy()
+end
+
+-- Shield boost breaking: a ring of glowing shards bursts outward around the
+-- player's view. cameraCFrame = where the camera is, carry = the camera's
+-- velocity (so the burst travels along instead of being left behind).
+local SHIELD_SHARDS = 16
+local SHIELD_DISTANCE = 3.5
+local SHIELD_RADIUS = 2.6
+
+function Shatter.shieldBreak(cameraCFrame, color, parent, carry)
+	local style = {
+		Material = Enum.Material.Neon,
+		Color = color,
+		Transparency = 0.25,
+		Reflectance = 0,
+	}
+	local center = cameraCFrame * Vector3.new(0, 0, -SHIELD_DISTANCE)
+	for i = 1, SHIELD_SHARDS do
+		local angle = (i / SHIELD_SHARDS) * TAU + rng:NextNumber(-0.15, 0.15)
+		local outward = cameraCFrame:VectorToWorldSpace(Vector3.new(math.cos(angle), math.sin(angle), 0))
+		local shard = makePiece("WedgePart", style)
+		shard.CanCollide = false
+		shard.Size = Vector3.new(0.08, rng:NextNumber(0.4, 0.9), rng:NextNumber(0.3, 0.7))
+		shard.CFrame = CFrame.lookAt(center + outward * SHIELD_RADIUS, center + outward * (SHIELD_RADIUS + 1))
+			* CFrame.Angles(0, 0, rng:NextNumber(0, TAU))
+		shard.Parent = parent
+		shard.AssemblyLinearVelocity = carry + outward * rng:NextNumber(14, 24)
+		shard.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(4, 10)
+		Debris:AddItem(shard, 0.7)
+	end
+	sparkle(center, color, 30, parent)
 end
 
 function Shatter.crystal(crystal, parent)

@@ -29,9 +29,14 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 -- player -> {
 --   startedAt, pausedAt (set while on the game over screen), pausedTotal,
 --   startCheckpoint, startMeters, metersRewarded,
---   reported (run stats already paid for), counted (run added to Stats.runs)
+--   reported (run stats already paid for), counted (run added to Stats.runs),
+--   boosts ({ [boostId] = true } used on this run), doubleGems
 -- }
 local activeRuns = {}
+
+-- player -> how many RunStarted events they've sent this session. Sent back with
+-- BoostsActivated so the client can ignore a confirmation meant for an older run.
+local runCounts = {}
 
 -- The furthest anyone can legitimately travel in `seconds`, following the same
 -- speed ramp as the client (speeds up every room, capped at MAX_SPEED).
@@ -49,6 +54,24 @@ end
 local function activeSeconds(run)
 	local now = run.pausedAt or os.clock()
 	return now - run.startedAt - run.pausedTotal
+end
+
+-- A boost bought with Robux is used on the run right away if one is going
+-- (and not sitting on the game over screen). DoubleGems can't stack, so a
+-- second one goes to the inventory instead.
+Monetization.useBoostOnRun = function(player, boostId)
+	local run = activeRuns[player]
+	if not run or run.pausedAt then
+		return false
+	end
+	if boostId == "DoubleGems" then
+		if run.doubleGems then
+			return false
+		end
+		run.doubleGems = true
+	end
+	run.boosts[boostId] = true
+	return true
 end
 
 -- A revive (or ball pack on the game over screen) continues the run.
@@ -87,6 +110,7 @@ end
 
 Players.PlayerRemoving:Connect(function(player)
 	activeRuns[player] = nil
+	runCounts[player] = nil
 	Shop.release(player)
 	PlayerData.release(player)
 end)
@@ -99,8 +123,31 @@ end)
 Monetization.init()
 Shop.init()
 
+-- Picks the boosts the player asked for (boostIds, a list of ids) that are real,
+-- not repeated and actually owned, up to Config.MAX_BOOSTS_PER_RUN.
+local function chooseBoosts(data, boostIds)
+	local chosen = {}
+	if type(boostIds) ~= "table" then
+		return chosen
+	end
+	for i = 1, Config.MAX_BOOSTS_PER_RUN do
+		local boostId = boostIds[i]
+		if
+			Progression.isBoost(boostId)
+			and not table.find(chosen, boostId)
+			and Progression.boostCount(data, boostId) >= 1
+		then
+			table.insert(chosen, boostId)
+		end
+	end
+	return chosen
+end
+
+-- RunStarted(startCheckpoint, boostIds?)
 -- startCheckpoint lets Checkpoints pass owners skip ahead to a zone they've reached.
-Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint)
+-- boostIds: boosts picked from the inventory for this run (older clients send none).
+Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boostIds)
+	runCounts[player] = (runCounts[player] or 0) + 1
 	local data = PlayerData.get(player)
 	if not data then
 		return
@@ -118,7 +165,7 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint)
 	end
 
 	local startMeters = math.floor(Config.checkpointMeters(checkpoint))
-	activeRuns[player] = {
+	local run = {
 		startedAt = os.clock(),
 		pausedAt = nil,
 		pausedTotal = 0,
@@ -127,12 +174,33 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint)
 		metersRewarded = startMeters, -- no gems for the part you skipped
 		reported = { glass = 0, crystals = 0, props = 0, maxMultiball = 0 },
 		counted = false,
+		boosts = {},
+		doubleGems = false,
 	}
+	activeRuns[player] = run
 
 	-- Bonus balls (from the daily streak) go into this run. The client already
 	-- read the attribute when it started the run.
 	if data.BonusBalls > 0 then
 		PlayerData.update(player, { BonusBalls = 0 })
+	end
+
+	-- Boosts: use up one of each, then tell the client which ones really started
+	-- (it only turns on what we confirm here).
+	local used = {}
+	for _, boostId in chooseBoosts(data, boostIds) do
+		if Progression.takeBoost(data, boostId) then
+			table.insert(used, boostId)
+			run.boosts[boostId] = true
+			if boostId == "DoubleGems" then
+				run.doubleGems = true
+			end
+		end
+	end
+	if #used > 0 then
+		PlayerData.publish(player, { "Boosts" })
+		Progression.fire(player, { type = "BoostsActivated", boosts = used, run = runCounts[player] })
+		task.spawn(PlayerData.save, player)
 	end
 end)
 
@@ -217,7 +285,11 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	run.counted = true
 
 	-- Gems and XP for what was added since the last report.
-	local gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * gemMultiplier(player))
+	local multiplier = gemMultiplier(player)
+	if run.doubleGems then
+		multiplier *= 2 -- DoubleGems boost
+	end
+	local gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * multiplier)
 	local xp = Config.XP
 	local xpEarned = math.floor(
 		newMeters * xp.PerMeter

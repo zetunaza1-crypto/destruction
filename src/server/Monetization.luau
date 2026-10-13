@@ -15,6 +15,13 @@ local Remotes = ReplicatedStorage.Remotes
 
 local Monetization = {}
 
+-- Set by Main: tries to use a bought boost on the player's current run right
+-- away. Returns true if it did (false = no active run, or it can't stack).
+Monetization.useBoostOnRun = nil
+
+-- Gems given instead when a StreakSaver is bought while the streak is fine.
+local STREAK_SAVER_FALLBACK_GEMS = 100
+
 -- Products the server delivers itself. Everything else (balls) is delivered
 -- to the player's device, because runs happen there.
 -- These must not yield: they run inside ProcessReceipt.
@@ -38,13 +45,58 @@ local serverRewards = {
 		PlayerData.publish(player, { "SeasonId", "SeasonTier", "SeasonXP", "SeasonClaimed", "SeasonPremium" })
 		Progression.fire(player, { type = "Reward", text = "Premium season pass unlocked" })
 	end,
+
+	-- +1 mission reroll. Bought rerolls don't expire at midnight.
+	ExtraReroll = function(player, data)
+		if Progression.refreshMissions(data, os.time()) then
+			PlayerData.publish(player, Progression.MISSION_FIELDS)
+		end
+		data.ExtraRerolls += 1
+		data.MissionRerolls += 1
+		PlayerData.publish(player, { "MissionRerolls", "ExtraRerolls" })
+		Progression.fire(player, { type = "Reward", text = "+1 mission reroll" })
+	end,
+
+	-- Keeps a broken login streak going. If it wasn't broken (bought twice, or
+	-- the client was out of date) they get gems instead: a purchase is never wasted.
+	StreakSaver = function(player, data)
+		local now = os.time()
+		if Progression.saveStreak(data, now) then
+			PlayerData.publish(player, Progression.DAILY_FIELDS)
+			Progression.fire(player, { type = "Reward", text = "Streak saved: day " .. data.StreakDay .. " is waiting" })
+		else
+			data.Gems += STREAK_SAVER_FALLBACK_GEMS
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "Your streak was safe: +" .. STREAK_SAVER_FALLBACK_GEMS .. " gems instead",
+			})
+		end
+	end,
 }
+
+-- Boost products (BoostShield, BoostMagnet...): used on the current run if one is
+-- going, otherwise added to the inventory. Returns whether it went to the run;
+-- that is sent to the client with PurchaseGranted so it knows what to do.
+local function boostReward(boostId)
+	return function(player, data)
+		if Monetization.useBoostOnRun and Monetization.useBoostOnRun(player, boostId) then
+			return true
+		end
+		Progression.addBoost(data, boostId, 1)
+		PlayerData.publish(player, { "Boosts" })
+		return false
+	end
+end
 
 -- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
 -- Gems that has no special handler above.
 local function rewardFor(productKey, product)
 	if serverRewards[productKey] then
 		return serverRewards[productKey]
+	end
+	if product.Boost and Progression.isBoost(product.Boost) then
+		return boostReward(product.Boost)
 	end
 	if product.Gems then
 		return function(player, data)
@@ -92,13 +144,14 @@ local function processReceipt(receipt)
 	for productKey, product in Config.Products do
 		if product.Id ~= 0 and product.Id == receipt.ProductId then
 			local reward = rewardFor(productKey, product)
+			local info = nil -- extra detail for the client (boosts: used on the run right away?)
 			if reward then
-				reward(player, PlayerData.get(player))
+				info = reward(player, PlayerData.get(player))
 			end
 			PlayerData.addReceipt(player, receipt.PurchaseId)
 
 			-- Deliver right away so the player isn't left waiting on a slow DataStore.
-			Remotes.PurchaseGranted:FireClient(player, productKey)
+			Remotes.PurchaseGranted:FireClient(player, productKey, info)
 			if Monetization.onProductGranted then
 				Monetization.onProductGranted(player, productKey)
 			end

@@ -69,6 +69,50 @@ function Progression.ownsFx(data, fxId)
 	return fxId == "Classic" or table.find(data.OwnedFx, fxId) ~= nil
 end
 
+-- Boosts -------------------------------------------------------------------------
+
+-- Is this a real boost id from Config.Boosts?
+function Progression.isBoost(boostId)
+	return type(boostId) == "string" and Config.Boosts[boostId] ~= nil
+end
+
+-- Boost inventory: data.Boosts = { [boostId] = count }, picked before a run.
+function Progression.boostCount(data, boostId)
+	local count = data.Boosts[boostId]
+	return if type(count) == "number" then count else 0
+end
+
+-- Adds `amount` of a boost to the inventory. Returns false for an unknown id.
+function Progression.addBoost(data, boostId, amount)
+	if not Progression.isBoost(boostId) then
+		return false
+	end
+	data.Boosts[boostId] = Progression.boostCount(data, boostId) + (amount or 1)
+	return true
+end
+
+-- Uses up one boost. Returns false (and changes nothing) if they have none.
+function Progression.takeBoost(data, boostId)
+	if not Progression.isBoost(boostId) then
+		return false
+	end
+	local count = Progression.boostCount(data, boostId)
+	if count < 1 then
+		return false
+	end
+	data.Boosts[boostId] = if count > 1 then count - 1 else nil
+	return true
+end
+
+-- The boost a level up gives: level 2 -> BOOST_ORDER[1], level 3 -> [2]...
+function Progression.levelUpBoost(level)
+	local order = Config.BOOST_ORDER
+	if not Config.LEVEL_UP_BOOST or #order == 0 or level < 2 then
+		return nil
+	end
+	return order[(level - 2) % #order + 1]
+end
+
 -- Rewards ------------------------------------------------------------------------
 
 -- Gives a reward table { Gems?, Balls?, Skin?, Fx?, Boost? } (Config format).
@@ -83,9 +127,7 @@ function Progression.grantReward(data, reward)
 		data.BonusBalls += reward.Balls
 		table.insert(parts, "+" .. reward.Balls .. " balls next run")
 	end
-	if reward.Boost and Config.Boosts and Config.Boosts[reward.Boost] then
-		-- Boost inventory: { [boostId] = count }, used before a run.
-		data.Boosts[reward.Boost] = (data.Boosts[reward.Boost] or 0) + 1
+	if reward.Boost and Progression.addBoost(data, reward.Boost, 1) then
 		table.insert(parts, Config.Boosts[reward.Boost].Name .. " boost")
 	end
 	if reward.Skin then
@@ -131,19 +173,24 @@ function Progression.addXP(data, amount)
 
 		local unlock = nil
 		local unlockDef = Config.LevelUnlocks[data.Level]
-		if unlockDef then
+		local boostId = Progression.levelUpBoost(data.Level)
+		if unlockDef or boostId then
 			unlock = {}
-			if unlockDef.Skin and Progression.findSkin(unlockDef.Skin) then
+			if unlockDef and unlockDef.Skin and Progression.findSkin(unlockDef.Skin) then
 				if not Progression.ownsSkin(data, unlockDef.Skin) then
 					table.insert(data.OwnedSkins, unlockDef.Skin)
 				end
 				unlock.Skin = unlockDef.Skin
 			end
-			if unlockDef.Fx and Progression.findFx(unlockDef.Fx) then
+			if unlockDef and unlockDef.Fx and Progression.findFx(unlockDef.Fx) then
 				if not Progression.ownsFx(data, unlockDef.Fx) then
 					table.insert(data.OwnedFx, unlockDef.Fx)
 				end
 				unlock.Fx = unlockDef.Fx
+			end
+			-- Every level up also gives one boost (shown with the unlocks).
+			if boostId and Progression.addBoost(data, boostId, 1) then
+				unlock.Boost = boostId
 			end
 			if next(unlock) == nil then
 				unlock = nil
@@ -168,7 +215,7 @@ function Progression.addXP(data, amount)
 end
 
 -- Fields addXP can touch (for publishing).
-Progression.XP_FIELDS = { "Level", "XP", "Gems", "OwnedSkins", "OwnedFx", "SeasonTier", "SeasonXP" }
+Progression.XP_FIELDS = { "Level", "XP", "Gems", "OwnedSkins", "OwnedFx", "Boosts", "SeasonTier", "SeasonXP" }
 
 -- A new season (Config.SEASON_ID bumped) starts everyone from tier 0.
 function Progression.ensureSeason(data)
@@ -252,12 +299,13 @@ function Progression.refreshMissions(data, now)
 		table.insert(missions, newMission(def))
 	end
 	data.Missions = missions
-	data.MissionRerolls = Config.MISSION_REROLLS_PER_DAY
+	-- Bought rerolls (ExtraRerolls) carry over to the next day.
+	data.MissionRerolls = Config.MISSION_REROLLS_PER_DAY + data.ExtraRerolls
 	data.MissionsReset = Progression.nextReset(now)
 	return true
 end
 
-Progression.MISSION_FIELDS = { "Missions", "MissionRerolls", "MissionsReset" }
+Progression.MISSION_FIELDS = { "Missions", "MissionRerolls", "MissionsReset", "ExtraRerolls" }
 
 -- What the client sees (the Missions attribute).
 function Progression.publicMissions(data)
@@ -309,6 +357,8 @@ function Progression.rerollMission(data, missionId)
 	end
 	data.Missions[index] = newMission(replacement)
 	data.MissionRerolls -= 1
+	-- The free daily reroll is used first; bought ones only go once it's gone.
+	data.ExtraRerolls = math.min(data.ExtraRerolls, data.MissionRerolls)
 	return true, "New mission: " .. string.format(replacement.Text, replacement.Goal)
 end
 
@@ -390,6 +440,22 @@ function Progression.claimDaily(data, now)
 	return true, "Day " .. day .. ": " .. text
 end
 
+-- A streak is "broken" when the 48h window ran out partway through it
+-- (claiming now would restart at day 1).
+function Progression.streakBroken(data, now)
+	return now > data.StreakExpires and data.StreakDay > 1
+end
+
+-- StreakSaver product: reopens the claim window so the streak continues.
+-- Returns false if there was nothing to save (the caller gives something else).
+function Progression.saveStreak(data, now)
+	if not Progression.streakBroken(data, now) then
+		return false
+	end
+	data.StreakExpires = now + Config.DAILY_STREAK_RESET
+	return true
+end
+
 Progression.DAILY_FIELDS = { "Gems", "BonusBalls", "OwnedSkins", "OwnedFx", "Boosts", "StreakDay", "NextDaily", "StreakExpires" }
 
 -- Season tiers ------------------------------------------------------------------
@@ -447,6 +513,29 @@ function Progression.normalize(data, now)
 	data.BonusBalls = wholeNumber(data.BonusBalls, 0)
 	data.StreakDay = math.clamp(wholeNumber(data.StreakDay, 1), 1, #Config.DailyStreak)
 	data.MissionRerolls = wholeNumber(data.MissionRerolls, 0)
+	data.ExtraRerolls = wholeNumber(data.ExtraRerolls, 0)
+
+	-- Boost inventory: only known boosts with a whole, positive count.
+	local boosts = {}
+	if type(data.Boosts) == "table" then
+		for boostId, count in data.Boosts do
+			local amount = wholeNumber(count, 0)
+			if Progression.isBoost(boostId) and amount > 0 then
+				boosts[boostId] = amount
+			end
+		end
+	end
+	data.Boosts = boosts
+
+	-- One free set of boosts for every player, once, so they get a taste.
+	if not data.WelcomeGiven then
+		data.WelcomeGiven = true
+		for boostId, amount in Config.WELCOME_BOOSTS do
+			if type(amount) == "number" and amount > 0 then
+				Progression.addBoost(data, boostId, math.floor(amount))
+			end
+		end
+	end
 
 	if not table.find(data.OwnedSkins, "Default") then
 		table.insert(data.OwnedSkins, 1, "Default")

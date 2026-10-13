@@ -71,7 +71,17 @@ local PASS_INFO = {
 	Checkpoints = { code = "CP", title = "CHECKPOINTS", copy = "START FROM ANY ZONE YOU'VE REACHED" },
 }
 
+-- Boosts (picked before a run, shown on the HUD while active).
+local BOOST_ORDER = Config.BOOST_ORDER or {}
+local MAX_PICKS = Config.MAX_BOOSTS_PER_RUN or 3
+local LOW_BALLS_OFFER = Config.LOW_BALLS_OFFER or 8
+local BOOST_CHIP_H = 36
+local BOOST_POP_H = 92
+local TOPUP_H = 48
+
 local TOAST_KINDS = {
+	boost = { tag = "BOOSTS ACTIVE", accent = true },
+	gift = { tag = "WELCOME GIFT", accent = true },
 	multiball = { tag = "MULTIBALL", accent = true },
 	reward = { tag = "REWARD", accent = true },
 	level = { tag = "LEVEL UP", accent = true },
@@ -208,6 +218,27 @@ end
 local function boostName(id)
 	local boost = boostInfo(id)
 	return if boost and boost.Name then string.upper(boost.Name) else string.upper(tostring(id))
+end
+
+-- Boost inventory from the Boosts attribute: { [boostId] = count } (unknown ids dropped).
+local function ownedBoosts()
+	local counts = {}
+	local decoded = decodeJson(player:GetAttribute("Boosts"))
+	if type(decoded) == "table" then
+		for id, count in decoded do
+			if type(id) == "string" and boostInfo(id) then
+				local n = tonumber(count)
+				counts[id] = if n and n == n then math.max(0, math.floor(n)) else 0
+			end
+		end
+	end
+	return counts
+end
+
+-- A developer product's id, or 0 when it isn't set up (0 hides that offer).
+local function productId(key)
+	local product = Config.Products[key]
+	return if type(product) == "table" and tonumber(product.Id) then product.Id else 0
 end
 
 -- "+70 GEMS", "NEONITE SKIN", "SHATTERBORN SKIN + SUPERNOVA FX"...
@@ -913,6 +944,29 @@ local function rewardChip(parent, reward, size, position)
 	return gemIcon(parent, math.floor(size * 0.8), position)
 end
 
+-- Shield mark: a flat top half over a diamond, which reads as a pointed crest.
+local function shieldGlyph(parent, size, position, color)
+	local holder = new("Frame", {
+		Name = "ShieldGlyph",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.fromOffset(size, size),
+		Parent = parent,
+	})
+	new("Frame", { BackgroundColor3 = color, Size = UDim2.new(1, 0, 0.5, 0), Parent = holder })
+	local tip = math.floor(size * 0.707 + 0.5)
+	new("Frame", {
+		BackgroundColor3 = color,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(tip, tip),
+		Rotation = 45,
+		Parent = holder,
+	})
+	return holder
+end
+
 -- Menu ---------------------------------------------------------------------------------
 
 function UI._buildMenu(self)
@@ -951,6 +1005,7 @@ function UI._buildMenu(self)
 
 	self:_buildMenuLeft(root)
 	self:_buildMenuPanel(root)
+	self:_buildTopUp(root)
 	self:_buildModal(root)
 end
 
@@ -961,7 +1016,7 @@ function UI._buildMenuLeft(self, root)
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, EDGE + 4, 0.5, 0),
-		Size = UDim2.fromOffset(256, 300),
+		Size = UDim2.fromOffset(256, 324),
 		Parent = root,
 	})
 	fit(left)
@@ -1056,6 +1111,9 @@ function UI._buildMenuLeft(self, root)
 		Parent = left,
 	})
 
+	-- Boost picker: one chip per boost, right above PLAY.
+	self:_buildBoostPicker(left, 178)
+
 	-- PLAY
 	local play = hardButton(left, {
 		Name = "Play",
@@ -1064,10 +1122,10 @@ function UI._buildMenuLeft(self, root)
 		TextSize = 26,
 		Align = Enum.TextXAlignment.Left,
 		Index = "A / START RUN / 0 M",
-		Position = UDim2.fromOffset(0, 178),
-		Size = UDim2.fromOffset(256, 66),
+		Position = UDim2.fromOffset(0, 218),
+		Size = UDim2.fromOffset(256, 54),
 		OnClick = function()
-			self:_fire("onPlay", 0)
+			self:_fire("onPlay", 0, self:_pickedBoosts())
 		end,
 	})
 	hatch(play.face, { Name = "Hatch", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0, 46, 1, -16) }, INK, 0, 4)
@@ -1081,7 +1139,7 @@ function UI._buildMenuLeft(self, root)
 		TextSize = 13,
 		Align = Enum.TextXAlignment.Left,
 		Index = "B / DAILY",
-		Position = UDim2.fromOffset(0, 252),
+		Position = UDim2.fromOffset(0, 276),
 		Size = UDim2.fromOffset(256, 48),
 		OnClick = function()
 			self:_openDaily()
@@ -1113,6 +1171,574 @@ function UI._buildMenuLeft(self, root)
 		m.dailyPips[day] = { frame = pip, stroke = pipStroke }
 	end
 	m.daily = daily
+end
+
+-- Boost picker ------------------------------------------------------------------------------
+-- Chips toggle which owned boosts go into the next run (up to MAX_PICKS). A chip
+-- with none owned shows a "+" and opens a small buy popover above the strip.
+
+function UI._buildBoostPicker(self, left, y)
+	local m = self._menu
+	m.boostPicks = {}
+	m.boostChips = {}
+	m.boostChipList = {}
+	local count = #BOOST_ORDER
+	if count == 0 then
+		return
+	end
+	local width = 256
+	local gap = 4
+	local chipW = math.floor((width - gap * (count - 1)) / count)
+	local strip = new("Frame", {
+		Name = "Boosts",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, y),
+		Size = UDim2.fromOffset(width, BOOST_CHIP_H),
+		Parent = left,
+	})
+	m.boostStrip = strip
+	m.boostChipW = chipW
+
+	for i, id in BOOST_ORDER do
+		if boostInfo(id) then
+			local holder = new("Frame", {
+				Name = id,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset((i - 1) * (chipW + gap), 0),
+				Size = UDim2.fromOffset(chipW, BOOST_CHIP_H),
+				Parent = strip,
+			})
+			local bump = new("UIScale", { Parent = holder })
+			local shadow = new("Frame", {
+				Name = "Shadow",
+				BackgroundColor3 = INK,
+				Position = UDim2.fromOffset(2, 2),
+				Size = UDim2.new(1, -2, 1, -2),
+				Visible = false,
+				Parent = holder,
+			})
+			local face = new("TextButton", {
+				Name = "Face",
+				AutoButtonColor = false,
+				Text = "",
+				BackgroundColor3 = PAPER,
+				Size = UDim2.new(1, -2, 1, -2),
+				Parent = holder,
+			})
+			local outline = stroke(face, 1, INK, 0.5)
+			rewardChip(face, { Boost = id }, 7, UDim2.fromOffset(8, 8))
+			local countLabel = text({
+				Name = "Count",
+				Text = "x0",
+				TextSize = 8,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Position = UDim2.fromOffset(14, 2),
+				Size = UDim2.new(1, -17, 0, 11),
+				Parent = face,
+			})
+			local plus = new("Frame", {
+				Name = "Plus",
+				BackgroundColor3 = INK,
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -3, 0, 3),
+				Size = UDim2.fromOffset(11, 11),
+				Visible = false,
+				Parent = face,
+			})
+			setAccent(text({
+				Text = "+",
+				Font = FONT_NUM,
+				TextSize = 9,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Size = UDim2.fromScale(1, 1),
+				Parent = plus,
+			}), "TextColor3")
+			local name = capText(text({
+				Name = "Name",
+				Text = boostName(id),
+				Font = FONT_NUM,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				Position = UDim2.fromOffset(2, 15),
+				Size = UDim2.new(1, -4, 0, 16),
+				Parent = face,
+			}), 8, 5)
+			local chip = {
+				id = id,
+				order = i,
+				holder = holder,
+				bump = bump,
+				shadow = shadow,
+				face = face,
+				outline = outline,
+				count = countLabel,
+				plus = plus,
+				name = name,
+			}
+			face.Activated:Connect(function()
+				self:_tapBoostChip(chip)
+			end)
+			m.boostChips[id] = chip
+			table.insert(m.boostChipList, chip)
+		end
+	end
+
+	self:_buildBoostPop(left, y)
+end
+
+-- The small "buy one" popover that sits above the chip strip.
+function UI._buildBoostPop(self, left, chipY)
+	local m = self._menu
+	local pop = {}
+	m.boostPop = pop
+	local frame = new("Frame", {
+		Name = "BoostPop",
+		BackgroundColor3 = PAPER,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromOffset(0, chipY - 6),
+		Size = UDim2.fromOffset(256, BOOST_POP_H),
+		ZIndex = 3,
+		Visible = false,
+		Parent = left,
+	})
+	frame.Active = true -- taps on the popover don't fall through
+	pop.frame = frame
+	pop.y = chipY - 6
+	stroke(frame, 1.5)
+	cropMarks(frame, 6, 3)
+
+	local header = new("Frame", { Name = "Header", BackgroundColor3 = INK, Size = UDim2.new(1, 0, 0, 18), Parent = frame })
+	pop.title = text({ Text = "", TextSize = 8, TextColor3 = PAPER, Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -96, 1, 0), Parent = header })
+	setAccent(text({
+		Text = "BUY 1",
+		TextSize = 8,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.new(1, -90, 0, 0),
+		Size = UDim2.fromOffset(62, 18),
+		Parent = header,
+	}), "TextColor3")
+	local close = new("TextButton", {
+		Name = "Close",
+		AutoButtonColor = false,
+		Text = "X",
+		Font = FONT_NUM,
+		TextSize = 9,
+		TextColor3 = PAPER,
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(24, 18),
+		Parent = header,
+	})
+	rule(header, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.6, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -24, 0, 4), Size = UDim2.new(0, 1, 1, -8) })
+	close.Activated:Connect(function()
+		self:_closeBoostPop()
+	end)
+
+	pop.copy = text({ Text = "", TextSize = 8, TextColor3 = GREY, TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(8, 21), Size = UDim2.new(1, -16, 0, 11), Parent = frame })
+
+	-- Leader line from the popover down to the chip it belongs to.
+	pop.pointer = rule(frame, { Name = "Pointer", Position = UDim2.new(0, 24, 1, 0), Size = UDim2.fromOffset(1, 6) })
+
+	pop.gems = hardButton(frame, {
+		Name = "Gems",
+		Fill = "ink",
+		Text = "",
+		TextSize = 11,
+		Align = Enum.TextXAlignment.Left,
+		Index = "PAY / GEMS",
+		Position = UDim2.fromOffset(8, 36),
+		Size = UDim2.fromOffset(120, 50),
+		OnClick = function()
+			self:_buyBoostWithGems()
+		end,
+	})
+	pop.robux = hardButton(frame, {
+		Name = "Robux",
+		Fill = "accent",
+		Text = "R$ --",
+		TextSize = 11,
+		Align = Enum.TextXAlignment.Left,
+		Index = "PAY / ROBUX",
+		Position = UDim2.fromOffset(132, 36),
+		Size = UDim2.fromOffset(120, 50),
+		OnClick = function()
+			if pop.id then
+				self:_fire("onBuyProduct", "Boost" .. pop.id)
+			end
+		end,
+	})
+end
+
+function UI._pickedBoosts(self)
+	local picks = self._menu.boostPicks
+	return if picks then table.clone(picks) else {}
+end
+
+function UI._tapBoostChip(self, chip)
+	local m = self._menu
+	local owned = ownedBoosts()[chip.id] or 0
+	local index = table.find(m.boostPicks, chip.id)
+	if index then
+		table.remove(m.boostPicks, index)
+	elseif owned <= 0 then
+		if m.boostPop.frame.Visible and m.boostPop.id == chip.id then
+			self:_closeBoostPop()
+		else
+			self:_openBoostPop(chip)
+		end
+		return
+	elseif #m.boostPicks >= MAX_PICKS then
+		self:toast("MAX " .. MAX_PICKS .. " BOOSTS PER RUN", "info")
+		return
+	else
+		table.insert(m.boostPicks, chip.id)
+		chip.bump.Scale = 1.12
+		tween(chip.bump, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+	self:_closeBoostPop()
+	self:_refreshBoosts()
+end
+
+-- Chip looks; each chip only re-styles when its state or count changes.
+function UI._refreshBoosts(self)
+	local m = self._menu
+	if not m or not m.boostChips then
+		return
+	end
+	local counts = ownedBoosts()
+	-- Drop picks that are no longer owned (spent, or inventory not loaded yet).
+	for i = #m.boostPicks, 1, -1 do
+		if (counts[m.boostPicks[i]] or 0) <= 0 then
+			table.remove(m.boostPicks, i)
+		end
+	end
+
+	-- A boost just bought from the open popover gets picked for the next run.
+	local pop = m.boostPop
+	if pop and pop.id and (counts[pop.id] or 0) > 0 then
+		local id = pop.id
+		self:_closeBoostPop()
+		if not table.find(m.boostPicks, id) and #m.boostPicks < MAX_PICKS then
+			table.insert(m.boostPicks, id)
+		end
+	end
+
+	local full = #m.boostPicks >= MAX_PICKS
+	for id, chip in m.boostChips do
+		local owned = counts[id] or 0
+		local picked = table.find(m.boostPicks, id) ~= nil
+		local state = if picked then "picked" elseif owned <= 0 then "empty" elseif full then "full" else "owned"
+		local key = state .. owned
+		if key ~= chip.key then
+			chip.key = key
+			if picked then
+				setAccent(chip.face, "BackgroundColor3")
+			else
+				clearAccent(chip.face)
+				chip.face.BackgroundColor3 = PAPER
+			end
+			chip.face.BackgroundTransparency = if state == "empty" then 0.35 else 0
+			chip.shadow.Visible = picked
+			chip.outline.Thickness = if picked then 2 else 1
+			chip.outline.Transparency = if picked then 0 elseif state == "empty" then 0.7 else 0.5
+			chip.name.TextTransparency = if state == "empty" or state == "full" then 0.45 else 0
+			chip.count.Visible = owned > 0
+			chip.count.Text = "x" .. owned
+			chip.count.TextColor3 = if picked then INK else GREY
+			chip.plus.Visible = owned <= 0
+		end
+	end
+	self:_refreshBoostPop()
+	self:_refreshPlayIndex()
+	self:_checkWelcome(counts)
+end
+
+function UI._openBoostPop(self, chip)
+	local m = self._menu
+	local pop = m.boostPop
+	local boost = boostInfo(chip.id)
+	if not pop or not boost then
+		return
+	end
+	self:_hideTopUp()
+	pop.id = chip.id
+	pop.busy = false
+	pop.gems.setEnabled(true)
+	pop.title.Text = "C-" .. twoDigits(chip.order) .. " / " .. boostName(chip.id) .. " BOOST"
+	pop.copy.Text = string.upper(tostring(boost.Text or ""))
+	pop.pointer.Position = UDim2.new(0, chip.holder.Position.X.Offset + math.floor((m.boostChipW or 48) / 2) - 1, 1, 0)
+
+	-- Robux option only when that boost's product is set up.
+	local key = "Boost" .. chip.id
+	local id = productId(key)
+	pop.robux.holder.Visible = id ~= 0
+	pop.gems.holder.Size = if id ~= 0 then UDim2.fromOffset(120, 50) else UDim2.fromOffset(244, 50)
+	pop.robux.setText("R$ --")
+	withPrice(id, Enum.InfoType.Product, function(price)
+		if pop.id == chip.id and pop.robux.label.Parent then
+			pop.robux.setText("R$ " .. commas(price))
+		end
+	end)
+
+	pop.frame.Visible = true
+	pop.frame.Position = UDim2.fromOffset(0, pop.y + 8)
+	tween(pop.frame, 0.2, { Position = UDim2.fromOffset(0, pop.y) })
+	self:_refreshBoostPop()
+end
+
+function UI._closeBoostPop(self)
+	local pop = self._menu and self._menu.boostPop
+	if not pop then
+		return
+	end
+	if self._topUp and self._topUp.host == pop.frame then
+		self:_hideTopUp()
+	end
+	pop.id = nil
+	pop.frame.Visible = false
+end
+
+-- Gem button: price, or how many gems are missing.
+function UI._refreshBoostPop(self)
+	local pop = self._menu and self._menu.boostPop
+	if not pop or not pop.id or pop.busy then
+		return
+	end
+	local boost = boostInfo(pop.id)
+	local price = math.floor(tonumber(boost and boost.Gems) or 0)
+	local short = price - math.floor(attrNumber("Gems", 0))
+	local key = pop.id .. "|" .. short
+	if key == pop.key then
+		return
+	end
+	pop.key = key
+	if short > 0 then
+		pop.gems.setFill("paper")
+		pop.gems.index.Text = "PAY / " .. commas(price) .. " GEMS"
+		pop.gems.setText("NEED " .. commas(short) .. " GEMS")
+	else
+		pop.gems.setFill("ink")
+		pop.gems.index.Text = "PAY / GEMS"
+		pop.gems.setText(commas(price) .. " GEMS")
+	end
+end
+
+function UI._buyBoostWithGems(self)
+	local pop = self._menu.boostPop
+	local id = pop.id
+	local boost = id and boostInfo(id)
+	if not boost or pop.busy then
+		return
+	end
+	local price = math.floor(tonumber(boost.Gems) or 0)
+	local short = price - math.floor(attrNumber("Gems", 0))
+	if short > 0 then
+		-- Not enough: offer the small gem top-up instead of a doomed request.
+		if not self:_offerTopUp(price, pop.frame) then
+			self:toast("NEED " .. commas(short) .. " MORE GEMS", "error")
+		end
+		return
+	end
+	pop.busy = true
+	pop.key = nil
+	pop.gems.setEnabled(false)
+	pop.gems.setText("BUYING")
+	task.spawn(function()
+		local ok, message = self:_ask("onShop", "BuyBoost", id)
+		pop.busy = false
+		pop.gems.setEnabled(true)
+		if ok then
+			self:toast("+1 " .. boostName(id) .. " BOOST", "reward")
+		else
+			self:toast(message or "PURCHASE FAILED", "error")
+			if pop.id == id then
+				self:_offerTopUp(price, pop.frame)
+			end
+		end
+		self:_refreshBoosts()
+	end)
+end
+
+-- "A / START RUN / +10 BONUS BALLS / 2/3 BOOSTS"
+function UI._refreshPlayIndex(self)
+	local m = self._menu
+	if not m.play then
+		return
+	end
+	local parts = { "A / START RUN" }
+	local bonus = math.max(0, math.floor(attrNumber("BonusBalls", 0)))
+	if bonus > 0 then
+		table.insert(parts, "+" .. bonus .. " BONUS BALLS")
+	end
+	local picks = if m.boostPicks then #m.boostPicks else 0
+	if picks > 0 then
+		table.insert(parts, picks .. "/" .. MAX_PICKS .. " BOOSTS")
+	end
+	if #parts == 1 then
+		table.insert(parts, "0 M")
+	end
+	m.play.index.Text = table.concat(parts, " / ")
+end
+
+-- New players arrive with a starter set of boosts: say so once per session.
+function UI._checkWelcome(self, counts)
+	if self._welcomeDone then
+		return
+	end
+	local stats = decodeJson(player:GetAttribute("Stats"))
+	if player:GetAttribute("Level") == nil or type(stats) ~= "table" then
+		return -- progress not loaded yet
+	end
+	local level = levelInfo()
+	if level > 1 or (tonumber(stats.runs) or 0) > 0 then
+		self._welcomeDone = true
+		return
+	end
+	local total = 0
+	for _, n in counts or ownedBoosts() do
+		total += n
+	end
+	if total <= 0 then
+		return
+	end
+	self._welcomeDone = true
+	self:toast(total .. (if total == 1 then " FREE BOOST" else " FREE BOOSTS") .. " / PICK ABOVE PLAY", "gift")
+	for i, chip in self._menu.boostChipList or {} do
+		task.delay(0.08 * i, function()
+			if chip.holder.Parent then
+				chip.bump.Scale = 1.18
+				tween(chip.bump, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+			end
+		end)
+	end
+end
+
+-- Gem top-up ------------------------------------------------------------------------------
+-- One small inline strip, moved next to whatever purchase just came up short
+-- (shop panel or boost popover). No modal and no timer; it closes with X, once
+-- the player can afford the item, or when the context goes away.
+
+function UI._buildTopUp(self, root)
+	local product = Config.Products.GemTopUp
+	local id = productId("GemTopUp")
+	if id == 0 or not tonumber(product.Gems) then
+		return
+	end
+	local t = {}
+	self._topUp = t
+	local strip = new("Frame", {
+		Name = "TopUp",
+		BackgroundColor3 = INK,
+		Size = UDim2.new(1, 0, 0, TOPUP_H),
+		ZIndex = 6,
+		Visible = false,
+		Parent = root,
+	})
+	strip.Active = true
+	t.strip = strip
+	notch(strip, 8, 0, 0)
+	t.short = setAccent(text({ Text = "", TextSize = 8, Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -124, 0, 10), Parent = strip }), "TextColor3")
+	t.offer = capText(text({
+		Text = "GET +" .. commas(product.Gems) .. " GEMS",
+		Font = FONT_NUM,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(12, 18),
+		Size = UDim2.new(1, -124, 0, 22),
+		Parent = strip,
+	}), 12, 7)
+	t.buy = hardButton(strip, {
+		Name = "Buy",
+		Fill = "accent",
+		Text = "GET",
+		TextSize = 11,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -28, 0.5, 2),
+		Size = UDim2.fromOffset(80, 42),
+		OnClick = function()
+			self:_fire("onBuyProduct", "GemTopUp")
+		end,
+	})
+	withPrice(id, Enum.InfoType.Product, function(price)
+		t.buy.sub.Text = "R$ " .. commas(price)
+	end)
+	rule(strip, { BackgroundColor3 = PAPER, BackgroundTransparency = 0.7, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -26, 0, 8), Size = UDim2.new(0, 1, 1, -16) })
+	local dismiss = new("TextButton", {
+		Name = "Dismiss",
+		AutoButtonColor = false,
+		Text = "X",
+		Font = FONT_NUM,
+		TextSize = 10,
+		TextColor3 = PAPER,
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.new(0, 26, 1, 0),
+		Parent = strip,
+	})
+	dismiss.Activated:Connect(function()
+		self:_hideTopUp()
+	end)
+end
+
+-- Shows the top-up if the player is short for `price` by no more than the pack
+-- gives. Returns whether it is showing.
+function UI._offerTopUp(self, price, host)
+	local t = self._topUp
+	if not t or not host then
+		return false
+	end
+	local short = math.floor((tonumber(price) or 0) - attrNumber("Gems", 0))
+	if short <= 0 or short > Config.Products.GemTopUp.Gems then
+		return false
+	end
+	t.price = price
+	t.host = host
+	t.strip.Parent = host
+	local y
+	if host == self._menu.panel then
+		-- Bottom of the panel, just above the footer.
+		t.strip.AnchorPoint = Vector2.new(0.5, 1)
+		y = -(FOOTER_H + 4)
+		t.strip.Position = UDim2.new(0.5, 0, 1, y + 8)
+		t.strip.Size = UDim2.new(1, -12, 0, TOPUP_H)
+		tween(t.strip, 0.2, { Position = UDim2.new(0.5, 0, 1, y) })
+	else
+		-- Stacked on top of the boost popover.
+		t.strip.AnchorPoint = Vector2.new(0, 1)
+		t.strip.Position = UDim2.new(0, 0, 0, 2)
+		t.strip.Size = UDim2.new(1, 0, 0, TOPUP_H)
+		tween(t.strip, 0.2, { Position = UDim2.new(0, 0, 0, -6) })
+	end
+	t.shown = nil
+	t.strip.Visible = true
+	self:_refreshTopUp()
+	return t.strip.Visible
+end
+
+function UI._refreshTopUp(self)
+	local t = self._topUp
+	if not t or not t.strip.Visible or not t.price then
+		return
+	end
+	local short = math.floor(t.price - attrNumber("Gems", 0))
+	if short <= 0 or short > Config.Products.GemTopUp.Gems then
+		self:_hideTopUp()
+		return
+	end
+	if short ~= t.shown then
+		t.shown = short
+		t.short.Text = "SHORT BY " .. commas(short) .. " GEMS"
+	end
+end
+
+function UI._hideTopUp(self)
+	local t = self._topUp
+	if t then
+		t.host = nil
+		t.price = nil
+		t.strip.Visible = false
+	end
 end
 
 function UI._buildMenuPanel(self, root)
@@ -1502,6 +2128,9 @@ function UI._selectTab(self, index)
 	if index == TAB_SEASON then
 		self:_scrollSeasonTrack()
 	end
+	if self._topUp and self._topUp.host == m.panel then
+		self:_hideTopUp()
+	end
 end
 
 -- Popovers (daily streak, starter offer) ------------------------------------------------
@@ -1657,7 +2286,8 @@ function UI._buildDailySheet(self, layer)
 		Size = UDim2.new(1, -24, 0, 10),
 		Parent = sheet,
 	})
-	hardButton(sheet, {
+	d.height = height
+	d.close = hardButton(sheet, {
 		Name = "Close",
 		Fill = "paper",
 		Text = "CLOSE",
@@ -1681,6 +2311,77 @@ function UI._buildDailySheet(self, layer)
 			self:_claimDaily()
 		end,
 	})
+	self:_buildStreakSaver(sheet)
+end
+
+-- Shown inside the daily sheet only while a broken streak can still be saved.
+-- The sheet grows to make room; the claim row moves down under it.
+local SAVER_H = 50
+
+function UI._buildStreakSaver(self, sheet)
+	local d = self._dailySheet
+	local id = productId("StreakSaver")
+	if id == 0 then
+		return
+	end
+	local saver = new("Frame", {
+		Name = "StreakSaver",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(12, 150),
+		Size = UDim2.new(1, -24, 0, SAVER_H - 4),
+		Visible = false,
+		Parent = sheet,
+	})
+	hatch(saver, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
+	notch(saver, 8, 1, 0)
+	d.saverTitle = capText(setAccent(text({
+		Text = "",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(18, 6),
+		Size = UDim2.new(1, -118, 0, 20),
+		Parent = saver,
+	}), "TextColor3"), 12, 7)
+	text({
+		Text = "YOU MISSED A DAY / KEEP YOUR STREAK GOING",
+		TextSize = 7,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(18, 28),
+		Size = UDim2.new(1, -118, 0, 10),
+		Parent = saver,
+	})
+	local buy = hardButton(saver, {
+		Name = "Save",
+		Fill = "accent",
+		Text = "SAVE",
+		TextSize = 11,
+		Sub = "",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -4, 0.5, 2),
+		Size = UDim2.fromOffset(92, 42),
+		OnClick = function()
+			self:_fire("onBuyProduct", "StreakSaver")
+		end,
+	})
+	withPrice(id, Enum.InfoType.Product, function(price)
+		buy.sub.Text = "R$ " .. commas(price)
+	end)
+	d.saver = saver
+end
+
+function UI._layoutStreakSaver(self, saveDay)
+	local d = self._dailySheet
+	local show = saveDay ~= nil and d.saver ~= nil
+	if d.saver then
+		d.saver.Visible = show
+		if show then
+			d.saverTitle.Text = "SAVE YOUR DAY " .. saveDay .. " STREAK"
+		end
+	end
+	local extra = if show then SAVER_H else 0
+	d.sheet.Size = UDim2.fromOffset(d.sheet.Size.X.Offset, d.height + extra)
+	d.close.holder.Position = UDim2.fromOffset(12, 152 + extra)
+	d.claim.holder.Position = UDim2.fromOffset(116, 152 + extra)
 end
 
 -- Day cell states; only runs when the streak day / readiness changes.
@@ -1707,9 +2408,11 @@ function UI._refreshDailySheet(self, state)
 		cell.tagLabel.Text = if done then "DONE" elseif state.ready then "TODAY" else "NEXT"
 	end
 	d.right.Text = "DAY " .. state.day .. " OF " .. #Config.DailyStreak
-	d.note.Text = if state.broken
-		then "STREAK RESTARTED AT DAY 1 / CLAIM EVERY DAY TO KEEP IT"
+	d.note.Text = if state.saveDay
+		then "STREAK BROKEN / SAVE IT, OR CLAIMING RESTARTS AT DAY 1"
+		elseif state.broken then "STREAK RESTARTED AT DAY 1 / CLAIM EVERY DAY TO KEEP IT"
 		else "STREAK RESETS IF YOU MISS A DAY"
+	self:_layoutStreakSaver(state.saveDay)
 end
 
 -- Claim button / countdown; runs every second while the menu is open.
@@ -1987,6 +2690,27 @@ function UI._buildMissionRow(self, parent, index, mission, rerolls)
 			end,
 		})
 		button.sub.TextSize = 7
+	elseif productId("ExtraReroll") ~= 0 then
+		-- Out of free rerolls: one more can be bought.
+		local button = hardButton(row, {
+			Name = "BuyReroll",
+			Fill = "paper",
+			Text = "REROLL",
+			TextSize = 10,
+			Sub = "R$ --",
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(88, 48),
+			OnClick = function()
+				self:_fire("onBuyProduct", "ExtraReroll")
+			end,
+		})
+		button.sub.TextSize = 7
+		withPrice(productId("ExtraReroll"), Enum.InfoType.Product, function(price)
+			if button.sub.Parent then
+				button.sub.Text = "R$ " .. commas(price)
+			end
+		end)
 	else
 		capText(text({
 			Text = math.floor(mission.progress / mission.goal * 100) .. "%",
@@ -2405,10 +3129,11 @@ function UI._refreshStats(self)
 	local gems = commas(player:GetAttribute("Gems") or 0)
 	m.gems.Text = gems
 	m.shopGems.Text = "BALANCE " .. gems
-	local bonus = math.max(0, math.floor(attrNumber("BonusBalls", 0)))
-	m.play.index.Text = if bonus > 0 then "A / START RUN / +" .. bonus .. " BONUS BALLS" else "A / START RUN / 0 M"
+	self:_refreshPlayIndex()
 	self:_refreshSkins()
 	self:_refreshFx()
+	self:_refreshBoostPop()
+	self:_refreshTopUp()
 end
 
 -- Level badge, XP bar and the "next unlock" note under the stats strip.
@@ -2440,6 +3165,13 @@ local function dailyState()
 	local expires = tonumber(player:GetAttribute("StreakExpires"))
 	local day = math.clamp(math.floor(attrNumber("StreakDay", 1)), 1, #Config.DailyStreak)
 	local broken = expires ~= nil and expires > 0 and now > expires
+	-- The streak saver only makes sense while the lost streak is still on record.
+	-- If the server already reset StreakDay to 1 there is nothing left to save.
+	local lostDay = math.floor(attrNumber("StreakDay", 1))
+	local saveDay = nil
+	if broken and lostDay > 1 and productId("StreakSaver") ~= 0 then
+		saveDay = math.min(lostDay, #Config.DailyStreak)
+	end
 	if broken then
 		day = 1
 	end
@@ -2447,6 +3179,7 @@ local function dailyState()
 		now = now,
 		day = day,
 		broken = broken,
+		saveDay = saveDay,
 		ready = nextDaily ~= nil and now >= nextDaily,
 		wait = if nextDaily then nextDaily - now else nil,
 	}
@@ -2459,7 +3192,7 @@ function UI._refreshDaily(self)
 	local reward = Config.DailyStreak[state.day] or {}
 
 	-- Streak pips: done days ink, today accent, the rest outlined.
-	local key = state.day .. (if state.ready then "R" else "W") .. (if state.broken then "B" else "")
+	local key = state.day .. (if state.ready then "R" else "W") .. (if state.broken then "B" else "") .. (state.saveDay or 0)
 	if key ~= m.dailyKey then
 		m.dailyKey = key
 		for day, pip in m.dailyPips do
@@ -2483,7 +3216,9 @@ function UI._refreshDaily(self)
 			self._dailyReady = state.ready
 			daily.setFill(if state.ready then "accent" else "paper")
 		end
-		daily.index.Text = "B / DAILY / DAY " .. state.day .. " OF " .. #Config.DailyStreak
+		daily.index.Text = if state.saveDay
+			then "B / DAILY / STREAK BROKEN / SAVE IT"
+			else "B / DAILY / DAY " .. state.day .. " OF " .. #Config.DailyStreak
 		if state.ready then
 			daily.setText("CLAIM +" .. commas(reward.Gems or 0))
 		elseif state.wait then
@@ -2742,7 +3477,7 @@ function UI._rebuildZones(self)
 				Position = UDim2.new(1, 0, 0.5, 0),
 				Size = UDim2.fromOffset(74, 48),
 				OnClick = function()
-					self:_fire("onPlay", i)
+					self:_fire("onPlay", i, self:_pickedBoosts())
 				end,
 			})
 		end
@@ -2828,6 +3563,9 @@ function UI._skinAction(self, card)
 			self:toast(string.upper(card.skin.Name) .. " UNLOCKED", "reward")
 		elseif not ok then
 			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+			if buying then
+				self:_offerTopUp(card.skin.Price, self._menu.panel)
+			end
 		end
 		self:_refreshSkins()
 	end)
@@ -2907,6 +3645,9 @@ function UI._fxAction(self, card)
 			self:toast(string.upper(card.fx.Name) .. " FX UNLOCKED", "reward")
 		elseif not ok then
 			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+			if buying then
+				self:_offerTopUp(card.fx.Price, self._menu.panel)
+			end
 		end
 		self:_refreshFx()
 	end)
@@ -2997,6 +3738,9 @@ function UI._buildHud(self)
 	h.streak = new("Frame", { Size = UDim2.fromScale(0, 1), Parent = track })
 	setAccent(h.streak, "BackgroundColor3")
 
+	-- Active boosts hang under the odometer (children of the plate, so they share its scale).
+	self:_buildBoostRail(plate)
+
 	-- Zone (top-left) -------------------------------------------------------
 	local zone = new("Frame", { Name = "Zone", BackgroundColor3 = PAPER, BackgroundTransparency = 0.1, Position = UDim2.fromOffset(EDGE, EDGE - 4), Size = UDim2.fromOffset(88, 46), Parent = root })
 	fit(zone, HUD_SCALE)
@@ -3057,6 +3801,204 @@ function UI._buildHud(self)
 		withPrice(pack.Id, Enum.InfoType.Product, function(price)
 			buy.sub.Text = "R$ " .. commas(price)
 		end)
+	end
+
+	-- Shield quick-buy (bottom-left, away from the aim area): only while low on
+	-- balls and not already shielded. See _refreshQuickShield.
+	local shieldId = productId("BoostShield")
+	if shieldId ~= 0 then
+		local shieldBoost = boostInfo("Shield")
+		local quick = hardButton(root, {
+			Name = "QuickShield",
+			Fill = "accent",
+			Text = "SHIELD",
+			TextSize = 12,
+			Sub = "R$ --",
+			Align = Enum.TextXAlignment.Left,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, EDGE, 1, -EDGE),
+			Size = UDim2.fromOffset(122, 52),
+			OnClick = function()
+				self:_fire("onBuyProduct", "BoostShield")
+			end,
+		})
+		quick.label.Size = UDim2.new(1, -40, 0.6, 0)
+		quick.sub.Size = UDim2.new(1, -40, 0.4, -2)
+		local block = new("Frame", {
+			Name = "Mark",
+			BackgroundColor3 = INK,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(26, 34),
+			Parent = quick.face,
+		})
+		shieldGlyph(block, 14, UDim2.fromScale(0.5, 0.5), shieldBoost and shieldBoost.Color or PAPER)
+		fit(quick.holder)
+		quick.bump = new("UIScale", { Parent = quick.face })
+		quick.holder.Visible = false
+		withPrice(shieldId, Enum.InfoType.Product, function(price)
+			quick.sub.Text = "R$ " .. commas(price)
+		end)
+		h.quickShield = quick
+	end
+end
+
+-- One small plate per boost; hidden until setBoosts says it is running.
+function UI._buildBoostRail(self, plate)
+	local h = self._hud
+	local rail = new("Frame", {
+		Name = "BoostRail",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, 6),
+		Size = UDim2.fromOffset(340, 30),
+		Parent = plate,
+	})
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 4),
+		Parent = rail,
+	})
+	local b = { items = {} }
+	h.boostRail = b
+
+	-- { id, small label, has a countdown bar }
+	local specs = {
+		{ "Shield", "SHIELD", false },
+		{ "Magnet", "MAGNET", true },
+		{ "SlowMo", "SLOW-MO", true },
+		{ "MegaBall", "MEGA BALL", true },
+		{ "DoubleGems", "THIS RUN", false },
+	}
+	for order, spec in specs do
+		local id = spec[1]
+		local boost = boostInfo(id)
+		if boost then
+			local color = boost.Color or accentColor
+			local frame = new("Frame", {
+				Name = id,
+				BackgroundColor3 = PAPER,
+				BackgroundTransparency = 0.1,
+				Size = UDim2.fromOffset(64, 30),
+				LayoutOrder = order,
+				Visible = false,
+				Parent = rail,
+			})
+			stroke(frame, 1)
+			local scale = new("UIScale", { Parent = frame })
+			-- Ink icon block on the left.
+			local block = new("Frame", { Name = "Mark", BackgroundColor3 = INK, Size = UDim2.new(0, 16, 1, 0), Parent = frame })
+			if id == "Shield" then
+				shieldGlyph(block, 10, UDim2.fromScale(0.5, 0.5), color)
+			elseif id == "DoubleGems" then
+				local gem = new("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.fromOffset(7, 7),
+					Rotation = 45,
+					BackgroundColor3 = color,
+					Parent = block,
+				})
+				stroke(gem, 1, PAPER, 0.3)
+			else
+				local swatch = new("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.fromOffset(8, 8),
+					BackgroundColor3 = color,
+					Parent = block,
+				})
+				rule(swatch, { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(1, 0, 0, 1) })
+			end
+			text({ Text = spec[2], TextSize = 7, TextColor3 = GREY, Position = UDim2.fromOffset(20, 2), Size = UDim2.new(1, -22, 0, 9), Parent = frame })
+			local value = capText(text({
+				Text = "",
+				Font = FONT_NUM,
+				Position = UDim2.fromOffset(20, 11),
+				Size = UDim2.new(1, -22, 0, 14),
+				Parent = frame,
+			}), 11, 6)
+			local fill = nil
+			if spec[3] then
+				local track = new("Frame", {
+					BackgroundColor3 = INK,
+					BackgroundTransparency = 0.82,
+					AnchorPoint = Vector2.new(0, 1),
+					Position = UDim2.new(0, 16, 1, 0),
+					Size = UDim2.new(1, -16, 0, 3),
+					Parent = frame,
+				})
+				fill = new("Frame", { BackgroundColor3 = color, Size = UDim2.fromScale(1, 1), Parent = track })
+			end
+			b.items[id] = { frame = frame, value = value, fill = fill, scale = scale }
+		end
+	end
+end
+
+-- Only touches instances when something visible actually changed.
+function UI._setIndicator(self, item, visible, number, fraction, label)
+	if not item then
+		return
+	end
+	if visible ~= item.visible then
+		item.visible = visible
+		item.frame.Visible = visible
+		if visible then
+			item.scale.Scale = 1.25
+			tween(item.scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+	end
+	if not visible then
+		return
+	end
+	if number ~= item.number then
+		item.number = number
+		item.value.Text = label
+	end
+	if item.fill and fraction then
+		local rounded = math.floor(math.clamp(fraction, 0, 1) * 100 + 0.5) / 100
+		if rounded ~= item.fraction then
+			item.fraction = rounded
+			item.fill.Size = UDim2.fromScale(rounded, 1)
+		end
+	end
+end
+
+function UI._refreshQuickShield(self)
+	local h = self._hud
+	local quick = h.quickShield
+	if not quick then
+		return
+	end
+	local shielded = h.boostRail ~= nil and h.boostRail.shield == true
+	local show = h.balls ~= nil and h.balls <= LOW_BALLS_OFFER and not shielded
+	if show ~= quick.shown then
+		quick.shown = show
+		quick.holder.Visible = show
+		if show then
+			quick.bump.Scale = 0.8
+			tween(quick.bump, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+	end
+end
+
+-- Forget what the rail showed; the next setBoosts redraws it from scratch.
+function UI._resetBoostRail(self)
+	local h = self._hud
+	local b = h.boostRail
+	if b then
+		b.shield = nil
+		for _, item in b.items do
+			item.visible = false
+			item.number = nil
+			item.fraction = nil
+			item.frame.Visible = false
+		end
+	end
+	if h.quickShield then
+		h.quickShield.shown = nil
 	end
 end
 
@@ -3432,6 +4374,23 @@ function UI._buildFx(self)
 		local outside = new("Frame", { BackgroundColor3 = DANGER, BackgroundTransparency = 1, Size = edge[4], Position = edge[5], Parent = layer })
 		table.insert(self._vignette, outside)
 	end
+
+	-- Shield break: a tinted wash plus a diamond ring bursting outwards.
+	local shield = boostInfo("Shield")
+	local color = shield and shield.Color or PAPER
+	local wash = bleed(layer, { Name = "ShieldWash", BackgroundColor3 = color, BackgroundTransparency = 1 })
+	local ring = new("Frame", {
+		Name = "ShieldRing",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(60, 60),
+		Rotation = 45,
+		Visible = false,
+		Parent = layer,
+	})
+	local ringStroke = stroke(ring, 3, color, 1)
+	self._shieldFlash = { wash = wash, ring = ring, ringStroke = ringStroke, last = 0 }
 end
 
 function UI._shake(self, target, strength)
@@ -3492,6 +4451,7 @@ function UI._refreshAll(self)
 	self:_refreshStarter()
 	self:_refreshSkins()
 	self:_refreshFx()
+	self:_refreshBoosts()
 end
 
 -- Public API ---------------------------------------------------------------------------
@@ -3610,6 +4570,12 @@ function UI.new(callbacks)
 	onAttribute("BonusBalls", function()
 		self:_refreshStats()
 	end)
+	onAttribute("Boosts", function()
+		self:_refreshBoosts()
+	end)
+	onAttribute("Stats", function()
+		self:_checkWelcome()
+	end)
 	for _, name in { "SeasonName", "SeasonEnds" } do
 		connect(ReplicatedStorage:GetAttributeChangedSignal(name), function()
 			self:_refreshSeasonProgress()
@@ -3673,6 +4639,14 @@ end
 function UI:showHud()
 	self:hideRevive()
 	self:_closeModal()
+	-- A run is starting (or resuming): picks were handed over with onPlay.
+	self:_closeBoostPop()
+	self:_hideTopUp()
+	if self._menu.boostPicks and #self._menu.boostPicks > 0 then
+		table.clear(self._menu.boostPicks)
+		self:_refreshBoosts()
+	end
+	self:_resetBoostRail()
 	self._menu.root.Visible = false
 	self._over.root.Visible = false
 	self._hud.layer.Visible = true
@@ -3738,6 +4712,69 @@ function UI:setHud(state)
 		h.zoneValue = zone
 		h.zone.Text = twoDigits(zone)
 	end
+
+	self:_refreshQuickShield()
+end
+
+--[[
+	Active boosts, called every frame by the controller:
+	{ shield = bool, magnet = secondsLeft, slowmo = secondsLeft, megaball = throwsLeft, doubleGems = bool }
+	Only properties that changed are written.
+]]
+function UI:setBoosts(state)
+	local h = self._hud
+	local b = h and h.boostRail
+	if type(state) ~= "table" or not b then
+		return
+	end
+	local items = b.items
+
+	local shield = state.shield == true
+	if shield ~= b.shield then
+		local was = b.shield
+		b.shield = shield
+		if was == true and not shield and h.layer.Visible then
+			self:flashShield()
+		end
+		self:_refreshQuickShield()
+	end
+	self:_setIndicator(items.Shield, shield, 1, nil, "ON")
+
+	for _, entry in { { "Magnet", "magnet" }, { "SlowMo", "slowmo" } } do
+		local seconds = math.max(0, tonumber(state[entry[2]]) or 0)
+		local boost = boostInfo(entry[1])
+		local duration = math.max(tonumber(boost and boost.Duration) or 1, seconds, 0.001)
+		local whole = math.ceil(seconds)
+		self:_setIndicator(items[entry[1]], seconds > 0, whole, seconds / duration, whole .. "S")
+	end
+
+	local throws = math.max(0, math.floor(tonumber(state.megaball) or 0))
+	local mega = boostInfo("MegaBall")
+	local maxThrows = math.max(tonumber(mega and mega.Throws) or 1, throws, 1)
+	self:_setIndicator(items.MegaBall, throws > 0, throws, throws / maxThrows, "x" .. throws)
+
+	self:_setIndicator(items.DoubleGems, state.doubleGems == true, 1, nil, "2X GEMS")
+end
+
+-- The shield just absorbed a crash. Safe to call more than once per crash.
+function UI:flashShield()
+	local f = self._shieldFlash
+	if not f then
+		return
+	end
+	local now = os.clock()
+	if now - f.last < 0.3 then
+		return
+	end
+	f.last = now
+	f.wash.BackgroundTransparency = 0.7
+	tween(f.wash, 0.4, { BackgroundTransparency = 1 })
+	f.ring.Visible = true
+	f.ring.Size = UDim2.fromOffset(60, 60)
+	f.ringStroke.Transparency = 0
+	tween(f.ring, 0.45, { Size = UDim2.fromOffset(420, 420) })
+	tween(f.ringStroke, 0.45, { Transparency = 1 })
+	self:_shake(self._hud.root, 3)
 end
 
 function UI:showGameOver(info)
@@ -4009,6 +5046,18 @@ function UI:showProgress(event)
 	elseif kind == "Reward" then
 		if event.text ~= nil then
 			self:toast(tostring(event.text), "reward")
+		end
+	elseif kind == "BoostsActivated" then
+		local names = {}
+		if type(event.boosts) == "table" then
+			for _, id in event.boosts do
+				if type(id) == "string" then
+					table.insert(names, boostName(id))
+				end
+			end
+		end
+		if #names > 0 then
+			self:toast(table.concat(names, " + "), "boost")
 		end
 	end
 end

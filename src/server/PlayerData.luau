@@ -45,7 +45,8 @@ local DEFAULT_DATA = {
 
 	-- Daily missions: { { id, progress, claimed } }
 	Missions = {},
-	MissionRerolls = Config.MISSION_REROLLS_PER_DAY,
+	MissionRerolls = Config.MISSION_REROLLS_PER_DAY, -- left today (includes ExtraRerolls)
+	ExtraRerolls = 0, -- bought with the ExtraReroll product; they don't expire at midnight
 	MissionsReset = 0, -- os.time() of the next refresh
 
 	-- Daily login streak
@@ -62,7 +63,8 @@ local DEFAULT_DATA = {
 
 	StarterPackBought = false,
 	BonusBalls = 0, -- added to the next run
-	Boosts = {}, -- { [boostId] = count } earned from streak days / season tiers
+	Boosts = {}, -- { [boostId] = count }: welcome gift, level ups, streak, season, shop
+	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
 }
 
 -- player -> { data = {...}, canSave = bool }

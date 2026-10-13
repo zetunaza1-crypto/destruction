@@ -4,13 +4,24 @@
 	Runs entirely on the player's device. The server only gets the distance and
 	a few run stats (glass smashed, crystals, props, best multiball), and works
 	out gems / XP / missions itself.
+
+	Boosts (Config.Boosts): picked in the menu or bought mid-run. The server
+	confirms which ones really started (Progress "BoostsActivated", or
+	PurchaseGranted for a Robux boost) and only those are switched on here.
+	  Shield     - the next crash costs no balls
+	  Magnet     - crystals near the camera fly to you for a few seconds
+	  MegaBall   - the next few throws are giant balls that smash through everything
+	  SlowMo     - the world (camera, balls) runs slower for a few seconds
+	  DoubleGems - handled by the server, only shown here
 ]]
 
+local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -26,6 +37,24 @@ local camera = workspace.CurrentCamera
 local ORIGIN = Config.TRACK_ORIGIN
 local FORWARD = Vector3.new(0, 0, -1)
 local CRASH_MARGIN = 0.8 -- how close to a pane's edge still counts as hitting it
+local GRAVITY = Vector3.new(0, -Config.BALL_GRAVITY, 0)
+local BALL_STEPS = 3 -- collision checks per ball per frame
+local MEGA_STEPS = 8 -- mega balls can smash through several things in one frame
+
+-- Boosts
+local BOOSTS = Config.Boosts
+local MAGNET = BOOSTS.Magnet
+local MEGA = BOOSTS.MegaBall
+local SLOWMO = BOOSTS.SlowMo
+local SHIELD = BOOSTS.Shield
+local MEGA_RADIUS = Config.BALL_RADIUS * MEGA.Scale
+local MEGA_PUSH = 1.6 -- mega balls blast glass shards harder
+local MAGNET_PULL_SPEED = 60 -- studs per second a crystal flies at (plus the camera's speed)
+local MAGNET_PICKUP = 1.5 -- this close to the camera = collected
+local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
+local WHITE = Color3.new(1, 1, 1)
+local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local BASE_SATURATION = 0.1
 
 local RunController = {}
 
@@ -53,6 +82,14 @@ local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
 -- Counted from the start of the run (a revive continues it). Sent with RunEnded.
 local runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = 1 }
 local ui
+
+-- Boosts running in this run (only what the server confirmed).
+-- magnet / slowmo = seconds left, megaball = giant throws left.
+local boost = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+local timeScale = 1 -- 1 = normal speed, lower while SlowMo is on
+local slowLook = 0 -- how much of the slow-mo color effect is showing (0..1)
+local magnetized = {} -- crystals currently flying to the camera
+local runSerial = 0 -- RunStarted events sent; the server echoes it with BoostsActivated
 
 -- Helpers --------------------------------------------------------------------
 
@@ -127,13 +164,15 @@ end
 
 -- Balls ----------------------------------------------------------------------
 
-local function makeBallPart()
+-- mega: a giant MegaBall boost ball (bigger, always has a trail).
+local function makeBallPart(mega)
 	local skin = Config.getSkin(player:GetAttribute("EquippedSkin"))
+	local radius = if mega then MEGA_RADIUS else Config.BALL_RADIUS
 
 	local part = Instance.new("Part")
-	part.Name = "Ball"
+	part.Name = if mega then "MegaBall" else "Ball"
 	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.one * Config.BALL_RADIUS * 2
+	part.Size = Vector3.one * radius * 2
 	part.Material = skin.Material
 	part.Color = skin.Color
 	part.Anchored = true
@@ -146,12 +185,12 @@ local function makeBallPart()
 		part.Color = Color3.fromHSV(os.clock() % 1, 0.8, 1)
 	end
 
-	if skin.Trail or skin.Rainbow then
+	if skin.Trail or skin.Rainbow or mega then
 		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, Config.BALL_RADIUS * 0.6, 0)
+		a0.Position = Vector3.new(0, radius * 0.6, 0)
 		a0.Parent = part
 		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -Config.BALL_RADIUS * 0.6, 0)
+		a1.Position = Vector3.new(0, -radius * 0.6, 0)
 		a1.Parent = part
 
 		local trail = Instance.new("Trail")
@@ -159,7 +198,7 @@ local function makeBallPart()
 		trail.Attachment1 = a1
 		trail.Lifetime = 0.25
 		trail.LightEmission = 1
-		trail.Color = ColorSequence.new(skin.Trail or part.Color)
+		trail.Color = ColorSequence.new(skin.Trail or (if mega then MEGA.Color else part.Color))
 		trail.Transparency = NumberSequence.new(0.2, 1)
 		trail.Parent = part
 	end
@@ -168,10 +207,10 @@ local function makeBallPart()
 	return part
 end
 
-local function spawnBall(origin, velocity)
-	local part = makeBallPart()
+local function spawnBall(origin, velocity, mega)
+	local part = makeBallPart(mega)
 	part.CFrame = CFrame.new(origin)
-	table.insert(activeBalls, { part = part, position = origin, velocity = velocity, age = 0 })
+	table.insert(activeBalls, { part = part, position = origin, velocity = velocity, age = 0, mega = mega })
 end
 
 local function throw(screenPosition)
@@ -185,13 +224,21 @@ local function throw(screenPosition)
 	lastThrow = now
 	balls -= 1
 
+	-- MegaBall boost: this whole throw (every ball of the multiball fan) is giant.
+	local mega = boost.megaball > 0
+	if mega then
+		boost.megaball -= 1
+	end
+	-- Giant balls start a bit further out so they don't fill the screen.
+	local startDistance = if mega then 1.5 + MEGA_RADIUS else 1.5
+
 	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 	local carry = FORWARD * speed -- balls keep the camera's forward momentum
 	for i = 1, multiball do
 		-- Spread extra balls out in a small fan.
 		local angle = (i - (multiball + 1) / 2) * 0.05
 		local direction = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(ray.Direction)
-		spawnBall(ray.Origin + direction * 1.5, direction * Config.BALL_SPEED + carry)
+		spawnBall(ray.Origin + direction * startDistance, direction * Config.BALL_SPEED + carry, mega)
 	end
 
 	Sounds.play("Throw", 0.95 + math.random() * 0.1)
@@ -218,6 +265,64 @@ local function smashGlass(glass, hitPoint, push, fx)
 	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
 end
 
+-- Bounces a ball off a wall/floor/door it just touched. Returns the rest of
+-- this frame's movement.
+local function bounce(ball, hit, remaining)
+	local normal = hit.Normal
+	ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
+	ball.position += normal * 0.05
+	return ball.velocity.Unit * remaining * 0.6
+end
+
+-- MegaBall boost: a giant ball swept as a sphere (workspace:Spherecast), so it
+-- hits everything its whole body touches. It smashes glass and decorations,
+-- collects crystals and opens doors without slowing down; only walls stop it.
+local function stepMegaBall(ball, travel)
+	for _ = 1, MEGA_STEPS do
+		local distance = travel.Magnitude
+		if distance < 1e-3 then
+			break
+		end
+		local hit = workspace:Spherecast(ball.position, MEGA_RADIUS, travel, raycastParams)
+		if not hit then
+			ball.position += travel
+			break
+		end
+
+		-- hit.Distance is how far the sphere's center got before touching.
+		local direction = travel / distance
+		local remaining = distance - hit.Distance
+		ball.position += direction * hit.Distance
+		local part = hit.Instance
+		local kind = part:GetAttribute("Kind")
+
+		if kind == "Glass" then
+			runStats.glass += 1
+			smashGlass(part, hit.Position, direction * MEGA_PUSH, runFx)
+			travel = direction * remaining
+		elseif kind == "Prop" then
+			runStats.props += 1
+			Shatter.prop(part, hit.Position, direction * MEGA_PUSH, shardFolder, runFx)
+			Sounds.play("Shatter", 0.8 + math.random() * 0.2)
+			travel = direction * remaining
+		elseif kind == "Crystal" then
+			collectCrystal(part)
+			travel = direction * remaining
+		else
+			local door = if kind == "Door" or kind == "Button" then track:doorFor(part) else nil
+			if door and not door.open then
+				-- Bursts the door open. The panels slide away, so skip collisions
+				-- for the rest of this frame instead of hitting them again.
+				track:openDoor(door)
+				Sounds.play("Checkpoint")
+				ball.position += direction * remaining
+				break
+			end
+			travel = bounce(ball, hit, remaining)
+		end
+	end
+end
+
 -- Moves one ball forward, bouncing off walls and breaking what it hits.
 -- Returns false when the ball should be removed.
 local function stepBall(ball, dt)
@@ -226,11 +331,17 @@ local function stepBall(ball, dt)
 		return false
 	end
 
-	ball.velocity += Vector3.new(0, -Config.BALL_GRAVITY, 0) * dt
+	ball.velocity += GRAVITY * dt
 	local travel = ball.velocity * dt
 
+	if ball.mega then
+		stepMegaBall(ball, travel)
+		ball.part.CFrame = CFrame.new(ball.position)
+		return true
+	end
+
 	-- A few iterations so a fast ball can break glass and still bounce this frame.
-	for _ = 1, 3 do
+	for _ = 1, BALL_STEPS do
 		local hit = workspace:Raycast(ball.position, travel, raycastParams)
 		if not hit then
 			ball.position += travel
@@ -263,10 +374,7 @@ local function stepBall(ball, dt)
 			travel = ball.velocity.Unit * remaining * 0.4
 		else
 			-- Walls, floor, doors: bounce.
-			local normal = hit.Normal
-			ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
-			ball.position += normal * 0.05
-			travel = ball.velocity.Unit * remaining * 0.6
+			travel = bounce(ball, hit, remaining)
 		end
 	end
 
@@ -291,6 +399,162 @@ local function clearBalls()
 	table.clear(activeBalls)
 end
 
+-- Boosts ---------------------------------------------------------------------
+
+local function boostName(boostId)
+	local info = BOOSTS[boostId]
+	return if info then info.Name else "BOOST"
+end
+
+-- The player's boost inventory ({ [boostId] = count }) from the server.
+local function ownedBoosts()
+	local raw = player:GetAttribute("Boosts")
+	if type(raw) ~= "string" then
+		return {}
+	end
+	local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+	return if ok and type(decoded) == "table" then decoded else {}
+end
+
+-- The boosts picked in the menu that the player really has (distinct, max
+-- Config.MAX_BOOSTS_PER_RUN). The server checks again; this just avoids
+-- asking for boosts they don't own.
+local function pickBoosts(boostIds)
+	local picked = {}
+	if type(boostIds) ~= "table" then
+		return picked
+	end
+	local owned = ownedBoosts()
+	for _, boostId in ipairs(boostIds) do
+		if #picked >= Config.MAX_BOOSTS_PER_RUN then
+			break
+		end
+		if
+			type(boostId) == "string"
+			and BOOSTS[boostId]
+			and not table.find(picked, boostId)
+			and (tonumber(owned[boostId]) or 0) >= 1
+		then
+			table.insert(picked, boostId)
+		end
+	end
+	return picked
+end
+
+-- Switches one boost on for this run. Buying the same timed boost again adds time.
+local function activateBoost(boostId)
+	if boostId == "Shield" then
+		boost.shield = true
+	elseif boostId == "Magnet" then
+		boost.magnet += MAGNET.Duration
+	elseif boostId == "SlowMo" then
+		boost.slowmo += SLOWMO.Duration
+	elseif boostId == "MegaBall" then
+		boost.megaball += MEGA.Throws
+	elseif boostId == "DoubleGems" then
+		boost.doubleGems = true
+	else
+		return false
+	end
+	return true
+end
+
+local function setSlowLook(amount)
+	if amount ~= slowLook and colorCorrection then
+		slowLook = amount
+		colorCorrection.Saturation = BASE_SATURATION - 0.45 * amount
+	end
+end
+
+-- Everything off (new run or back to the menu).
+local function resetBoosts()
+	boost.shield = false
+	boost.magnet = 0
+	boost.slowmo = 0
+	boost.megaball = 0
+	boost.doubleGems = false
+	timeScale = 1
+	setSlowLook(0)
+	table.clear(magnetized)
+end
+
+-- Counts boost timers down (real seconds, so slow-mo doesn't make them last longer)
+-- and eases the world's time scale in and out of slow-mo.
+local function tickBoosts(dt)
+	boost.magnet = math.max(0, boost.magnet - dt)
+	boost.slowmo = math.max(0, boost.slowmo - dt)
+
+	local slowest = SLOWMO.TimeScale
+	local target = if boost.slowmo > 0 then slowest else 1
+	local change = (1 - slowest) / SLOWMO_EASE * dt
+	if timeScale > target then
+		timeScale = math.max(target, timeScale - change)
+	elseif timeScale < target then
+		timeScale = math.min(target, timeScale + change)
+	end
+	setSlowLook(if slowest < 1 then (1 - timeScale) / (1 - slowest) else 0)
+end
+
+-- Magnet boost: crystals within range of the camera fly to it and are collected
+-- (exactly like hitting them with a ball). Crystals already flying keep going
+-- after the magnet runs out.
+local function updateMagnet(dt)
+	local eye = cameraPosition()
+	if boost.magnet > 0 and track then
+		local range = MAGNET.Range
+		for _, room in track.rooms do
+			for _, crystal in room.crystals do
+				-- CanQuery is turned off once a crystal is collected or already flying.
+				if crystal.CanQuery and crystal.Parent and (crystal.Position - eye).Magnitude <= range then
+					crystal.CanQuery = false
+					table.insert(magnetized, crystal)
+				end
+			end
+		end
+	end
+
+	local pull = (MAGNET_PULL_SPEED + speed) * dt -- how far a crystal flies this frame
+	for i = #magnetized, 1, -1 do
+		local crystal = magnetized[i]
+		if not crystal.Parent then
+			table.remove(magnetized, i)
+		else
+			local offset = eye - crystal.Position
+			local distance = offset.Magnitude
+			if distance <= pull + MAGNET_PICKUP then
+				table.remove(magnetized, i)
+				collectCrystal(crystal)
+			else
+				crystal.Position += offset * (pull / distance)
+			end
+		end
+	end
+end
+
+-- Shield boost used up: a burst of blue shards around the view and a quick tint.
+local function shieldBreak()
+	Shatter.shieldBreak(camera.CFrame, SHIELD.Color, shardFolder, FORWARD * speed * timeScale)
+	if colorCorrection then
+		colorCorrection.TintColor = WHITE:Lerp(SHIELD.Color, 0.6)
+		TweenService:Create(colorCorrection, SHIELD_FLASH, { TintColor = WHITE }):Play()
+	end
+	Sounds.play("Shatter", 0.6)
+	ui:toast("SHIELD BROKEN", "info")
+end
+
+-- What the HUD shows for boosts (sent every frame; the UI only redraws changes).
+local function updateBoostHud()
+	if ui.setBoosts then
+		ui:setBoosts({
+			shield = boost.shield,
+			magnet = boost.magnet,
+			slowmo = boost.slowmo,
+			megaball = boost.megaball,
+			doubleGems = boost.doubleGems,
+		})
+	end
+end
+
 -- Run lifecycle ----------------------------------------------------------------
 
 local function gameOver()
@@ -304,6 +568,9 @@ local function gameOver()
 	local gemMultiplier = if ownsPass("VIP") then Config.GamePasses.VIP.GemMultiplier else 1
 	if player.MembershipType == Enum.MembershipType.Premium then
 		gemMultiplier *= 1 + Config.PREMIUM_GEM_BONUS
+	end
+	if boost.doubleGems then
+		gemMultiplier *= 2 -- the server doubles them too
 	end
 	local newMeters = math.max(0, distance - reportedMeters)
 	reportedMeters = math.max(reportedMeters, distance)
@@ -326,6 +593,14 @@ local function crash(hazard)
 		track:openDoor(door)
 	else
 		smashGlass(hazard, cameraPosition(), FORWARD)
+	end
+
+	-- Shield boost: this crash is free (no balls lost, multiball kept).
+	if boost.shield then
+		boost.shield = false
+		shake = 0.2
+		shieldBreak()
+		return
 	end
 
 	balls = math.max(0, balls - Config.CRASH_PENALTY)
@@ -374,6 +649,7 @@ local function resetWorld(checkpoint)
 		world:Destroy()
 	end
 	clearBalls()
+	resetBoosts()
 
 	world = Instance.new("Folder")
 	world.Name = "LocalRun"
@@ -396,8 +672,10 @@ local function resetWorld(checkpoint)
 	applyTheme(checkpoint)
 end
 
-local function startRun(checkpoint)
-	checkpoint = checkpoint or 0
+-- boostIds: boosts picked in the menu (may be nil/empty). They only switch on
+-- once the server confirms them (see onBoostsActivated).
+local function startRun(checkpoint, boostIds)
+	checkpoint = if type(checkpoint) == "number" then math.max(0, math.floor(checkpoint)) else 0
 	if checkpoint > 0 and not ownsPass("Checkpoints") then
 		checkpoint = 0
 	end
@@ -422,7 +700,13 @@ local function startRun(checkpoint)
 	runStats = { glass = 0, crystals = 0, props = 0, maxMultiball = multiball }
 	state = "Running"
 
-	Remotes.RunStarted:FireServer(checkpoint)
+	local picked = pickBoosts(boostIds)
+	runSerial += 1
+	if #picked > 0 then
+		Remotes.RunStarted:FireServer(checkpoint, picked)
+	else
+		Remotes.RunStarted:FireServer(checkpoint)
+	end
 	ui:showHud()
 	updateHud()
 	Sounds.startMusic()
@@ -460,6 +744,10 @@ local function revive(extraBalls)
 end
 
 local function showMenu()
+	-- Leaving mid-run still reports it, so the server doesn't think it's still going.
+	if state == "Running" then
+		gameOver()
+	end
 	state = "Menu"
 	resetWorld(0)
 	ui:showMenu()
@@ -479,12 +767,17 @@ end
 local menuTime = 0
 
 local function step(dt)
+	-- worldDt: game time, slower than real time while SlowMo is on.
+	local worldDt = dt
 	if state == "Running" then
+		tickBoosts(dt)
+		worldDt = dt * timeScale
+
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
 		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
 
 		local prevZ = cameraZ
-		cameraZ -= speed * dt
+		cameraZ -= speed * worldDt
 		checkCrashes(prevZ, cameraZ)
 
 		local room = currentRoom()
@@ -495,11 +788,12 @@ local function step(dt)
 	end
 
 	if track then
-		track:update(cameraZ, dt)
+		track:update(cameraZ, worldDt)
 	end
-	stepBalls(dt)
+	stepBalls(worldDt)
 
 	if state == "Running" then
+		updateMagnet(worldDt)
 		if balls <= 0 and #activeBalls == 0 then
 			gameOver()
 		end
@@ -518,6 +812,8 @@ local function step(dt)
 	camera.CameraType = Enum.CameraType.Scriptable
 	camera.CFrame = CFrame.lookAt(position, position + FORWARD)
 	camera.FieldOfView = 70 + (speed - Config.START_SPEED) / (Config.MAX_SPEED - Config.START_SPEED) * 15
+
+	updateBoostHud()
 end
 
 -- Purchases ------------------------------------------------------------------
@@ -533,6 +829,16 @@ local function promptProduct(productKey)
 		ui:toast("ALREADY UNLOCKED", "reward")
 		return
 	end
+	-- A streak saver only does its real job right after the streak breaks
+	-- (the server still gives gems if it's bought anyway).
+	if productKey == "StreakSaver" then
+		local expires = tonumber(player:GetAttribute("StreakExpires")) or 0
+		local day = tonumber(player:GetAttribute("StreakDay")) or 1
+		if workspace:GetServerTimeNow() <= expires or day <= 1 then
+			ui:toast("YOUR STREAK IS SAFE", "info")
+			return
+		end
+	end
 	if product and product.Id ~= 0 then
 		MarketplaceService:PromptProductPurchase(player, product.Id)
 	end
@@ -545,8 +851,18 @@ local function promptPass(passKey)
 	end
 end
 
-local function onPurchaseGranted(productKey)
+-- usedOnRun: for boost products, true when the server used it on the current
+-- run right away (false = it went to the inventory).
+local function onPurchaseGranted(productKey, usedOnRun)
 	local product = Config.Products[productKey]
+	if product and product.Boost then
+		if usedOnRun == true and state ~= "Menu" and activateBoost(product.Boost) then
+			ui:toast(boostName(product.Boost) .. " ON", "reward")
+		else
+			ui:toast(boostName(product.Boost) .. " ADDED TO YOUR BOOSTS", "reward")
+		end
+		return
+	end
 	-- Starter pack / season pass are announced by the server's Progress "Reward" event.
 	if product and product.Gems and productKey ~= "StarterPack" then
 		ui:toast("+" .. product.Gems .. " GEMS", "reward")
@@ -565,6 +881,27 @@ local function onPurchaseGranted(productKey)
 		pendingBalls += product.Balls
 	end
 	ui:toast("+" .. product.Balls .. " BALLS", "reward")
+end
+
+-- The server confirmed which picked boosts started (and used them up).
+-- event = { type = "BoostsActivated", boosts = { ids }, run = number }
+local function onBoostsActivated(event)
+	if state == "Menu" or type(event.boosts) ~= "table" then
+		return
+	end
+	-- Meant for an earlier run (the player restarted before it arrived).
+	if event.run ~= nil and event.run ~= runSerial then
+		return
+	end
+	local names = {}
+	for _, boostId in ipairs(event.boosts) do
+		if activateBoost(boostId) then
+			table.insert(names, boostName(boostId))
+		end
+	end
+	if #names > 0 then
+		ui:toast(table.concat(names, " + ") .. " ON", "reward")
+	end
 end
 
 local function shopRequest(action, argument)
@@ -591,11 +928,12 @@ end
 
 function RunController.start()
 	ui = UI.new({
-		onPlay = function(checkpoint)
-			startRun(checkpoint)
+		-- boostIds: boosts picked in the menu (may be empty).
+		onPlay = function(checkpoint, boostIds)
+			startRun(checkpoint, boostIds)
 		end,
-		onPlayAgain = function()
-			startRun(startCheckpoint)
+		onPlayAgain = function(boostIds)
+			startRun(startCheckpoint, boostIds)
 		end,
 		onMenu = showMenu,
 		onRevive = function()
@@ -612,7 +950,8 @@ function RunController.start()
 		onClaimDaily = function()
 			return shopRequest("ClaimDaily")
 		end,
-		-- Generic: onShop("BuyFx", id), onShop("ClaimMission", id), onShop("ClaimSeasonTier", { track, tier })...
+		-- Generic: onShop("BuyFx", id), onShop("BuyBoost", id), onShop("ClaimMission", id),
+		-- onShop("ClaimSeasonTier", { track, tier })...
 		onShop = shopRequest,
 	})
 
@@ -626,7 +965,13 @@ function RunController.start()
 	task.spawn(function()
 		local progress = Remotes:WaitForChild("Progress")
 		progress.OnClientEvent:Connect(function(event)
-			if type(event) == "table" and ui.showProgress then
+			if type(event) ~= "table" then
+				return
+			end
+			if event.type == "BoostsActivated" then
+				onBoostsActivated(event)
+			end
+			if ui.showProgress then
 				ui:showProgress(event)
 			end
 		end)
