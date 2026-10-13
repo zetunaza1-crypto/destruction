@@ -259,6 +259,9 @@ local function meshCrystal(parent, position)
 	gem.Name = "Crystal"
 	gem.Material = Enum.Material.Neon
 	gem.Color = Config.CRYSTAL_COLOR
+	-- Fully solid: Roblox doesn't draw see-through parts behind glass, so a
+	-- slightly transparent crystal would vanish behind a pane until it broke.
+	gem.Transparency = 0
 	return gem
 end
 
