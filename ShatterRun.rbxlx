@@ -72,8 +72,8 @@ Config.TRACK_ORIGIN = Vector3.new(0, 500, 0)
 Config.CORRIDOR_WIDTH = 20
 Config.CORRIDOR_HEIGHT = 14
 Config.ROOM_LENGTH = 80
-Config.ROOMS_AHEAD = 3 -- how many rooms are built in front of the camera (the fog hides the far end)
-Config.ROOM_BUILD_BUDGET = 0.003 -- seconds per frame spent building rooms ahead (spread over frames)
+Config.ROOMS_AHEAD = 3 -- how many rooms are visible in front of the camera (the fog hides the far end);
+-- rooms start building one room earlier than that, a few parts per frame
 Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
 Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
 Config.CAMERA_HEIGHT = 6
@@ -427,10 +427,44 @@ Config.ZonePatterns = {
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
 }
 
+-- Smoothness (frame budgets) ---------------------------------------------------
+-- Every heavy job is cut into small slices so no single frame does big work.
+-- Times are seconds of work per frame. "LOW_" = Low graphics (weak phones).
+Config.ROOM_BUILD_BUDGET = 0.0015 -- building rooms ahead (parts are created until this runs out, then it waits a frame)
+Config.LOW_ROOM_BUILD_BUDGET = 0.001
+Config.ROOM_TEARDOWN_BUDGET = 0.0006 -- deleting rooms behind the camera, a few parts per frame
+Config.LOW_ROOM_TEARDOWN_BUDGET = 0.0004
+-- Safety net: a room still unfinished when the camera is this close (studs) is finished at once.
+-- Should never happen (rooms are built a whole room early); Studio prints a warning if it does.
+Config.ROOM_FORCE_DISTANCE = 40
+Config.CRYSTAL_SPIN_RANGE = 150 -- only crystals this close (studs) spin
+Config.SHADOW_LIGHT_ROOMS = 2 -- shadow-casting lights only in the room you're in and the next one (High graphics, not phones)
+Config.SHOW_PERF = true -- playtest build: small FPS / worst frame / part count label in the bottom-left corner
+
 -- Glass breaking ---------------------------------------------------------------
+-- Shards are reused from a pool (no creating / deleting parts per break), land on
+-- the floor and pile up, then fade out. They hit floor and walls but not each other.
 Config.SHARD_RAYS = 8 -- cracks spreading from the impact (more = finer shards, slower)
-Config.SHARD_LIFETIME = 2.5
-Config.MAX_LIVE_SHARDS = 240 -- above this many flying shard parts, new breaks use fewer, simpler shards
+Config.SHARD_LIFETIME = 5 -- seconds a shard stays (shards behind the camera are recycled early)
+Config.SHARD_FADE_TIME = 0.5 -- the last part of that lifetime they fade away
+Config.MAX_LIVE_SHARDS = 360 -- above this many shard parts, new breaks use fewer, simpler shards
+Config.LOW_MAX_LIVE_SHARDS = 160
+Config.SHARD_POOL_WARM = 120 -- triangle shards made ahead of time, a few per frame (Low: half)
+Config.SHARD_SPAWN_BUDGET = 0.0012 -- seconds per frame placing new shards (a big break spreads over 2-3 frames)
+Config.LOW_SHARD_SPAWN_BUDGET = 0.0008
+Config.SHARD_BACK_BURST = 0.35 -- chance a shard right at the impact flies back toward you instead of away
+
+-- Knock-loose decorations: balls knock solid decorations (crates, benches, lamps,
+-- plants, racks, signs) off their spot so they topple and tumble.
+Config.LOOSE_DECOR_MAX = 80 -- at most this many tumbling at once (the oldest freeze in place)
+Config.LOW_LOOSE_DECOR_MAX = 40
+Config.LOOSE_DECOR_MAX_SIZE = 8 -- parts bigger than this (studs, longest side) never come loose
+Config.LOOSE_DECOR_SETTLE = 6 -- seconds a knocked part tumbles before it freezes where it lies
+Config.LOOSE_DECOR_SPEED = 26 -- how hard a ball knocks things (studs per second)
+
+-- Ball impacts on walls / floor: a dust puff and a few chips.
+Config.IMPACT_FX_INTERVAL = 0.04 -- at most one impact effect this often (seconds)
+Config.IMPACT_CHIP_LIFETIME = 1.4
 
 Config.GLASS_COLOR = Color3.fromRGB(200, 235, 255)
 Config.CRYSTAL_COLOR = Color3.fromRGB(60, 140, 255)
@@ -624,6 +658,7 @@ return {
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -633,6 +668,16 @@ local Progression = require(script.Parent.Progression)
 local Shop = require(script.Parent.Shop)
 
 local Remotes = ReplicatedStorage.Remotes
+
+-- Glass shards and knocked-loose decorations (built on each player's device)
+-- bounce off the floor and walls but not off each other, which keeps physics
+-- cheap. Collision groups must be registered on the server to work everywhere.
+pcall(function()
+	if not PhysicsService:IsCollisionGroupRegistered("Shards") then
+		PhysicsService:RegisterCollisionGroup("Shards")
+	end
+	PhysicsService:CollisionGroupSetCollidable("Shards", "Shards", false)
+end)
 local leaderboardStore = DataStoreService:GetOrderedDataStore("BestDistance_v1")
 
 local LEADERBOARD_SIZE = 10
@@ -5112,6 +5157,9 @@ return LeaveGift
 	  color grading and bloom. Crossing a checkpoint fades smoothly to the next.
 	- lightRoom() turns a room's biggest glowing (Neon) parts into actual light
 	  sources and lets decorations cast shadows, so nothing looks flat.
+	- Shadow-casting lights are expensive, so only the room the camera is in
+	  and the next one get one (setShadowRooms, called by TrackBuilder when the
+	  camera enters a new room). All other room lights have no shadows.
 	Requires Lighting.Technology = Future in the place (set in place.project.json).
 	Everything here runs on the player's own device only.
 
@@ -5133,7 +5181,7 @@ local LightingFx = {}
 local FADE = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 
 local LIGHTS_PER_ROOM = 4
-local SHADOW_LIGHTS_PER_ROOM = 1
+local PARTS_PER_PAUSE_CHECK = 16 -- lightRoom checks the build time budget this often
 local SHADOW_CASTER_MAX_SIZE = 15 -- the room shell (80 studs long) never casts
 local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) never cast either
 -- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
@@ -5217,9 +5265,11 @@ local currentTheme = nil
 local bloomTween = nil -- the zone fade, cancelled if the graphics level changes mid-fade
 local low = Settings.graphicsLevel() == "Low"
 
--- Rooms that went through lightRoom: roomFolder -> { theme, lights = { PointLight }, casters = { BasePart } }.
+-- Rooms that went through lightRoom: roomFolder -> { theme, lights = { PointLight }, casters = { BasePart }, shadowLight }.
 -- Weak keys: a room deleted behind the camera just drops out.
 local rooms = setmetatable({}, { __mode = "k" })
+-- Room folders allowed a shadow-casting light right now (at most 2, see setShadowRooms).
+local shadowRooms = setmetatable({}, { __mode = "k" })
 
 local function presetFor(theme)
 	return PRESETS[theme and theme.Style or "Lab"] or PRESETS.Lab
@@ -5330,6 +5380,31 @@ function LightingFx.applyTheme(theme, instant)
 	set(bloom, bloomGoal(preset))
 end
 
+-- Gives the room's main light shadows only if it's one of the shadow rooms.
+local function applyShadow(roomFolder, record)
+	local light = record.shadowLight
+	if light then
+		local wanted = shadowRooms[roomFolder] == true and not low and not TOUCH_ONLY
+		if light.Shadows ~= wanted then
+			light.Shadows = wanted
+		end
+	end
+end
+
+-- Only these rooms (the camera's room and the next one) get a shadow-casting light.
+function LightingFx.setShadowRooms(roomFolder, nextRoomFolder)
+	table.clear(shadowRooms)
+	if roomFolder then
+		shadowRooms[roomFolder] = true
+	end
+	if nextRoomFolder then
+		shadowRooms[nextRoomFolder] = true
+	end
+	for folder, record in rooms do
+		applyShadow(folder, record)
+	end
+end
+
 -- Switches a lit room's lights and shadows off (Low graphics).
 local function darkenRoom(record)
 	for _, light in record.lights do
@@ -5342,14 +5417,20 @@ local function darkenRoom(record)
 	end
 	table.clear(record.lights)
 	table.clear(record.casters)
+	record.shadowLight = nil
 	record.lit = false
 end
 
 -- Adds the real lights and shadows to a room (High graphics).
-local function lightUp(roomFolder, record)
+-- pause (optional): called every few parts so a room build can wait for the
+-- next frame when its time is up (TrackBuilder's time slicing).
+local function lightUp(roomFolder, record, pause)
 	local preset = presetFor(record.theme)
 	local glowing = {}
-	for _, part in roomFolder:GetDescendants() do
+	for index, part in roomFolder:GetDescendants() do
+		if pause and index % PARTS_PER_PAUSE_CHECK == 0 then
+			pause()
+		end
 		if not part:IsA("BasePart") then
 			continue
 		end
@@ -5370,6 +5451,12 @@ local function lightUp(roomFolder, record)
 			part.CastShadow = true
 			table.insert(record.casters, part)
 		end
+	end
+
+	-- While this room build was paused the graphics setting may have changed
+	-- (and lit the room already, or switched to Low): nothing more to do then.
+	if record.lit or low then
+		return
 	end
 
 	table.sort(glowing, function(a, b)
@@ -5396,19 +5483,23 @@ local function lightUp(roomFolder, record)
 			light.Color = entry.part.Color
 			light.Brightness = preset.LightBrightness
 			light.Range = preset.LightRange
-			light.Shadows = not TOUCH_ONLY and #lit < SHADOW_LIGHTS_PER_ROOM
+			light.Shadows = false -- see applyShadow
 			light.Parent = entry.part
 			table.insert(lit, entry.part)
 			table.insert(record.lights, light)
 		end
 	end
+	-- The biggest light is the one that may cast shadows (when the camera is near).
+	record.shadowLight = record.lights[1]
 	record.lit = true
+	applyShadow(roomFolder, record)
 end
 
 -- Turns the room's biggest glowing parts into real lights and lets decorations
 -- cast shadows. Call after the room (and its decorations) are built.
 -- On Low graphics it only remembers the room (so switching to High can light it).
-function LightingFx.lightRoom(roomFolder, theme)
+-- pause: optional, see lightUp.
+function LightingFx.lightRoom(roomFolder, theme, pause)
 	local record = rooms[roomFolder]
 	if not record then
 		record = { theme = theme, lights = {}, casters = {}, lit = false }
@@ -5420,7 +5511,7 @@ function LightingFx.lightRoom(roomFolder, theme)
 			darkenRoom(record)
 		end
 	elseif not record.lit then
-		lightUp(roomFolder, record)
+		lightUp(roomFolder, record, pause)
 	end
 end
 
@@ -5588,6 +5679,182 @@ return Models
         </Item>
         <Item class="ModuleScript" referent="30">
           <Properties>
+            <string name="Name">PerfOverlay</string>
+            <string name="Source"><![CDATA[--[[
+	Playtest helper: a tiny label in the bottom-left corner showing
+	  FPS     - frames per second (smoothed)
+	  MAX     - the slowest single frame in the last ~2 seconds, in milliseconds
+	            (16.7 = still 60 fps; a stutter shows up here even if FPS looks fine)
+	  PARTS   - parts in the current run's world (rooms, decorations, balls)
+	  SHARDS  - shard / chip pieces flying or lying around right now
+	Only shown when Config.SHOW_PERF is true. Turn it off before release.
+
+	PerfOverlay.start(getShardCount) once; PerfOverlay.watch(runFolder) each time
+	a new run world is built.
+
+	Cheap on purpose: frame times go into two 1-second buckets (no lists), the
+	part count follows DescendantAdded / DescendantRemoving instead of counting
+	every frame, and the text is rewritten 4 times a second.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local PerfOverlay = {}
+
+local PAPER = Color3.fromRGB(244, 241, 234)
+local INK = Color3.fromRGB(17, 17, 17)
+local TEXT_INTERVAL = 0.25 -- seconds between label updates
+local BUCKET_SECONDS = 1 -- worst frame = max of this bucket and the previous one (1-2 s)
+
+local label
+local started = false
+local getShards = function()
+	return 0
+end
+
+local partCount = 0
+local connections = {}
+
+local smoothedDt = 1 / 60
+local lastFrame = os.clock()
+local bucketStart = os.clock()
+local bucketWorst = 0
+local previousWorst = 0
+local nextText = 0
+
+local function build()
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "PerfOverlay"
+	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 50 -- above the game UI, but it never takes input
+	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	-- A paper strip with an ink hairline, hugging the bottom-left corner of the
+	-- safe area, below where the HUD's corner button sits.
+	local plate = Instance.new("TextLabel")
+	plate.Name = "Stats"
+	plate.Active = false
+	plate.AnchorPoint = Vector2.new(0, 1)
+	plate.Position = UDim2.new(0, 4, 1, -1)
+	plate.Size = UDim2.fromOffset(0, 12)
+	plate.AutomaticSize = Enum.AutomaticSize.X
+	plate.BackgroundColor3 = PAPER
+	plate.BackgroundTransparency = 0.1
+	plate.BorderSizePixel = 0
+	plate.Font = Enum.Font.RobotoMono
+	plate.TextSize = 10
+	plate.TextColor3 = INK
+	plate.TextXAlignment = Enum.TextXAlignment.Left
+	plate.Text = "-- FPS"
+	pcall(function()
+		plate.Interactable = false -- never blocks taps or clicks (newer property)
+	end)
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 4)
+	padding.PaddingRight = UDim.new(0, 4)
+	padding.Parent = plate
+
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Color = INK
+	stroke.Thickness = 1
+	stroke.Parent = plate
+
+	plate.Parent = gui
+	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	return plate
+end
+
+local function onFrame()
+	local now = os.clock()
+	local dt = now - lastFrame
+	lastFrame = now
+
+	smoothedDt += (dt - smoothedDt) * 0.08
+	if now - bucketStart >= BUCKET_SECONDS then
+		previousWorst = bucketWorst
+		bucketWorst = 0
+		bucketStart = now
+	end
+	if dt > bucketWorst then
+		bucketWorst = dt
+	end
+
+	if now >= nextText then
+		nextText = now + TEXT_INTERVAL
+		local worst = math.max(bucketWorst, previousWorst)
+		label.Text = string.format(
+			"%d FPS  MAX %.1f MS  PARTS %d  SHARDS %d",
+			math.floor(1 / math.max(smoothedDt, 1e-4) + 0.5),
+			worst * 1000,
+			partCount,
+			getShards()
+		)
+		label.TextColor3 = if worst > 1 / 30 then Color3.fromRGB(200, 30, 30) else INK
+	end
+end
+
+-- getShardCount: function returning how many shard pieces are live.
+function PerfOverlay.start(getShardCount)
+	if started or not Config.SHOW_PERF then
+		return
+	end
+	started = true
+	if getShardCount then
+		getShards = getShardCount
+	end
+	label = build()
+	RunService.RenderStepped:Connect(onFrame)
+end
+
+-- Counts the parts in a run's world folder from now on.
+function PerfOverlay.watch(folder)
+	if not started then
+		return
+	end
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
+	partCount = 0
+	if not folder then
+		return
+	end
+	for _, descendant in folder:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			partCount += 1
+		end
+	end
+	table.insert(
+		connections,
+		folder.DescendantAdded:Connect(function(descendant)
+			if descendant:IsA("BasePart") then
+				partCount += 1
+			end
+		end)
+	)
+	table.insert(
+		connections,
+		folder.DescendantRemoving:Connect(function(descendant)
+			if descendant:IsA("BasePart") then
+				partCount -= 1
+			end
+		end)
+	)
+end
+
+return PerfOverlay
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="31">
+          <Properties>
             <string name="Name">RunController</string>
             <string name="Source"><![CDATA[--[[
 	The game itself: moves the camera down the corridor, throws balls,
@@ -5610,6 +5877,14 @@ return Models
 	smashes, a field-of-view punch on every smash, a kick + shake on crashes, a
 	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
 	Camera effects follow Settings "shake", the shield tint follows "flashes".
+
+	Destruction: balls knock solid decorations loose (Shatter.knockLoose) and kick
+	up dust + chips where they hit walls and floor (Shatter.impact). Knocked
+	pieces can't be hit again and never block glass.
+
+	Smoothness: nothing in the frame loop builds new tables (the HUD tables are
+	reused), crash checks read TrackBuilder's cached hazard list, and
+	PerfOverlay (Config.SHOW_PERF) shows FPS / worst frame / part counts.
 ]]
 
 local GuiService = game:GetService("GuiService")
@@ -5631,6 +5906,7 @@ local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
 local LightingFx = require(script.Parent.LightingFx)
+local PerfOverlay = require(script.Parent.PerfOverlay)
 local Settings = require(script.Parent.Settings)
 local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
@@ -5647,6 +5923,11 @@ local BALL_STEPS = 3 -- collision checks per ball per frame
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
 local TUTORIAL_MIN_BALL_SPEED = 0.5 -- balls still fly at least half speed while the tutorial slows time
 local MEGA_STEPS = 8 -- mega balls can smash through several things in one frame
+local KNOCK_SPLASH = 1.2 -- a ball knocking a decoration loose also knocks parts this close (multi-part decorations come apart)
+local KNOCK_OUT = 0.8 -- knocked parts fly along the ball, plus this much straight out of the surface
+local MEGA_KNOCK_REACH = 1 -- mega balls knock loose everything within their radius plus this
+local MEGA_STRENGTH = 1.5 -- ...and knock it harder
+local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
 -- Boosts
 local BOOSTS = Config.Boosts
@@ -5702,6 +5983,7 @@ local world -- Folder holding everything for the current run
 local shardFolder
 local track
 local raycastParams
+local overlapParams -- the track only, for knocking decorations loose
 
 local cameraZ = ORIGIN.Z
 local speed = Config.START_SPEED
@@ -5763,14 +6045,16 @@ local function cameraPosition()
 	return Vector3.new(ORIGIN.X, ORIGIN.Y + Config.CAMERA_HEIGHT, cameraZ)
 end
 
+-- One table reused every frame (the UI only reads it).
+local hudState = { balls = 0, multiball = 1, streak = 0, meters = 0, zone = 0 }
+
 local function updateHud()
-	ui:setHud({
-		balls = balls,
-		multiball = multiball,
-		streak = (streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL) / Config.CRYSTALS_PER_MULTIBALL_LEVEL,
-		meters = meters(),
-		zone = currentRoom() // Config.ROOMS_PER_CHECKPOINT,
-	})
+	hudState.balls = balls
+	hudState.multiball = multiball
+	hudState.streak = (streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL) / Config.CRYSTALS_PER_MULTIBALL_LEVEL
+	hudState.meters = meters()
+	hudState.zone = currentRoom() // Config.ROOMS_PER_CHECKPOINT
+	ui:setHud(hudState)
 end
 
 -- Lighting -------------------------------------------------------------------
@@ -5945,6 +6229,7 @@ local function smashGlass(glass, hitPoint, push, fx, feedback)
 	local size = glass.Size
 	local big = glass:GetAttribute("Pattern") == "FullWall" or size.X * size.Y >= BIG_PANE_AREA
 	Shatter.glass(glass, hitPoint, push, shardFolder, fx)
+	track:markHazardsChanged()
 	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
 	if feedback then
 		smashFeedback(big)
@@ -5959,6 +6244,32 @@ local function bounce(ball, hit, remaining)
 	ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
 	ball.position += normal * 0.05
 	return ball.velocity.Unit * remaining * 0.6
+end
+
+-- Which way a knocked-loose decoration flies: along the ball, and out of the
+-- surface it was hit on (so it falls into the corridor instead of into the wall).
+local function knockDirection(ballDirection, normal)
+	local direction = ballDirection + normal * KNOCK_OUT
+	return if direction.Magnitude > 0.01 then direction.Unit else normal
+end
+
+-- A ball hit a decoration: it comes loose, and so do its parts right next to it.
+local function knockDecoration(part, hitPoint, direction, radius, strength)
+	Shatter.knockLoose(part, direction, strength)
+	Shatter.knockAround(hitPoint, radius, direction, strength, overlapParams)
+end
+
+-- Mega balls: anything within reach comes loose. Decorations only sit near
+-- the walls, floor and ceiling, so the (more costly) area check only runs there.
+local function megaKnockNearby(ball, direction)
+	local p = ball.position
+	local reach = MEGA_RADIUS + MEGA_KNOCK_REACH
+	local nearEdge = math.abs(p.X - ORIGIN.X) > Config.CORRIDOR_WIDTH / 2 - DECOR_DEPTH - reach
+		or p.Y < ORIGIN.Y + DECOR_DEPTH + reach
+		or p.Y > ORIGIN.Y + Config.CORRIDOR_HEIGHT - DECOR_DEPTH - reach
+	if nearEdge then
+		Shatter.knockAround(p, reach, direction, MEGA_STRENGTH, overlapParams)
+	end
 end
 
 -- MegaBall boost: a giant ball swept as a sphere (workspace:Spherecast), so it
@@ -6002,6 +6313,11 @@ local function stepMegaBall(ball, travel)
 		elseif kind == "Crystal" then
 			collectCrystal(part)
 			travel = direction * remaining
+		elseif Shatter.canKnock(part) then
+			-- Decorations don't stop a giant ball: they're knocked flying.
+			knockDecoration(part, hit.Position, knockDirection(direction, hit.Normal), MEGA_RADIUS + MEGA_KNOCK_REACH, MEGA_STRENGTH)
+			Shatter.impact(hit.Position, hit.Normal, part)
+			travel = direction * remaining
 		else
 			local door = if kind == "Door" or kind == "Button" then track:doorFor(part) else nil
 			if door and not door.open then
@@ -6013,8 +6329,13 @@ local function stepMegaBall(ball, travel)
 				bigHit = true
 				break
 			end
+			Shatter.impact(hit.Position, hit.Normal, part)
 			travel = bounce(ball, hit, remaining)
 		end
+	end
+
+	if ball.velocity.Magnitude > 1e-3 then
+		megaKnockNearby(ball, ball.velocity.Unit)
 	end
 
 	-- One feedback per frame for everything this giant ball broke.
@@ -6085,7 +6406,13 @@ local function stepBall(ball, dt)
 			ball.velocity = -ball.velocity * 0.4
 			travel = ball.velocity.Unit * remaining * 0.4
 		else
-			-- Walls, floor, doors: bounce.
+			-- Walls, floor, doors: bounce, with a puff of dust and a few chips.
+			-- Decorations (not the room itself) are knocked loose too.
+			local part = hit.Instance
+			if Shatter.canKnock(part) then
+				knockDecoration(part, hit.Position, knockDirection(ball.velocity.Unit, hit.Normal), KNOCK_SPLASH, 1)
+			end
+			Shatter.impact(hit.Position, hit.Normal, part)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
@@ -6337,15 +6664,17 @@ local function shieldBreak()
 end
 
 -- What the HUD shows for boosts (sent every frame; the UI only redraws changes).
+-- One table reused every frame (the UI only reads it).
+local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+
 local function updateBoostHud()
 	if ui.setBoosts then
-		ui:setBoosts({
-			shield = boost.shield > 0, -- the UI only shows on / off
-			magnet = boost.magnet,
-			slowmo = boost.slowmo,
-			megaball = boost.megaball,
-			doubleGems = boost.doubleGems,
-		})
+		boostState.shield = boost.shield > 0 -- the UI only shows on / off
+		boostState.magnet = boost.magnet
+		boostState.slowmo = boost.slowmo
+		boostState.megaball = boost.megaball
+		boostState.doubleGems = boost.doubleGems
+		ui:setBoosts(boostState)
 	end
 end
 
@@ -6464,6 +6793,7 @@ local function resetWorld(checkpoint, tutorial)
 	clearBalls()
 	resetBoosts()
 	resetFeel()
+	Shatter.reset()
 
 	world = Instance.new("Folder")
 	world.Name = "LocalRun"
@@ -6476,11 +6806,19 @@ local function resetWorld(checkpoint, tutorial)
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
 	track = TrackBuilder.new(world, firstRoom, tutorial)
 	cameraZ = TrackBuilder.roomStartZ(firstRoom) + 4
-	track:update(cameraZ, 0)
+	-- The first two rooms are built completely now; the rest a little per frame.
+	track:warmUp(cameraZ)
 
 	raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Include
 	raycastParams.FilterDescendantsInstances = { track.folder }
+
+	overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Include
+	overlapParams.FilterDescendantsInstances = { track.folder }
+	overlapParams.MaxParts = 24
+
+	PerfOverlay.watch(world)
 
 	lastRoom = firstRoom
 	lastReportedRoom = firstRoom
@@ -6544,7 +6882,7 @@ local function revive(extraBalls)
 	-- Clear everything right in front of the player so they don't crash instantly.
 	for _, hazard in track:hazards() do
 		local ahead = cameraZ - hazard.Position.Z
-		if ahead > -2 and ahead < 40 then
+		if hazard.Parent and ahead > -2 and ahead < 40 then
 			local door = track:doorFor(hazard)
 			if door then
 				track:openDoor(door)
@@ -6635,6 +6973,8 @@ local function step(dt)
 		track:update(cameraZ, worldDt)
 	end
 	stepBalls(ballDt)
+	-- After the balls, so shards from this frame's smashes are placed this frame.
+	Shatter.update(cameraZ)
 
 	if state == "Running" then
 		updateMagnet(worldDt)
@@ -6819,6 +7159,7 @@ end
 
 function RunController.start()
 	task.spawn(hideCoreGui)
+	PerfOverlay.start(Shatter.liveCount)
 	GamepadAim.start()
 	LeaveGift.start({
 		claim = function()
@@ -6906,7 +7247,7 @@ return RunController
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="32">
           <Properties>
             <string name="Name">Settings</string>
             <string name="Source"><![CDATA[--[[
@@ -7025,7 +7366,7 @@ return Settings
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="32">
+        <Item class="ModuleScript" referent="33">
           <Properties>
             <string name="Name">Shatter</string>
             <string name="Source"><![CDATA[--[[
@@ -7033,25 +7374,46 @@ return Settings
 
 	Glass panes crack outward from the point the ball hit: cracks run from the
 	impact to the edges, a ring of cracks crosses them, and every piece in between
-	becomes a real triangle shard. Shards near the impact blast away, the rest
-	drop and tumble, bounce off the floor and sparkle.
+	becomes a real triangle shard. Shards near the impact burst out (some fly
+	back past the camera), pop up and spin; the rest drop. All of them land on
+	the floor, slide and pile up, then fade out (Config.SHARD_LIFETIME).
 
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
+	Shatter.impact is the dust puff + chips when a ball hits a wall or the floor.
+	Shatter.knockLoose / knockAround knock solid decorations off their spot.
 
-	Shard budget: every shard is a physics part, and phones slow down when too
-	many are flying at once. We count the live ones; above Config.MAX_LIVE_SHARDS
-	new breaks use fewer cracks, only the small pieces around the impact and no
-	glitter. Only those inner pieces bounce off things (CanCollide); the big outer
-	pieces just fall, which is much cheaper for the physics engine.
+	Smoothness (why it looks like this):
+	  - Pooling: every shard part is made once and reused. Creating and
+	    deleting parts is one of the most expensive things a game can do in a
+	    frame; moving an existing part is cheap. Idle pool parts wait anchored,
+	    invisible and non-colliding far above the track (PARK). That's cheaper
+	    than parenting them to nil, because taking a part out of the world and
+	    putting it back costs about as much as creating it. The pool fills up a
+	    few parts per frame while you're in the menu (Config.SHARD_POOL_WARM).
+	  - Spawn queue: a break only computes where its shards go; the shards
+	    are placed by Shatter.update, a fixed time per frame
+	    (Config.SHARD_SPAWN_BUDGET). Usually that's the same frame; a huge
+	    multi-pane mega ball smash spreads over 2-3 frames.
+	  - "Shards" collision group: shards and loose decorations hit the floor
+	    and walls but not each other, so a pile costs the physics engine little.
+	  - Shards that end up behind the camera are recycled early (nobody sees
+	    them), so at top speed only a few dozen are ever live.
+	  - Budget: above Config.MAX_LIVE_SHARDS live shard parts new breaks use
+	    fewer cracks, only the small pieces around the impact and no glitter.
 
 	Shatter.glass / Shatter.prop take an optional shatter effect (an entry of
 	Config.ShatterFx) that tints the shards. nil or "Classic" = normal glass.
+	Their `parent` argument is ignored now (pooled parts live in the
+	workspace folder "ShatterPool"); it's kept so callers don't change.
 
-	Low graphics (Settings): half the shard budget, fewer cracks per pane,
-	fewer prop pieces and no glitter at all. Applies to the next break.
+	Low graphics (Settings): smaller shard and loose-decoration caps, fewer
+	cracks per pane, fewer prop pieces, no glitter or glass dust.
+
+	RunController must call Shatter.update(cameraZ) every frame and
+	Shatter.reset() when a new run's world is built.
 ]]
 
-local Debris = game:GetService("Debris")
+local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
@@ -7062,11 +7424,29 @@ local Shatter = {}
 
 local rng = Random.new()
 local TAU = math.pi * 2
-local GRAVITY_BOOST = Vector3.new(0, -12, 0) -- shards look heavier with a small downward kick
+local UP = Vector3.yAxis
 local SMALL_PANE_AREA = 20 -- panes smaller than this (square studs) use few cracks
+local BIG_PANE_AREA = 150 -- panes at least this big get a glass dust burst
 local FEW_RAYS = 5
 local LOW_MAX_RAYS = 7 -- Low graphics: at most this many cracks per pane
 local LOW_PROP_PIECES = 5 -- Low graphics: at most this many shards per prop part
+local SHARD_JITTER = 0.6 -- extra random lifetime so a pane's shards don't all vanish together
+
+local PARK = CFrame.new(0, 5000, 0) -- idle pool parts wait here (anchored, invisible)
+local RELEASES_PER_FRAME = 40 -- shards put back into the pool per frame, at most
+local BEHIND_CHECK_INTERVAL = 0.25 -- seconds between checks for shards behind the camera
+local BEHIND_DISTANCE = 8 -- shards this far behind the camera are recycled
+local WARM_BUDGET = 0.0003 -- seconds per frame spent filling the pool
+local WEDGE_WARM, CHIP_WARM = 40, 24 -- single wedges / chips made ahead of time
+local MAX_WEDGES, LOW_MAX_WEDGES = 160, 80 -- single wedges (prop pieces, shield burst)
+local MAX_CHIPS, LOW_MAX_CHIPS = 60, 30 -- small blocks (impact chips, crystal pop)
+local SHARDS_GROUP = "Shards"
+
+-- Knocked-loose decorations
+local KNOCK_UP = 6 -- upward pop (studs per second)
+local KNOCK_SPIN = 7 -- spin (radians per second, roughly)
+local KNOCK_NUDGE = 0.06 -- studs a knocked part is moved off the wall / floor so it doesn't start stuck
+local KNOCK_FULL_SIZE = 2.5 -- parts up to this size (studs) get the full knock; bigger ones less
 
 -- Low graphics (kept up to date when the setting changes).
 local low = Settings.graphicsLevel() == "Low"
@@ -7076,55 +7456,217 @@ Settings.changed:Connect(function(key)
 	end
 end)
 
--- Shard budget ------------------------------------------------------------------
+-- Collision group -------------------------------------------------------------
+-- Shards and loose decorations collide with the floor and walls (Default group)
+-- but not with each other. If the group can't be set up from here, everything
+-- still works; pieces just also bump into each other (more physics work).
 
--- Live shard parts, as batches { expires = os.clock() time, count = parts }.
-local liveBatches = {}
-local liveCount = 0
-
-local function liveShards()
-	local now = os.clock()
-	for i = #liveBatches, 1, -1 do
-		local batch = liveBatches[i]
-		if batch.expires <= now then
-			liveCount -= batch.count
-			table.remove(liveBatches, i)
+local function setupCollisionGroup()
+	local okCheck, registered = pcall(PhysicsService.IsCollisionGroupRegistered, PhysicsService, SHARDS_GROUP)
+	if not okCheck then
+		registered = false
+	end
+	if not registered then
+		local ok, err = pcall(PhysicsService.RegisterCollisionGroup, PhysicsService, SHARDS_GROUP)
+		if not ok then
+			warn("[Shatter] could not register the Shards collision group: " .. tostring(err))
+			return nil
 		end
 	end
-	return liveCount
-end
-
-local function addLive(count, lifetime)
-	if count > 0 then
-		liveCount += count
-		table.insert(liveBatches, { expires = os.clock() + lifetime, count = count })
+	local ok, err = pcall(PhysicsService.CollisionGroupSetCollidable, PhysicsService, SHARDS_GROUP, SHARDS_GROUP, false)
+	if not ok then
+		warn("[Shatter] Shards collision group: " .. tostring(err))
 	end
+	return SHARDS_GROUP
 end
 
-local function overBudget()
-	local budget = if low then Config.MAX_LIVE_SHARDS // 2 else Config.MAX_LIVE_SHARDS
-	return liveShards() >= budget
+local shardsGroup = setupCollisionGroup()
+
+-- Pool ---------------------------------------------------------------------------
+-- Kinds: "Pair" = triangle shard (two wedges + a weld), "Wedge" = one wedge,
+-- "Chip" = small block. An entry is reused forever:
+-- { kind, a, b?, weld?, parts, expires, fadeStart, baseT, spawnZ }
+
+local poolFolder = Instance.new("Folder")
+poolFolder.Name = "ShatterPool"
+poolFolder.Parent = workspace
+
+local free = { Pair = {}, Wedge = {}, Chip = {} }
+local made = { Pair = 0, Wedge = 0, Chip = 0 }
+local live = {} -- entries in use (any order)
+local liveParts = 0
+
+local function shardCap()
+	return if low then Config.LOW_MAX_LIVE_SHARDS else Config.MAX_LIVE_SHARDS
 end
 
--- Effects -------------------------------------------------------------------
-
--- A short burst of glitter at the impact point.
-local function sparkle(position, color, amount, parent)
-	if low then
-		return -- Low graphics: no glitter
+local function maxMade(kind)
+	if kind == "Pair" then
+		return math.ceil(shardCap() / 2 * 1.25)
+	elseif kind == "Wedge" then
+		return if low then LOW_MAX_WEDGES else MAX_WEDGES
 	end
-	local holder = Instance.new("Part")
-	holder.Anchored = true
-	holder.CanCollide = false
-	holder.CanQuery = false
-	holder.CanTouch = false
-	holder.Transparency = 1
-	holder.Size = Vector3.one * 0.2
-	holder.CFrame = CFrame.new(position)
+	return if low then LOW_MAX_CHIPS else MAX_CHIPS
+end
 
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Enabled = false
-	emitter.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.5))
+local function warmTarget(kind)
+	if kind == "Pair" then
+		return if low then Config.SHARD_POOL_WARM // 2 else Config.SHARD_POOL_WARM
+	elseif kind == "Wedge" then
+		return WEDGE_WARM
+	end
+	return CHIP_WARM
+end
+
+local function newPoolPart(className)
+	local part = Instance.new(className)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Transparency = 1
+	part.Size = Vector3.one * 0.2
+	part.CFrame = PARK
+	if shardsGroup then
+		part.CollisionGroup = shardsGroup
+	end
+	part.Parent = poolFolder
+	return part
+end
+
+local function createEntry(kind)
+	local entry = { kind = kind, parts = 1, expires = 0, fadeStart = 0, baseT = 0, spawnZ = 0 }
+	if kind == "Pair" then
+		entry.a = newPoolPart("WedgePart")
+		entry.b = newPoolPart("WedgePart")
+		-- A classic Weld with an explicit offset (C0), set every time the pair is
+		-- reused, so the two halves always line up exactly.
+		local weld = Instance.new("Weld")
+		weld.Part0 = entry.a
+		weld.Part1 = entry.b
+		weld.Parent = entry.a
+		entry.weld = weld
+		entry.parts = 2
+	elseif kind == "Wedge" then
+		entry.a = newPoolPart("WedgePart")
+	else
+		entry.a = newPoolPart("Part")
+	end
+	made[kind] += 1
+	return entry
+end
+
+-- Takes a live entry out of the live list (swap with the last one).
+local function removeLive(index)
+	local entry = live[index]
+	local last = #live
+	live[index] = live[last]
+	live[last] = nil
+	liveParts -= entry.parts
+	return entry
+end
+
+-- Puts a piece back: anchored, invisible, out of the way.
+local function park(entry)
+	local a = entry.a
+	a.Anchored = true
+	a.CanCollide = false
+	a.Transparency = 1
+	a.CFrame = PARK
+	local b = entry.b
+	if b then
+		b.Anchored = true
+		b.CanCollide = false
+		b.Transparency = 1
+		b.CFrame = PARK * entry.weld.C0
+	end
+	table.insert(free[entry.kind], entry)
+end
+
+-- A free piece of this kind: from the pool, newly made (pool not full yet), or
+-- the oldest live one when everything is in use. nil if there's none at all.
+local function acquire(kind)
+	local entry = table.remove(free[kind])
+	if entry then
+		return entry
+	end
+	if made[kind] < maxMade(kind) then
+		return createEntry(kind)
+	end
+	local oldestIndex, oldestTime = nil, math.huge
+	for index, other in live do
+		if other.kind == kind and other.expires < oldestTime then
+			oldestIndex, oldestTime = index, other.expires
+		end
+	end
+	if oldestIndex then
+		return removeLive(oldestIndex)
+	end
+	return nil
+end
+
+-- Marks a placed piece as live; it fades over the last `fade` seconds of `lifetime`.
+local function addLive(entry, baseTransparency, lifetime, fade, z)
+	local now = os.clock()
+	entry.expires = now + lifetime
+	entry.fadeStart = entry.expires - math.min(fade, lifetime)
+	entry.baseT = baseTransparency
+	entry.spawnZ = z
+	table.insert(live, entry)
+	liveParts += entry.parts
+end
+
+local function applyStyle(part, style, collide)
+	part.Material = style.Material
+	part.Color = style.Color
+	part.Transparency = style.Transparency
+	part.Reflectance = style.Reflectance
+	part.CanCollide = collide
+end
+
+function Shatter.liveCount()
+	return liveParts
+end
+
+-- Particle bursts ------------------------------------------------------------------
+-- A few emitters per effect, each on its own little anchored holder part. A burst
+-- moves the next holder to the spot and calls Emit; particles already flying stay
+-- where they are. Round robin, so a new burst rarely recolors a fresh one.
+
+local function newEmitterSet(count, setup)
+	local set = { next = 1 }
+	for i = 1, count do
+		local holder = Instance.new("Part")
+		holder.Name = "Emitter"
+		holder.Anchored = true
+		holder.CanCollide = false
+		holder.CanQuery = false
+		holder.CanTouch = false
+		holder.CastShadow = false
+		holder.Transparency = 1
+		holder.Size = Vector3.one * 0.2
+		holder.CFrame = PARK
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Enabled = false
+		setup(emitter)
+		emitter.Parent = holder
+		holder.Parent = poolFolder
+		set[i] = { holder = holder, emitter = emitter }
+	end
+	set.count = count
+	return set
+end
+
+local function nextEmitter(set)
+	local slot = set[set.next]
+	set.next = set.next % set.count + 1
+	return slot
+end
+
+local glitter = newEmitterSet(4, function(emitter)
 	emitter.LightEmission = 1
 	emitter.Size = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0.35),
@@ -7137,26 +7679,65 @@ local function sparkle(position, color, amount, parent)
 	emitter.Acceleration = Vector3.new(0, -30, 0)
 	emitter.Drag = 2
 	emitter.Rotation = NumberRange.new(0, 360)
-	emitter.Parent = holder
+end)
 
-	holder.Parent = parent
-	emitter:Emit(amount)
-	Debris:AddItem(holder, 1.2)
+local dust = newEmitterSet(3, function(emitter)
+	emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	emitter.EmissionDirection = Enum.NormalId.Front
+	emitter.LightEmission = 0
+	emitter.LightInfluence = 1
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(1, 1.8),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Lifetime = NumberRange.new(0.35, 0.7)
+	emitter.Speed = NumberRange.new(2, 6)
+	emitter.SpreadAngle = Vector2.new(55, 55)
+	emitter.Acceleration = Vector3.new(0, -2, 0)
+	emitter.Drag = 4
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-40, 40)
+end)
+
+local glassDust = newEmitterSet(2, function(emitter)
+	emitter.LightEmission = 0.6
+	emitter.Color = ColorSequence.new(Color3.fromRGB(235, 248, 255))
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.16),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	emitter.Transparency = NumberSequence.new(0.1, 1)
+	emitter.Lifetime = NumberRange.new(0.5, 1.1)
+	emitter.Speed = NumberRange.new(4, 14)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Acceleration = Vector3.new(0, -12, 0)
+	emitter.Drag = 3
+	emitter.Rotation = NumberRange.new(0, 360)
+end)
+
+-- A short burst of glitter at the impact point.
+local function sparkle(position, color, amount)
+	if low then
+		return -- Low graphics: no glitter
+	end
+	local slot = nextEmitter(glitter)
+	slot.holder.CFrame = CFrame.new(position)
+	slot.emitter.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.5))
+	slot.emitter:Emit(amount)
 end
 
-local function makePiece(className, template)
-	local piece = Instance.new(className)
-	piece.Material = template.Material
-	piece.Color = template.Color
-	piece.Transparency = template.Transparency
-	piece.Reflectance = template.Reflectance
-	piece.CastShadow = false
-	piece.CanQuery = false
-	piece.CanTouch = false
-	piece.CanCollide = true -- bounce off the floor and walls
-	piece.TopSurface = Enum.SurfaceType.Smooth
-	piece.BottomSurface = Enum.SurfaceType.Smooth
-	return piece
+-- Fine glass dust hanging in the air after a big pane goes.
+local function glassDustBurst(position, amount)
+	if low then
+		return
+	end
+	local slot = nextEmitter(glassDust)
+	slot.holder.CFrame = CFrame.new(position)
+	slot.emitter:Emit(amount)
 end
 
 -- Shatter effects -----------------------------------------------------------
@@ -7165,18 +7746,18 @@ local function hasFx(fx)
 	return fx ~= nil and fx.Id ~= "Classic"
 end
 
--- The look of one shard: a plain table makePiece can read like a Part.
--- Rainbow effects get a new random hue for every shard.
+-- The look of one shard as a plain table (read once, so the original part can
+-- be deleted right away). Rainbow effects get a new random hue for every shard.
 local function styledTemplate(template, fx)
-	if not hasFx(fx) then
-		return template
-	end
 	local style = {
 		Material = template.Material,
 		Color = template.Color,
 		Transparency = template.Transparency,
 		Reflectance = template.Reflectance,
 	}
+	if not hasFx(fx) then
+		return style
+	end
 	if fx.Rainbow then
 		style.Color = Color3.fromHSV(rng:NextNumber(), 0.75, 1)
 	elseif fx.Color then
@@ -7208,25 +7789,32 @@ local function sparkleStyle(baseColor, amount, fx)
 	return color, amount
 end
 
-local function launch(part, center, hitPoint, push, reach)
+-- How a shard flies: through the pane along `push`, outward from the impact,
+-- popping up and spinning. Pieces right at the impact fly hardest, and some of
+-- them burst back toward the player instead (Config.SHARD_BACK_BURST).
+local function launchVelocity(center, hitPoint, push, reach)
 	local away = center - hitPoint
 	local distance = away.Magnitude
 	local closeness = math.clamp(1 - distance / reach, 0, 1)
-	local direction = if distance > 0.01 then away.Unit else rng:NextUnitVector()
+	local radial = if distance > 0.01 then away / distance else rng:NextUnitVector()
 
-	part.AssemblyLinearVelocity = push * (6 + 40 * closeness ^ 1.5)
-		+ direction * (3 + 18 * closeness)
+	local through = push * (4 + 26 * closeness ^ 1.5)
+	if rng:NextNumber() < Config.SHARD_BACK_BURST * closeness then
+		through = -push * rng:NextNumber(6, 16)
+	end
+	local linear = through
+		+ radial * (3 + 20 * closeness)
+		+ UP * (2 + 10 * closeness * rng:NextNumber(0.5, 1))
 		+ rng:NextUnitVector() * 2
-		+ GRAVITY_BOOST
-	part.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(2, 6 + 12 * closeness)
+	local angular = rng:NextUnitVector() * rng:NextNumber(3, 8 + 16 * closeness)
+	return linear, angular
 end
 
 -- Triangles ----------------------------------------------------------------
 
--- Builds a flat triangle a-b-c out of two wedge parts welded together.
--- Returns the root wedge (move/launch that one) or nil for a sliver too thin to draw.
--- collide = false: the piece falls through everything (cheaper physics).
-local function triangle(a, b, c, thickness, template, parent, collide)
+-- A flat triangle a-b-c as two wedge parts: returns their sizes and CFrames,
+-- or nil for a sliver too thin to draw.
+local function triangleShape(a, b, c, thickness)
 	-- Make b-c the longest edge.
 	local ab, ac, bc = b - a, c - a, c - b
 	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
@@ -7249,25 +7837,96 @@ local function triangle(a, b, c, thickness, template, parent, collide)
 		return nil
 	end
 
-	local first = makePiece("WedgePart", template)
-	first.CanCollide = collide
-	first.Size = Vector3.new(thickness, height, math.abs(ab:Dot(back)))
-	first.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
+	local size1 = Vector3.new(thickness, height, math.abs(ab:Dot(back)))
+	local cframe1 = CFrame.fromMatrix((a + b) / 2, right, up, back)
+	local size2 = Vector3.new(thickness, height, math.abs(ac:Dot(back)))
+	local cframe2 = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
+	return size1, cframe1, size2, cframe2
+end
 
-	local second = makePiece("WedgePart", template)
-	second.CanCollide = collide
-	second.Size = Vector3.new(thickness, height, math.abs(ac:Dot(back)))
-	second.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
+-- Spawn queue ---------------------------------------------------------------
+-- Jobs: { triangle = true, a, b, c, thickness, style, hit, push, reach }
+--    or { size, cframe, style, hit, push, reach } (one prop piece)
 
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = first
-	weld.Part1 = second
-	weld.Parent = first
+local queue = {}
+local queueHead = 1
+local queuedParts = 0
 
-	-- Parented to the first half so both are cleaned up together.
-	second.Parent = first
-	first.Parent = parent
-	return first
+local function enqueue(job, parts)
+	table.insert(queue, job)
+	queuedParts += parts
+end
+
+local function spawnTriangle(job)
+	queuedParts -= 2
+	local size1, cframe1, size2, cframe2 = triangleShape(job.a, job.b, job.c, job.thickness)
+	if not size1 then
+		return
+	end
+	local entry = acquire("Pair")
+	if not entry then
+		return
+	end
+	local a, b = entry.a, entry.b
+	applyStyle(a, job.style, true)
+	applyStyle(b, job.style, true)
+	a.Size = size1
+	b.Size = size2
+	entry.weld.C0 = cframe1:ToObjectSpace(cframe2)
+	a.CFrame = cframe1
+	b.CFrame = cframe2
+	a.Anchored = false
+	b.Anchored = false
+	local center = (job.a + job.b + job.c) / 3
+	local linear, angular = launchVelocity(center, job.hit, job.push, job.reach)
+	a.AssemblyLinearVelocity = linear
+	a.AssemblyAngularVelocity = angular
+	addLive(entry, job.style.Transparency, Config.SHARD_LIFETIME + rng:NextNumber(0, SHARD_JITTER), Config.SHARD_FADE_TIME, center.Z)
+end
+
+local function spawnPiece(job)
+	queuedParts -= 1
+	local entry = acquire("Wedge")
+	if not entry then
+		return
+	end
+	local part = entry.a
+	applyStyle(part, job.style, true)
+	part.Size = job.size
+	part.CFrame = job.cframe
+	part.Anchored = false
+	local position = job.cframe.Position
+	local linear, angular = launchVelocity(position, job.hit, job.push, job.reach)
+	part.AssemblyLinearVelocity = linear
+	part.AssemblyAngularVelocity = angular
+	addLive(entry, job.style.Transparency, Config.SHARD_LIFETIME + rng:NextNumber(0, SHARD_JITTER), Config.SHARD_FADE_TIME, position.Z)
+end
+
+-- Places queued shards until this frame's spawn time is used up (at least one).
+local function processQueue()
+	local deadline = os.clock() + (if low then Config.LOW_SHARD_SPAWN_BUDGET else Config.SHARD_SPAWN_BUDGET)
+	while queue[queueHead] do
+		local job = queue[queueHead]
+		queue[queueHead] = false -- keeps the array dense until it's cleared below
+		queueHead += 1
+		if job.triangle then
+			spawnTriangle(job)
+		else
+			spawnPiece(job)
+		end
+		if os.clock() > deadline then
+			break
+		end
+	end
+	if queue[queueHead] == nil then
+		table.clear(queue)
+		queueHead = 1
+		queuedParts = 0
+	end
+end
+
+local function overBudget()
+	return liveParts + queuedParts >= shardCap()
 end
 
 -- Crack pattern ------------------------------------------------------------
@@ -7293,8 +7952,8 @@ local function angleOf(p, q)
 end
 
 -- Returns a list of 2D triangles { {a, b, c, inner = bool}, ... } covering the
--- pane, in the pane's local X/Y plane, with the impact point p.
--- innerOnly = true: just the small fan around the impact (shard budget).
+-- pane, in the pane's local X/Y plane, with the impact point p. Inner pieces
+-- come first. innerOnly = true: just the small fan around the impact (shard budget).
 local function crackPattern(p, hx, hy, rays, innerOnly)
 	local start = rng:NextNumber(0, TAU)
 	local angles = {}
@@ -7320,16 +7979,19 @@ local function crackPattern(p, hx, hy, rays, innerOnly)
 	}
 
 	local triangles = {}
+	-- Inner fan: the small, fast pieces around the impact.
+	for i = 1, rays do
+		local j = i % rays + 1
+		table.insert(triangles, { p, rings[i], rings[j], inner = true })
+	end
+	if innerOnly then
+		return triangles
+	end
+
 	for i = 1, rays do
 		local j = i % rays + 1
 		local a1, a2 = angles[i], angles[j]
 		local span = (a2 - a1) % TAU
-
-		-- Inner fan: the small, fast pieces around the impact.
-		table.insert(triangles, { p, rings[i], rings[j], inner = true })
-		if innerOnly then
-			continue
-		end
 
 		-- Outer piece: ring crack -> edge, including any pane corners in between.
 		local boundary = { edges[i] }
@@ -7358,7 +8020,7 @@ end
 
 -- Public -------------------------------------------------------------------
 
-function Shatter.glass(panel, hitPoint, push, parent, fx)
+function Shatter.glass(panel, hitPoint, push, _parent, fx)
 	local size = panel.Size
 	local cf = panel.CFrame
 	local hx, hy = size.X / 2, size.Y / 2
@@ -7369,7 +8031,7 @@ function Shatter.glass(panel, hitPoint, push, parent, fx)
 	local p = Vector2.new(math.clamp(localHit.X, -hx * 0.95, hx * 0.95), math.clamp(localHit.Y, -hy * 0.95, hy * 0.95))
 
 	-- Bigger panes get a few more cracks, small ones (grid tiles) only a few.
-	-- Too many shards already flying: few cracks, inner pieces only, no glitter.
+	-- Too many shards already: few cracks, inner pieces only, no glitter.
 	local area = size.X * size.Y
 	local busy = overBudget()
 	local rays = math.clamp(Config.SHARD_RAYS + math.floor(area / 120), 5, 12)
@@ -7382,30 +8044,34 @@ function Shatter.glass(panel, hitPoint, push, parent, fx)
 	local reach = math.max(size.X, size.Y) * 0.6
 	local worldHit = cf * Vector3.new(p.X, p.Y, 0)
 
-	local made = 0
+	local plainStyle = if fx and fx.Rainbow then nil else styledTemplate(panel, fx)
 	for _, tri in crackPattern(p, hx, hy, rays, busy) do
-		local a = cf * Vector3.new(tri[1].X, tri[1].Y, 0)
-		local b = cf * Vector3.new(tri[2].X, tri[2].Y, 0)
-		local c = cf * Vector3.new(tri[3].X, tri[3].Y, 0)
-		local shard = triangle(a, b, c, thickness, styledTemplate(panel, fx), parent, tri.inner == true)
-		if shard then
-			launch(shard, (a + b + c) / 3, worldHit, push, reach)
-			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
-			made += 2 -- two wedges per triangle
-		end
+		enqueue({
+			triangle = true,
+			a = cf * Vector3.new(tri[1].X, tri[1].Y, 0),
+			b = cf * Vector3.new(tri[2].X, tri[2].Y, 0),
+			c = cf * Vector3.new(tri[3].X, tri[3].Y, 0),
+			thickness = thickness,
+			style = plainStyle or styledTemplate(panel, fx),
+			hit = worldHit,
+			push = push,
+			reach = reach,
+		}, 2)
 	end
-	addLive(made, Config.SHARD_LIFETIME + 0.6)
 
 	if not busy then
 		local sparkleColor, sparkleAmount = sparkleStyle(panel.Color, 25, fx)
-		sparkle(worldHit, sparkleColor, sparkleAmount, parent)
+		sparkle(worldHit, sparkleColor, sparkleAmount)
+		if area >= BIG_PANE_AREA then
+			glassDustBurst(worldHit, 30)
+		end
 	end
 	panel:Destroy()
 end
 
 -- Breakable decorations (vases, bottles, lamps...). Each part bursts into
 -- small random shards. Hitting any part of a breakable Model breaks all of it.
-function Shatter.prop(part, hitPoint, push, parent, fx)
+function Shatter.prop(part, hitPoint, push, _parent, fx)
 	-- Walk up to the breakable model this part belongs to (if any).
 	local root = part
 	local ancestor = part.Parent
@@ -7425,16 +8091,15 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 	end
 
 	local busy = overBudget()
-	local made = 0
 	for _, piece in pieces do
 		local size = piece.Size
 		local volume = size.X * size.Y * size.Z
 		local most = if busy then 3 elseif low then LOW_PROP_PIECES else 10
 		local count = math.clamp(math.floor(volume / 1.5), 3, most)
 		local reach = math.max(size.X, size.Y, size.Z) * 2
+		local plainStyle = if fx and fx.Rainbow then nil else styledTemplate(piece, fx)
 		for _ = 1, count do
-			local shard = makePiece("WedgePart", styledTemplate(piece, fx))
-			shard.Size = Vector3.new(
+			local shardSize = Vector3.new(
 				math.max(0.1, size.X * rng:NextNumber(0.15, 0.4)),
 				math.max(0.1, size.Y * rng:NextNumber(0.15, 0.4)),
 				math.max(0.1, size.Z * rng:NextNumber(0.1, 0.3))
@@ -7444,22 +8109,23 @@ function Shatter.prop(part, hitPoint, push, parent, fx)
 				rng:NextNumber(-0.5, 0.5) * size.Y,
 				rng:NextNumber(-0.5, 0.5) * size.Z
 			)
-			shard.CFrame = piece.CFrame * CFrame.new(offset) * CFrame.Angles(
-				rng:NextNumber(0, TAU),
-				rng:NextNumber(0, TAU),
-				rng:NextNumber(0, TAU)
-			)
-			shard.Parent = parent
-			launch(shard, shard.Position, hitPoint, push * 0.5, reach)
-			Debris:AddItem(shard, Config.SHARD_LIFETIME + rng:NextNumber(0, 0.6))
-			made += 1
+			local cframe = piece.CFrame
+				* CFrame.new(offset)
+				* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), rng:NextNumber(0, TAU))
+			enqueue({
+				size = shardSize,
+				cframe = cframe,
+				style = plainStyle or styledTemplate(piece, fx),
+				hit = hitPoint,
+				push = push * 0.5,
+				reach = reach,
+			}, 1)
 		end
 		if not busy then
 			local sparkleColor, sparkleAmount = sparkleStyle(piece.Color, 10, fx)
-			sparkle(piece.Position, sparkleColor, sparkleAmount, parent)
+			sparkle(piece.Position, sparkleColor, sparkleAmount)
 		end
 	end
-	addLive(made, Config.SHARD_LIFETIME + 0.6)
 
 	root:Destroy()
 end
@@ -7471,7 +8137,7 @@ local SHIELD_SHARDS = 16
 local SHIELD_DISTANCE = 3.5
 local SHIELD_RADIUS = 2.6
 
-function Shatter.shieldBreak(cameraCFrame, color, parent, carry)
+function Shatter.shieldBreak(cameraCFrame, color, _parent, carry)
 	local style = {
 		Material = Enum.Material.Neon,
 		Color = color,
@@ -7480,35 +8146,49 @@ function Shatter.shieldBreak(cameraCFrame, color, parent, carry)
 	}
 	local center = cameraCFrame * Vector3.new(0, 0, -SHIELD_DISTANCE)
 	for i = 1, SHIELD_SHARDS do
+		local entry = acquire("Wedge")
+		if not entry then
+			break
+		end
 		local angle = (i / SHIELD_SHARDS) * TAU + rng:NextNumber(-0.15, 0.15)
 		local outward = cameraCFrame:VectorToWorldSpace(Vector3.new(math.cos(angle), math.sin(angle), 0))
-		local shard = makePiece("WedgePart", style)
-		shard.CanCollide = false
+		local shard = entry.a
+		applyStyle(shard, style, false)
 		shard.Size = Vector3.new(0.08, rng:NextNumber(0.4, 0.9), rng:NextNumber(0.3, 0.7))
 		shard.CFrame = CFrame.lookAt(center + outward * SHIELD_RADIUS, center + outward * (SHIELD_RADIUS + 1))
 			* CFrame.Angles(0, 0, rng:NextNumber(0, TAU))
-		shard.Parent = parent
+		shard.Anchored = false
 		shard.AssemblyLinearVelocity = carry + outward * rng:NextNumber(14, 24)
 		shard.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(4, 10)
-		Debris:AddItem(shard, 0.7)
+		addLive(entry, style.Transparency, 0.7, 0.25, center.Z)
 	end
-	sparkle(center, color, 30, parent)
+	sparkle(center, color, 30)
 end
 
-function Shatter.crystal(crystal, parent)
+function Shatter.crystal(crystal, _parent)
 	crystal.CanQuery = false
 
 	-- A pop of glowing chips plus the crystal shrinking away.
+	local style = {
+		Material = crystal.Material,
+		Color = crystal.Color,
+		Transparency = crystal.Transparency,
+		Reflectance = crystal.Reflectance,
+	}
 	for _ = 1, 6 do
-		local chip = makePiece("Part", crystal)
-		chip.CanCollide = false
+		local entry = acquire("Chip")
+		if not entry then
+			break
+		end
+		local chip = entry.a
+		applyStyle(chip, style, false)
 		chip.Size = Vector3.one * rng:NextNumber(0.2, 0.45)
 		chip.CFrame = crystal.CFrame * CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
-		chip.Parent = parent
+		chip.Anchored = false
 		chip.AssemblyLinearVelocity = rng:NextUnitVector() * rng:NextNumber(10, 20)
-		Debris:AddItem(chip, 0.6)
+		addLive(entry, style.Transparency, 0.6, 0.2, crystal.Position.Z)
 	end
-	sparkle(crystal.Position, crystal.Color, 18, parent)
+	sparkle(crystal.Position, crystal.Color, 18)
 
 	local tween = TweenService:Create(crystal, TweenInfo.new(0.25), {
 		Size = Vector3.zero,
@@ -7520,11 +8200,233 @@ function Shatter.crystal(crystal, parent)
 	tween:Play()
 end
 
+-- Ball impacts -----------------------------------------------------------------
+
+local lastImpact = 0
+
+-- A ball hit a wall, the floor or a decoration: a small dust puff and a few
+-- chips of that surface. Rate limited (Config.IMPACT_FX_INTERVAL).
+function Shatter.impact(position, normal, surface)
+	local now = os.clock()
+	if now - lastImpact < Config.IMPACT_FX_INTERVAL then
+		return
+	end
+	lastImpact = now
+
+	local color = surface.Color
+	local up = if math.abs(normal.Y) > 0.9 then Vector3.xAxis else UP
+	local slot = nextEmitter(dust)
+	slot.holder.CFrame = CFrame.lookAt(position, position + normal, up)
+	slot.emitter.Color = ColorSequence.new(color:Lerp(Color3.fromRGB(150, 150, 150), 0.4))
+	slot.emitter:Emit(if low then 3 else 6)
+
+	local style = {
+		Material = surface.Material,
+		Color = color:Lerp(Color3.new(0, 0, 0), 0.15),
+		Transparency = math.min(surface.Transparency, 0.3),
+		Reflectance = 0,
+	}
+	for _ = 1, if low then 2 else rng:NextInteger(2, 4) do
+		local entry = acquire("Chip")
+		if not entry then
+			break
+		end
+		local chip = entry.a
+		applyStyle(chip, style, true)
+		chip.Size = Vector3.new(rng:NextNumber(0.12, 0.3), rng:NextNumber(0.1, 0.22), rng:NextNumber(0.12, 0.3))
+		chip.CFrame = CFrame.new(position + normal * 0.25)
+			* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), rng:NextNumber(0, TAU))
+		chip.Anchored = false
+		chip.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 5 + UP * 4
+		chip.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(5, 15)
+		addLive(entry, style.Transparency, Config.IMPACT_CHIP_LIFETIME, 0.3, position.Z)
+	end
+end
+
+-- Knock-loose decorations ------------------------------------------------------
+-- Solid decorations (kind "Wall", not part of the room shell) that a ball hits
+-- come off their spot and tumble. They stop being hittable (CanQuery = false),
+-- so balls fly through them and never get blocked from reaching glass. They
+-- never count as hazards. After LOOSE_DECOR_SETTLE seconds, or when too many
+-- are loose, they freeze where they lie. Deleting the room removes them.
+
+local loose = {} -- knocked parts, oldest first
+local looseTime = {} -- os.clock() each one was knocked
+
+local function looseCap()
+	return if low then Config.LOW_LOOSE_DECOR_MAX else Config.LOOSE_DECOR_MAX
+end
+
+local function freezeOldest()
+	local part = table.remove(loose, 1)
+	table.remove(looseTime, 1)
+	if part.Parent then
+		part.Anchored = true
+		part.CanCollide = false
+	end
+end
+
+-- Can a ball knock this part loose?
+function Shatter.canKnock(part)
+	if not part:IsA("BasePart") or not part.Anchored or not part.CanQuery then
+		return false
+	end
+	if part:GetAttribute("Kind") ~= "Wall" or part:GetAttribute("Shell") then
+		return false
+	end
+	local size = part.Size
+	if math.max(size.X, size.Y, size.Z) > Config.LOOSE_DECOR_MAX_SIZE then
+		return false
+	end
+	-- Parts carrying a room light or a zone name sign stay put.
+	if part:FindFirstChildWhichIsA("Light") or part:FindFirstChildWhichIsA("SurfaceGui") then
+		return false
+	end
+	return true
+end
+
+-- Knocks one part loose, flying along `direction` (a unit vector).
+-- strength: 1 = normal ball, more = harder.
+function Shatter.knockLoose(part, direction, strength)
+	while #loose >= looseCap() do
+		freezeOldest()
+	end
+	local track = Config.TRACK_ORIGIN
+	-- Nudge it off the wall / floor it was touching so it doesn't start stuck inside.
+	local position = part.Position
+	local towardMiddle = Vector3.new(track.X - position.X, 0, 0)
+	local nudge = UP * KNOCK_NUDGE
+	if towardMiddle.Magnitude > 0.01 then
+		nudge += towardMiddle.Unit * KNOCK_NUDGE
+	end
+	part.CFrame += nudge
+
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false -- moving shadow casters are costly; it's moving fast anyway
+	part.CanCollide = true
+	if shardsGroup then
+		part.CollisionGroup = shardsGroup
+	end
+	part.Anchored = false
+	-- Small things fly, big things (a sign board, a bench top) mostly topple over,
+	-- so nothing large sails across the view in front of the glass.
+	local size = part.Size
+	local heft = math.clamp(KNOCK_FULL_SIZE / math.max(size.X, size.Y, size.Z), 0.35, 1)
+	local speed = Config.LOOSE_DECOR_SPEED * strength * heft * rng:NextNumber(0.75, 1.15)
+	part.AssemblyLinearVelocity = direction * speed + UP * KNOCK_UP * rng:NextNumber(0.6, 1.4) + rng:NextUnitVector() * 2
+	part.AssemblyAngularVelocity = rng:NextUnitVector() * KNOCK_SPIN * heft * rng:NextNumber(0.5, 1.5)
+
+	table.insert(loose, part)
+	table.insert(looseTime, os.clock())
+end
+
+-- Knocks loose every knockable part touching a sphere (mega ball, or a normal
+-- ball splashing a decoration made of several parts). params: OverlapParams
+-- limited to the track. Returns how many parts came loose.
+function Shatter.knockAround(position, radius, direction, strength, params)
+	local count = 0
+	for _, part in workspace:GetPartBoundsInRadius(position, radius, params) do
+		if Shatter.canKnock(part) then
+			Shatter.knockLoose(part, direction, strength)
+			count += 1
+		end
+	end
+	return count
+end
+
+-- Per frame ----------------------------------------------------------------------
+
+local nextBehindCheck = 0
+local KINDS = { "Pair", "Wedge", "Chip" }
+
+-- Makes a few pool pieces ahead of time (a little per frame).
+local function warmPool()
+	local deadline = os.clock() + WARM_BUDGET
+	for _, kind in KINDS do
+		local list = free[kind]
+		while made[kind] < warmTarget(kind) and made[kind] < maxMade(kind) do
+			table.insert(list, createEntry(kind))
+			if os.clock() > deadline then
+				return
+			end
+		end
+	end
+end
+
+local warmDone = false
+
+-- Call every frame with the camera's Z position.
+function Shatter.update(cameraZ)
+	processQueue()
+
+	local now = os.clock()
+	local releases = 0
+
+	-- Fade out, then return to the pool.
+	for index = #live, 1, -1 do
+		local entry = live[index]
+		if now >= entry.expires then
+			if releases < RELEASES_PER_FRAME then
+				releases += 1
+				park(removeLive(index))
+			end
+		elseif now >= entry.fadeStart then
+			local t = (now - entry.fadeStart) / (entry.expires - entry.fadeStart)
+			local transparency = entry.baseT + (1 - entry.baseT) * t
+			entry.a.Transparency = transparency
+			if entry.b then
+				entry.b.Transparency = transparency
+			end
+		end
+	end
+
+	-- Shards behind the camera: nobody can see them, recycle them now.
+	if now >= nextBehindCheck then
+		nextBehindCheck = now + BEHIND_CHECK_INTERVAL
+		local limit = cameraZ + BEHIND_DISTANCE
+		for index = #live, 1, -1 do
+			if releases >= RELEASES_PER_FRAME then
+				break
+			end
+			local entry = live[index]
+			if entry.spawnZ > cameraZ and entry.a.Position.Z > limit then
+				releases += 1
+				park(removeLive(index))
+			end
+		end
+	end
+
+	-- Loose decorations that tumbled long enough freeze where they lie.
+	while looseTime[1] and now - looseTime[1] > Config.LOOSE_DECOR_SETTLE do
+		freezeOldest()
+	end
+
+	if not warmDone then
+		warmPool()
+		warmDone = made.Pair >= warmTarget("Pair") and made.Wedge >= WEDGE_WARM and made.Chip >= CHIP_WARM
+	end
+end
+
+-- New run: everything back into the pool, nothing queued, no loose decorations
+-- (those were deleted with the old run's world).
+function Shatter.reset()
+	for index = #live, 1, -1 do
+		park(removeLive(index))
+	end
+	table.clear(queue)
+	queueHead = 1
+	queuedParts = 0
+	table.clear(loose)
+	table.clear(looseTime)
+	warmDone = false
+end
+
 return Shatter
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">Sounds</string>
             <string name="Source"><![CDATA[--[[
@@ -7652,28 +8554,45 @@ return Sounds
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">TrackBuilder</string>
             <string name="Source"><![CDATA[--[[
 	Builds the corridor rooms in front of the camera and deletes the ones behind it.
 	Everything here is created on the player's device only, so nobody else sees it.
 
-	Building a whole room at once takes long enough to make phones stutter, so
-	each room is built in steps, a few milliseconds per frame (Config.ROOM_BUILD_BUDGET):
-	  1. "Shell"  - floor, walls, trim, AND all glass, doors and crystals
-	                (so crash checks never see a room with glass missing)
-	  2. "Decor"  - the zone's decorations
-	  3. "Lights" - real lights and shadows (needs the decorations to exist)
-	The room the camera is about to enter is always finished right away, even
-	if that goes over the budget.
+	Smoothness: building or deleting a whole room in one frame makes phones
+	stutter (a room is 150-300 parts), and at top speed a new room comes every
+	~1.5 seconds. So nothing here ever does a whole room in one frame:
 
-	Low graphics (Settings): rooms ahead are built in thinner slices per frame
-	(LOW_BUILD_BUDGET) so weak phones don't hitch, and the "Lights" step adds no
-	lights or shadows (see LightingFx).
+	  Building - each room is built by its own coroutine (a function that can
+	    pause and continue later). Every part goes through newPart, and newPart
+	    pauses the coroutine as soon as this frame's build time is used up
+	    (Config.ROOM_BUILD_BUDGET, LOW_ROOM_BUILD_BUDGET on Low graphics). The
+	    next frame it carries on exactly where it stopped. Order inside a room:
+	      1. shell (floor, walls, trim) AND all glass, doors and crystals
+	      2. decorations (Decor.luau, through builder.newPart)
+	      3. lights (LightingFx.lightRoom)
+	    Rooms are started one room earlier than they become visible
+	    (Config.ROOMS_AHEAD + 1), so a room is long finished before the camera
+	    gets there. Safety net: a room still unfinished when the camera is
+	    Config.ROOM_FORCE_DISTANCE away is finished at once (Studio warns,
+	    because that means the budget is too small for this device).
+	    The room folder goes into the world right away and its parts arrive a few
+	    per frame. That is on purpose: adding a part to the world has a cost too,
+	    and parenting a finished 300-part folder in one go would be one big
+	    spike again. Half-built rooms are a whole room past the fog, so nobody
+	    sees them.
+
+	  Deleting - rooms behind the camera go to a trash list and lose a few
+	    parts per frame (Config.ROOM_TEARDOWN_BUDGET). They're out of view.
+
+	Room shell parts carry the attribute Shell = true. Everything else of
+	kind "Wall" is decoration that a ball can knock loose (see Shatter.knockLoose).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -7686,13 +8605,30 @@ local HEIGHT = Config.CORRIDOR_HEIGHT
 local LENGTH = Config.ROOM_LENGTH
 local ORIGIN = Config.TRACK_ORIGIN
 local EYE_Y = ORIGIN.Y + Config.CAMERA_HEIGHT
-local LOW_BUILD_BUDGET = Config.ROOM_BUILD_BUDGET * 0.6 -- seconds per frame on Low graphics
+local BUILD_AHEAD = (Config.ROOMS_AHEAD + 1) * LENGTH -- rooms start building this far ahead (studs)
+local CATCH_UP_DISTANCE = 1.5 * LENGTH -- the room being built is this close: build twice as fast
+local IS_STUDIO = RunService:IsStudio()
 
 local TrackBuilder = {}
 TrackBuilder.__index = TrackBuilder
 
+-- Time slicing -------------------------------------------------------------
+-- The coroutine building a room right now, and when this frame's build time ends.
+local buildThread = nil
+local buildDeadline = math.huge
+
+-- Called before every part is made: if this frame's build time is used up,
+-- pause the room's coroutine until the next frame. Does nothing outside a
+-- room build (or when a room is being finished right away).
+local function pauseIfOverBudget()
+	if buildThread ~= nil and os.clock() > buildDeadline and coroutine.running() == buildThread then
+		coroutine.yield()
+	end
+end
+
 -- kind: "Wall" (balls bounce), "Glass" (hazard), "Crystal", "Door", "Button", "Prop" (breakable decoration)
 local function newPart(parent, kind, props)
+	pauseIfOverBudget()
 	local part = Instance.new("Part")
 	part.Anchored = true
 	part.CanCollide = false
@@ -7747,7 +8683,12 @@ function TrackBuilder.new(parent, firstRoom, tutorial)
 	self.doorOf = setmetatable({}, { __mode = "k" }) -- door panel / button -> door
 	self.nextRoom = firstRoom or 0
 	self.rng = Random.new()
-	self.buildQueue = {} -- steps still to do, oldest first: { roomIndex, stage, info }
+	self.buildQueue = {} -- rooms still being built, nearest first: { roomIndex, thread, done }
+	self.trash = {} -- rooms behind the camera, deleted a few parts per frame: { folder, children, index }
+	self.hazardList = {} -- cached result of hazards()
+	self.hazardsDirty = true
+	self.shadowRoom = nil -- room index the shadow lights were last set for
+	self.warmedUp = false
 	return self
 end
 
@@ -7913,8 +8854,27 @@ function TrackBuilder:openDoor(door)
 		return
 	end
 	door.open = true
-	door.button.Color = Color3.fromRGB(80, 255, 120)
-	door.button.CanQuery = false
+	self.hazardsDirty = true
+	-- The button pops (quick swell, then shrinks away) so it doesn't stay
+	-- floating in the middle of the path once the doors slide open.
+	local button = door.button
+	button.Color = Color3.fromRGB(80, 255, 120)
+	button.CanQuery = false
+	local swell = TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = button.Size * 1.4,
+	})
+	local vanish = TweenService:Create(button, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+		Size = Vector3.new(0.05, 0.05, 0.05),
+		Transparency = 1,
+	})
+	swell.Completed:Connect(function()
+		vanish:Play()
+	end)
+	vanish.Completed:Connect(function()
+		button:Destroy()
+	end)
+	swell:Play()
+
 	for _, panel in door.panels do
 		local side = panel:GetAttribute("Side")
 		local goal = panel.CFrame + Vector3.new(side * WIDTH / 2, 0, 0)
@@ -7975,21 +8935,29 @@ function TrackBuilder:buildShell(roomIndex)
 	local zone = roomIndex // Config.ROOMS_PER_CHECKPOINT
 	local isZoneStart = roomIndex % Config.ROOMS_PER_CHECKPOINT == 0
 
+	-- The folder goes into the world now and fills up over the next frames
+	-- (see the notes at the top).
 	local folder = Instance.new("Folder")
 	folder.Name = "Room" .. roomIndex
-	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
+	folder.Parent = self.folder
+	local room = { folder = folder, glass = {}, doors = {}, crystals = {}, finished = false }
+	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
 	-- Real surface materials per zone instead of flat plastic.
 	local surfaces = SURFACES[theme.Style] or SURFACES.Lab
 	local wallProps = { Color = theme.Wall, Material = surfaces.Wall, CanCollide = true }
+	-- Shell parts are marked so balls never knock them loose.
+	local function shellPart(props)
+		newPart(folder, "Wall", props):SetAttribute("Shell", true)
+	end
 	local function wall(size, position, material, color)
 		local props = table.clone(wallProps)
 		props.Size = size
 		props.CFrame = CFrame.new(position)
 		props.Material = material or props.Material
 		props.Color = color or props.Color
-		newPart(folder, "Wall", props)
+		shellPart(props)
 	end
 	local floorColor = theme.Wall:Lerp(surfaces.FloorTint, surfaces.FloorTintAmount)
 	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y - 0.5, centerZ), surfaces.Floor, floorColor)
@@ -8003,7 +8971,7 @@ function TrackBuilder:buildShell(roomIndex)
 		local props = table.clone(accent)
 		props.Size = size
 		props.CFrame = CFrame.new(position)
-		newPart(folder, "Wall", props)
+		shellPart(props)
 	end
 	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + 0.2, startZ))
 	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT - 0.2, startZ))
@@ -8022,7 +8990,7 @@ function TrackBuilder:buildShell(roomIndex)
 			props.Size = Vector3.new(0.6, HEIGHT, 1.2)
 			props.CFrame = CFrame.new(ORIGIN.X + side * (WIDTH / 2 - 0.3), ORIGIN.Y + HEIGHT / 2, ribZ)
 			props.Color = theme.Wall:Lerp(Color3.new(0, 0, 0), 0.12)
-			newPart(folder, "Wall", props)
+			shellPart(props)
 		end
 	end
 
@@ -8063,106 +9031,211 @@ function TrackBuilder:buildShell(roomIndex)
 		end
 	end
 
-	folder.Parent = self.folder
-	self.rooms[roomIndex] = room
+	-- Glass, doors and crystals all exist now: crash checks can see them.
+	self.hazardsDirty = true
 
-	-- Decorations and lights come in later frames.
-	local info = {
-		roomIndex = roomIndex,
-		zone = zone,
-		theme = theme,
-		startZ = startZ,
-		isZoneStart = isZoneStart,
-		rng = rng,
-	}
-	self:queueStep({ roomIndex = roomIndex, stage = "Decor", info = info })
-	self:queueStep({ roomIndex = roomIndex, stage = "Lights", info = info })
+	return room,
+		{
+			roomIndex = roomIndex,
+			zone = zone,
+			theme = theme,
+			startZ = startZ,
+			isZoneStart = isZoneStart,
+			rng = rng,
+		}
 end
 
--- Adds a build step, keeping the queue in room order (nearest room first).
-function TrackBuilder:queueStep(job)
-	local queue = self.buildQueue
-	local position = #queue + 1
-	while position > 1 and queue[position - 1].roomIndex > job.roomIndex do
-		position -= 1
-	end
-	table.insert(queue, position, job)
+-- The whole build of one room, run inside its coroutine (pauses in newPart).
+function TrackBuilder:buildRoomSteps(roomIndex)
+	local room, info = self:buildShell(roomIndex)
+	Decor.decorate(self, room, info)
+	-- Real lights from the room's glowing parts, shadows from decorations.
+	LightingFx.lightRoom(room.folder, info.theme, pauseIfOverBudget)
+	room.finished = true
 end
 
--- Runs one queued build step.
-function TrackBuilder:runBuildStep(job)
-	if job.stage == "Shell" then
-		self:buildShell(job.roomIndex)
-		return
+-- Adds a room to the build queue (rooms are queued in order, nearest first).
+function TrackBuilder:queueRoom(roomIndex)
+	local job = { roomIndex = roomIndex, done = false }
+	job.thread = coroutine.create(function()
+		self:buildRoomSteps(roomIndex)
+	end)
+	table.insert(self.buildQueue, job)
+end
+
+-- Continues a room's build until it finishes or `deadline` (os.clock time) passes.
+function TrackBuilder:resumeJob(job, deadline)
+	buildThread, buildDeadline = job.thread, deadline
+	local ok, err = coroutine.resume(job.thread)
+	buildThread, buildDeadline = nil, math.huge
+	if not ok then
+		-- A bug in the build code: report it and move on (the room stays half built).
+		warn("[TrackBuilder] room " .. job.roomIndex .. " failed to build: " .. debug.traceback(job.thread, tostring(err)))
 	end
-	local room = self.rooms[job.roomIndex]
-	if not room then
-		return -- already behind the camera and deleted
-	end
-	if job.stage == "Decor" then
-		Decor.decorate(self, room, job.info)
-	elseif job.stage == "Lights" then
-		-- Real lights from the room's glowing parts, shadows from decorations.
-		LightingFx.lightRoom(room.folder, job.info.theme)
+	if coroutine.status(job.thread) == "dead" then
+		job.done = true
 	end
 end
 
--- Builds a whole room right now (all steps).
+-- Builds a whole room right now.
 function TrackBuilder:buildRoom(roomIndex)
-	self:buildShell(roomIndex)
+	self:queueRoom(roomIndex)
 	self:finishRoomsUpTo(roomIndex)
 end
 
--- Runs every queued step for rooms up to lastRoomIndex, right now.
+-- Finishes every queued room up to lastRoomIndex, right now (no time limit).
 function TrackBuilder:finishRoomsUpTo(lastRoomIndex)
 	local queue = self.buildQueue
 	while queue[1] and queue[1].roomIndex <= lastRoomIndex do
-		self:runBuildStep(table.remove(queue, 1))
+		self:resumeJob(queue[1], math.huge)
+		table.remove(queue, 1)
 	end
+end
+
+-- Queues every room that should be building by now.
+function TrackBuilder:queueAhead(cameraZ)
+	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - BUILD_AHEAD do
+		self:queueRoom(self.nextRoom)
+		self.nextRoom += 1
+	end
+end
+
+-- Call once right after new(): the room the camera starts in and the next one
+-- are built completely now (it's the start of a run, a short pause is fine).
+function TrackBuilder:warmUp(cameraZ)
+	self:queueAhead(cameraZ)
+	self:finishRoomsUpTo(TrackBuilder.roomAt(cameraZ) + 1)
+	self.warmedUp = true
+	self:update(cameraZ, 0)
+end
+
+function TrackBuilder.roomAt(z)
+	return math.max(0, (ORIGIN.Z - z) // LENGTH)
+end
+
+-- Removes a few parts of the rooms in the trash, within `budget` seconds.
+function TrackBuilder:emptyTrash(budget)
+	local trash = self.trash
+	local deadline = os.clock() + budget
+	while trash[1] and os.clock() < deadline do
+		local entry = trash[1]
+		if not entry.children then
+			entry.children = entry.folder:GetChildren()
+			entry.index = 0
+		end
+		local children = entry.children
+		-- A handful at a time between clock checks.
+		for _ = 1, 4 do
+			local i = entry.index + 1
+			local child = children[i]
+			if child == nil then
+				break
+			end
+			entry.index = i
+			child:Destroy()
+		end
+		if entry.index >= #children then
+			entry.folder:Destroy() -- empty now, so this is cheap
+			table.remove(trash, 1)
+		end
+	end
+end
+
+-- Shadow-casting lights only in the room the camera is in and the next one.
+function TrackBuilder:updateShadowRooms(cameraZ, force)
+	local current = TrackBuilder.roomAt(cameraZ)
+	if current == self.shadowRoom and not force then
+		return
+	end
+	self.shadowRoom = current
+	local here = self.rooms[current]
+	local nextRoom = if Config.SHADOW_LIGHT_ROOMS >= 2 then self.rooms[current + 1] else nil
+	LightingFx.setShadowRooms(here and here.folder, nextRoom and nextRoom.folder)
 end
 
 -- Call every frame with the camera's Z position.
 function TrackBuilder:update(cameraZ, dt)
-	local spin = CFrame.Angles(0, dt * 2, 0)
-	for _, room in self.rooms do
-		for _, crystal in room.crystals do
-			if crystal.Parent and crystal.CanQuery then
-				crystal.CFrame = crystal.CFrame * spin
+	local frameStart = os.clock()
+	local low = LightingFx.isLow()
+
+	-- Spin the crystals close enough to see (rooms ahead, within CRYSTAL_SPIN_RANGE).
+	if dt > 0 then
+		local spin = CFrame.Angles(0, dt * 2, 0)
+		local spinRange = Config.CRYSTAL_SPIN_RANGE
+		for roomIndex, room in self.rooms do
+			local startZ = TrackBuilder.roomStartZ(roomIndex)
+			if startZ - LENGTH < cameraZ and startZ > cameraZ - spinRange then
+				for _, crystal in room.crystals do
+					if crystal.Parent and crystal.CanQuery then
+						crystal.CFrame = crystal.CFrame * spin
+					end
+				end
 			end
 		end
 	end
 
-	-- Queue new rooms coming into view (built over the next frames).
-	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - Config.ROOMS_AHEAD * LENGTH do
-		self:queueStep({ roomIndex = self.nextRoom, stage = "Shell" })
-		self.nextRoom += 1
-	end
+	self:queueAhead(cameraZ)
 
-	-- The room the camera is in and the next one (starting within one room
-	-- length plus a margin) must be complete: build them now, whatever it costs.
-	local started = os.clock()
-	local mustFinish = (ORIGIN.Z - (cameraZ - LENGTH - 20)) // LENGTH
-	self:finishRoomsUpTo(mustFinish)
-
-	-- Everything further away: only while this frame's time budget lasts.
+	-- Safety net: never let the camera reach an unfinished room.
 	local queue = self.buildQueue
-	local budget = if LightingFx.isLow() then LOW_BUILD_BUDGET else Config.ROOM_BUILD_BUDGET
-	while queue[1] and os.clock() - started < budget do
-		self:runBuildStep(table.remove(queue, 1))
+	while queue[1] and TrackBuilder.roomStartZ(queue[1].roomIndex) > cameraZ - Config.ROOM_FORCE_DISTANCE do
+		if IS_STUDIO and self.warmedUp then
+			warn(
+				"[TrackBuilder] room "
+					.. queue[1].roomIndex
+					.. " was not finished in time and was built in one frame (raise ROOM_BUILD_BUDGET?)"
+			)
+		end
+		self:resumeJob(queue[1], math.huge)
+		table.remove(queue, 1)
 	end
 
+	-- Rooms ahead: only while this frame's build time lasts. Twice the time
+	-- when the room being built is getting close (slow device).
+	local budget = if low then Config.LOW_ROOM_BUILD_BUDGET else Config.ROOM_BUILD_BUDGET
+	if queue[1] and TrackBuilder.roomStartZ(queue[1].roomIndex) > cameraZ - CATCH_UP_DISTANCE then
+		budget *= 2
+	end
+	local deadline = frameStart + budget
+	while queue[1] and os.clock() < deadline do
+		self:resumeJob(queue[1], deadline)
+		if queue[1].done then
+			table.remove(queue, 1)
+		end
+	end
+
+	-- Rooms behind the camera go to the trash...
 	for roomIndex, room in self.rooms do
 		local endZ = TrackBuilder.roomStartZ(roomIndex) - LENGTH
 		if endZ > cameraZ + 10 then
-			room.folder:Destroy()
 			self.rooms[roomIndex] = nil
+			self.hazardsDirty = true
+			table.insert(self.trash, { folder = room.folder })
 		end
 	end
+	-- ...which is emptied a little every frame.
+	self:emptyTrash(if low then Config.LOW_ROOM_TEARDOWN_BUDGET else Config.ROOM_TEARDOWN_BUDGET)
+
+	self:updateShadowRooms(cameraZ, false)
+end
+
+-- Something you can crash into changed (glass broken). hazards() rebuilds its list next time.
+function TrackBuilder:markHazardsChanged()
+	self.hazardsDirty = true
 end
 
 -- Everything you can crash into: unbroken glass and closed doors.
+-- The list is cached and only rebuilt when something changed (a room was
+-- added or removed, glass broke, a door opened), so calling this every frame
+-- costs nothing. Don't change the returned table. Entries can go stale within
+-- a frame (glass broken mid-loop): check hazard.Parent / door.open as before.
 function TrackBuilder:hazards()
-	local result = {}
+	local result = self.hazardList
+	if not self.hazardsDirty then
+		return result
+	end
+	self.hazardsDirty = false
+	table.clear(result)
 	for _, room in self.rooms do
 		for _, glass in room.glass do
 			if glass.Parent then
@@ -8188,7 +9261,7 @@ return TrackBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="35">
+        <Item class="ModuleScript" referent="36">
           <Properties>
             <string name="Name">Tutorial</string>
             <string name="Source"><![CDATA[--[[
@@ -8741,7 +9814,7 @@ return Tutorial
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="36">
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">UI</string>
             <string name="Source"><![CDATA[--[[
@@ -15244,13 +16317,13 @@ return UI
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="37">
+  <Item class="Workspace" referent="38">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="FilteringEnabled">true</bool>
       <bool name="NeedsPivotMigration">false</bool>
     </Properties>
-    <Item class="Part" referent="38">
+    <Item class="Part" referent="39">
       <Properties>
         <string name="Name">Baseplate</string>
         <bool name="Anchored">true</bool>
@@ -15271,7 +16344,7 @@ return UI
         <token name="TopSurface">0</token>
       </Properties>
     </Item>
-    <Item class="SpawnLocation" referent="39">
+    <Item class="SpawnLocation" referent="40">
       <Properties>
         <string name="Name">SpawnLocation</string>
         <bool name="Anchored">true</bool>

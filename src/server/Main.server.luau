@@ -7,6 +7,7 @@
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -16,6 +17,16 @@ local Progression = require(script.Parent.Progression)
 local Shop = require(script.Parent.Shop)
 
 local Remotes = ReplicatedStorage.Remotes
+
+-- Glass shards and knocked-loose decorations (built on each player's device)
+-- bounce off the floor and walls but not off each other, which keeps physics
+-- cheap. Collision groups must be registered on the server to work everywhere.
+pcall(function()
+	if not PhysicsService:IsCollisionGroupRegistered("Shards") then
+		PhysicsService:RegisterCollisionGroup("Shards")
+	end
+	PhysicsService:CollisionGroupSetCollidable("Shards", "Shards", false)
+end)
 local leaderboardStore = DataStoreService:GetOrderedDataStore("BestDistance_v1")
 
 local LEADERBOARD_SIZE = 10

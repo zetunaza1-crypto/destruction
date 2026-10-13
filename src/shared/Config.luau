@@ -14,8 +14,8 @@ Config.TRACK_ORIGIN = Vector3.new(0, 500, 0)
 Config.CORRIDOR_WIDTH = 20
 Config.CORRIDOR_HEIGHT = 14
 Config.ROOM_LENGTH = 80
-Config.ROOMS_AHEAD = 3 -- how many rooms are built in front of the camera (the fog hides the far end)
-Config.ROOM_BUILD_BUDGET = 0.003 -- seconds per frame spent building rooms ahead (spread over frames)
+Config.ROOMS_AHEAD = 3 -- how many rooms are visible in front of the camera (the fog hides the far end);
+-- rooms start building one room earlier than that, a few parts per frame
 Config.SAFE_ROOMS = 2 -- the first rooms have no glass so players can warm up
 Config.ROOMS_PER_CHECKPOINT = 10 -- new colors + "CHECKPOINT" every N rooms
 Config.CAMERA_HEIGHT = 6
@@ -369,10 +369,44 @@ Config.ZonePatterns = {
 	{ "FullWall", "Moving", "Door", "Grid", "Spinner", "Double", "Pillars" },
 }
 
+-- Smoothness (frame budgets) ---------------------------------------------------
+-- Every heavy job is cut into small slices so no single frame does big work.
+-- Times are seconds of work per frame. "LOW_" = Low graphics (weak phones).
+Config.ROOM_BUILD_BUDGET = 0.0015 -- building rooms ahead (parts are created until this runs out, then it waits a frame)
+Config.LOW_ROOM_BUILD_BUDGET = 0.001
+Config.ROOM_TEARDOWN_BUDGET = 0.0006 -- deleting rooms behind the camera, a few parts per frame
+Config.LOW_ROOM_TEARDOWN_BUDGET = 0.0004
+-- Safety net: a room still unfinished when the camera is this close (studs) is finished at once.
+-- Should never happen (rooms are built a whole room early); Studio prints a warning if it does.
+Config.ROOM_FORCE_DISTANCE = 40
+Config.CRYSTAL_SPIN_RANGE = 150 -- only crystals this close (studs) spin
+Config.SHADOW_LIGHT_ROOMS = 2 -- shadow-casting lights only in the room you're in and the next one (High graphics, not phones)
+Config.SHOW_PERF = true -- playtest build: small FPS / worst frame / part count label in the bottom-left corner
+
 -- Glass breaking ---------------------------------------------------------------
+-- Shards are reused from a pool (no creating / deleting parts per break), land on
+-- the floor and pile up, then fade out. They hit floor and walls but not each other.
 Config.SHARD_RAYS = 8 -- cracks spreading from the impact (more = finer shards, slower)
-Config.SHARD_LIFETIME = 2.5
-Config.MAX_LIVE_SHARDS = 240 -- above this many flying shard parts, new breaks use fewer, simpler shards
+Config.SHARD_LIFETIME = 5 -- seconds a shard stays (shards behind the camera are recycled early)
+Config.SHARD_FADE_TIME = 0.5 -- the last part of that lifetime they fade away
+Config.MAX_LIVE_SHARDS = 360 -- above this many shard parts, new breaks use fewer, simpler shards
+Config.LOW_MAX_LIVE_SHARDS = 160
+Config.SHARD_POOL_WARM = 120 -- triangle shards made ahead of time, a few per frame (Low: half)
+Config.SHARD_SPAWN_BUDGET = 0.0012 -- seconds per frame placing new shards (a big break spreads over 2-3 frames)
+Config.LOW_SHARD_SPAWN_BUDGET = 0.0008
+Config.SHARD_BACK_BURST = 0.35 -- chance a shard right at the impact flies back toward you instead of away
+
+-- Knock-loose decorations: balls knock solid decorations (crates, benches, lamps,
+-- plants, racks, signs) off their spot so they topple and tumble.
+Config.LOOSE_DECOR_MAX = 80 -- at most this many tumbling at once (the oldest freeze in place)
+Config.LOW_LOOSE_DECOR_MAX = 40
+Config.LOOSE_DECOR_MAX_SIZE = 8 -- parts bigger than this (studs, longest side) never come loose
+Config.LOOSE_DECOR_SETTLE = 6 -- seconds a knocked part tumbles before it freezes where it lies
+Config.LOOSE_DECOR_SPEED = 26 -- how hard a ball knocks things (studs per second)
+
+-- Ball impacts on walls / floor: a dust puff and a few chips.
+Config.IMPACT_FX_INTERVAL = 0.04 -- at most one impact effect this often (seconds)
+Config.IMPACT_CHIP_LIFETIME = 1.4
 
 Config.GLASS_COLOR = Color3.fromRGB(200, 235, 255)
 Config.CRYSTAL_COLOR = Color3.fromRGB(60, 140, 255)

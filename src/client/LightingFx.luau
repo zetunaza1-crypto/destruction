@@ -5,6 +5,9 @@
 	  color grading and bloom. Crossing a checkpoint fades smoothly to the next.
 	- lightRoom() turns a room's biggest glowing (Neon) parts into actual light
 	  sources and lets decorations cast shadows, so nothing looks flat.
+	- Shadow-casting lights are expensive, so only the room the camera is in
+	  and the next one get one (setShadowRooms, called by TrackBuilder when the
+	  camera enters a new room). All other room lights have no shadows.
 	Requires Lighting.Technology = Future in the place (set in place.project.json).
 	Everything here runs on the player's own device only.
 
@@ -26,7 +29,7 @@ local LightingFx = {}
 local FADE = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 
 local LIGHTS_PER_ROOM = 4
-local SHADOW_LIGHTS_PER_ROOM = 1
+local PARTS_PER_PAUSE_CHECK = 16 -- lightRoom checks the build time budget this often
 local SHADOW_CASTER_MAX_SIZE = 15 -- the room shell (80 studs long) never casts
 local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) never cast either
 -- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
@@ -110,9 +113,11 @@ local currentTheme = nil
 local bloomTween = nil -- the zone fade, cancelled if the graphics level changes mid-fade
 local low = Settings.graphicsLevel() == "Low"
 
--- Rooms that went through lightRoom: roomFolder -> { theme, lights = { PointLight }, casters = { BasePart } }.
+-- Rooms that went through lightRoom: roomFolder -> { theme, lights = { PointLight }, casters = { BasePart }, shadowLight }.
 -- Weak keys: a room deleted behind the camera just drops out.
 local rooms = setmetatable({}, { __mode = "k" })
+-- Room folders allowed a shadow-casting light right now (at most 2, see setShadowRooms).
+local shadowRooms = setmetatable({}, { __mode = "k" })
 
 local function presetFor(theme)
 	return PRESETS[theme and theme.Style or "Lab"] or PRESETS.Lab
@@ -223,6 +228,31 @@ function LightingFx.applyTheme(theme, instant)
 	set(bloom, bloomGoal(preset))
 end
 
+-- Gives the room's main light shadows only if it's one of the shadow rooms.
+local function applyShadow(roomFolder, record)
+	local light = record.shadowLight
+	if light then
+		local wanted = shadowRooms[roomFolder] == true and not low and not TOUCH_ONLY
+		if light.Shadows ~= wanted then
+			light.Shadows = wanted
+		end
+	end
+end
+
+-- Only these rooms (the camera's room and the next one) get a shadow-casting light.
+function LightingFx.setShadowRooms(roomFolder, nextRoomFolder)
+	table.clear(shadowRooms)
+	if roomFolder then
+		shadowRooms[roomFolder] = true
+	end
+	if nextRoomFolder then
+		shadowRooms[nextRoomFolder] = true
+	end
+	for folder, record in rooms do
+		applyShadow(folder, record)
+	end
+end
+
 -- Switches a lit room's lights and shadows off (Low graphics).
 local function darkenRoom(record)
 	for _, light in record.lights do
@@ -235,14 +265,20 @@ local function darkenRoom(record)
 	end
 	table.clear(record.lights)
 	table.clear(record.casters)
+	record.shadowLight = nil
 	record.lit = false
 end
 
 -- Adds the real lights and shadows to a room (High graphics).
-local function lightUp(roomFolder, record)
+-- pause (optional): called every few parts so a room build can wait for the
+-- next frame when its time is up (TrackBuilder's time slicing).
+local function lightUp(roomFolder, record, pause)
 	local preset = presetFor(record.theme)
 	local glowing = {}
-	for _, part in roomFolder:GetDescendants() do
+	for index, part in roomFolder:GetDescendants() do
+		if pause and index % PARTS_PER_PAUSE_CHECK == 0 then
+			pause()
+		end
 		if not part:IsA("BasePart") then
 			continue
 		end
@@ -263,6 +299,12 @@ local function lightUp(roomFolder, record)
 			part.CastShadow = true
 			table.insert(record.casters, part)
 		end
+	end
+
+	-- While this room build was paused the graphics setting may have changed
+	-- (and lit the room already, or switched to Low): nothing more to do then.
+	if record.lit or low then
+		return
 	end
 
 	table.sort(glowing, function(a, b)
@@ -289,19 +331,23 @@ local function lightUp(roomFolder, record)
 			light.Color = entry.part.Color
 			light.Brightness = preset.LightBrightness
 			light.Range = preset.LightRange
-			light.Shadows = not TOUCH_ONLY and #lit < SHADOW_LIGHTS_PER_ROOM
+			light.Shadows = false -- see applyShadow
 			light.Parent = entry.part
 			table.insert(lit, entry.part)
 			table.insert(record.lights, light)
 		end
 	end
+	-- The biggest light is the one that may cast shadows (when the camera is near).
+	record.shadowLight = record.lights[1]
 	record.lit = true
+	applyShadow(roomFolder, record)
 end
 
 -- Turns the room's biggest glowing parts into real lights and lets decorations
 -- cast shadows. Call after the room (and its decorations) are built.
 -- On Low graphics it only remembers the room (so switching to High can light it).
-function LightingFx.lightRoom(roomFolder, theme)
+-- pause: optional, see lightUp.
+function LightingFx.lightRoom(roomFolder, theme, pause)
 	local record = rooms[roomFolder]
 	if not record then
 		record = { theme = theme, lights = {}, casters = {}, lit = false }
@@ -313,7 +359,7 @@ function LightingFx.lightRoom(roomFolder, theme)
 			darkenRoom(record)
 		end
 	elseif not record.lit then
-		lightUp(roomFolder, record)
+		lightUp(roomFolder, record, pause)
 	end
 end
 

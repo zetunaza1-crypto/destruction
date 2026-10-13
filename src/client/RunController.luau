@@ -19,6 +19,14 @@
 	smashes, a field-of-view punch on every smash, a kick + shake on crashes, a
 	tiny recoil on throws, and phone / controller vibration (Haptics.luau).
 	Camera effects follow Settings "shake", the shield tint follows "flashes".
+
+	Destruction: balls knock solid decorations loose (Shatter.knockLoose) and kick
+	up dust + chips where they hit walls and floor (Shatter.impact). Knocked
+	pieces can't be hit again and never block glass.
+
+	Smoothness: nothing in the frame loop builds new tables (the HUD tables are
+	reused), crash checks read TrackBuilder's cached hazard list, and
+	PerfOverlay (Config.SHOW_PERF) shows FPS / worst frame / part counts.
 ]]
 
 local GuiService = game:GetService("GuiService")
@@ -40,6 +48,7 @@ local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
 local LightingFx = require(script.Parent.LightingFx)
+local PerfOverlay = require(script.Parent.PerfOverlay)
 local Settings = require(script.Parent.Settings)
 local Tutorial = require(script.Parent.Tutorial)
 local UI = require(script.Parent.UI)
@@ -56,6 +65,11 @@ local BALL_STEPS = 3 -- collision checks per ball per frame
 local BEHIND_CAMERA = 15 -- normal balls this far behind the camera are removed
 local TUTORIAL_MIN_BALL_SPEED = 0.5 -- balls still fly at least half speed while the tutorial slows time
 local MEGA_STEPS = 8 -- mega balls can smash through several things in one frame
+local KNOCK_SPLASH = 1.2 -- a ball knocking a decoration loose also knocks parts this close (multi-part decorations come apart)
+local KNOCK_OUT = 0.8 -- knocked parts fly along the ball, plus this much straight out of the surface
+local MEGA_KNOCK_REACH = 1 -- mega balls knock loose everything within their radius plus this
+local MEGA_STRENGTH = 1.5 -- ...and knock it harder
+local DECOR_DEPTH = 3 -- decorations stick out this far from the walls / floor / ceiling
 
 -- Boosts
 local BOOSTS = Config.Boosts
@@ -111,6 +125,7 @@ local world -- Folder holding everything for the current run
 local shardFolder
 local track
 local raycastParams
+local overlapParams -- the track only, for knocking decorations loose
 
 local cameraZ = ORIGIN.Z
 local speed = Config.START_SPEED
@@ -172,14 +187,16 @@ local function cameraPosition()
 	return Vector3.new(ORIGIN.X, ORIGIN.Y + Config.CAMERA_HEIGHT, cameraZ)
 end
 
+-- One table reused every frame (the UI only reads it).
+local hudState = { balls = 0, multiball = 1, streak = 0, meters = 0, zone = 0 }
+
 local function updateHud()
-	ui:setHud({
-		balls = balls,
-		multiball = multiball,
-		streak = (streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL) / Config.CRYSTALS_PER_MULTIBALL_LEVEL,
-		meters = meters(),
-		zone = currentRoom() // Config.ROOMS_PER_CHECKPOINT,
-	})
+	hudState.balls = balls
+	hudState.multiball = multiball
+	hudState.streak = (streak % Config.CRYSTALS_PER_MULTIBALL_LEVEL) / Config.CRYSTALS_PER_MULTIBALL_LEVEL
+	hudState.meters = meters()
+	hudState.zone = currentRoom() // Config.ROOMS_PER_CHECKPOINT
+	ui:setHud(hudState)
 end
 
 -- Lighting -------------------------------------------------------------------
@@ -354,6 +371,7 @@ local function smashGlass(glass, hitPoint, push, fx, feedback)
 	local size = glass.Size
 	local big = glass:GetAttribute("Pattern") == "FullWall" or size.X * size.Y >= BIG_PANE_AREA
 	Shatter.glass(glass, hitPoint, push, shardFolder, fx)
+	track:markHazardsChanged()
 	Sounds.play("Shatter", 0.85 + math.random() * 0.3)
 	if feedback then
 		smashFeedback(big)
@@ -368,6 +386,32 @@ local function bounce(ball, hit, remaining)
 	ball.velocity = (ball.velocity - 2 * ball.velocity:Dot(normal) * normal) * 0.6
 	ball.position += normal * 0.05
 	return ball.velocity.Unit * remaining * 0.6
+end
+
+-- Which way a knocked-loose decoration flies: along the ball, and out of the
+-- surface it was hit on (so it falls into the corridor instead of into the wall).
+local function knockDirection(ballDirection, normal)
+	local direction = ballDirection + normal * KNOCK_OUT
+	return if direction.Magnitude > 0.01 then direction.Unit else normal
+end
+
+-- A ball hit a decoration: it comes loose, and so do its parts right next to it.
+local function knockDecoration(part, hitPoint, direction, radius, strength)
+	Shatter.knockLoose(part, direction, strength)
+	Shatter.knockAround(hitPoint, radius, direction, strength, overlapParams)
+end
+
+-- Mega balls: anything within reach comes loose. Decorations only sit near
+-- the walls, floor and ceiling, so the (more costly) area check only runs there.
+local function megaKnockNearby(ball, direction)
+	local p = ball.position
+	local reach = MEGA_RADIUS + MEGA_KNOCK_REACH
+	local nearEdge = math.abs(p.X - ORIGIN.X) > Config.CORRIDOR_WIDTH / 2 - DECOR_DEPTH - reach
+		or p.Y < ORIGIN.Y + DECOR_DEPTH + reach
+		or p.Y > ORIGIN.Y + Config.CORRIDOR_HEIGHT - DECOR_DEPTH - reach
+	if nearEdge then
+		Shatter.knockAround(p, reach, direction, MEGA_STRENGTH, overlapParams)
+	end
 end
 
 -- MegaBall boost: a giant ball swept as a sphere (workspace:Spherecast), so it
@@ -411,6 +455,11 @@ local function stepMegaBall(ball, travel)
 		elseif kind == "Crystal" then
 			collectCrystal(part)
 			travel = direction * remaining
+		elseif Shatter.canKnock(part) then
+			-- Decorations don't stop a giant ball: they're knocked flying.
+			knockDecoration(part, hit.Position, knockDirection(direction, hit.Normal), MEGA_RADIUS + MEGA_KNOCK_REACH, MEGA_STRENGTH)
+			Shatter.impact(hit.Position, hit.Normal, part)
+			travel = direction * remaining
 		else
 			local door = if kind == "Door" or kind == "Button" then track:doorFor(part) else nil
 			if door and not door.open then
@@ -422,8 +471,13 @@ local function stepMegaBall(ball, travel)
 				bigHit = true
 				break
 			end
+			Shatter.impact(hit.Position, hit.Normal, part)
 			travel = bounce(ball, hit, remaining)
 		end
+	end
+
+	if ball.velocity.Magnitude > 1e-3 then
+		megaKnockNearby(ball, ball.velocity.Unit)
 	end
 
 	-- One feedback per frame for everything this giant ball broke.
@@ -494,7 +548,13 @@ local function stepBall(ball, dt)
 			ball.velocity = -ball.velocity * 0.4
 			travel = ball.velocity.Unit * remaining * 0.4
 		else
-			-- Walls, floor, doors: bounce.
+			-- Walls, floor, doors: bounce, with a puff of dust and a few chips.
+			-- Decorations (not the room itself) are knocked loose too.
+			local part = hit.Instance
+			if Shatter.canKnock(part) then
+				knockDecoration(part, hit.Position, knockDirection(ball.velocity.Unit, hit.Normal), KNOCK_SPLASH, 1)
+			end
+			Shatter.impact(hit.Position, hit.Normal, part)
 			travel = bounce(ball, hit, remaining)
 		end
 	end
@@ -746,15 +806,17 @@ local function shieldBreak()
 end
 
 -- What the HUD shows for boosts (sent every frame; the UI only redraws changes).
+-- One table reused every frame (the UI only reads it).
+local boostState = { shield = false, magnet = 0, slowmo = 0, megaball = 0, doubleGems = false }
+
 local function updateBoostHud()
 	if ui.setBoosts then
-		ui:setBoosts({
-			shield = boost.shield > 0, -- the UI only shows on / off
-			magnet = boost.magnet,
-			slowmo = boost.slowmo,
-			megaball = boost.megaball,
-			doubleGems = boost.doubleGems,
-		})
+		boostState.shield = boost.shield > 0 -- the UI only shows on / off
+		boostState.magnet = boost.magnet
+		boostState.slowmo = boost.slowmo
+		boostState.megaball = boost.megaball
+		boostState.doubleGems = boost.doubleGems
+		ui:setBoosts(boostState)
 	end
 end
 
@@ -873,6 +935,7 @@ local function resetWorld(checkpoint, tutorial)
 	clearBalls()
 	resetBoosts()
 	resetFeel()
+	Shatter.reset()
 
 	world = Instance.new("Folder")
 	world.Name = "LocalRun"
@@ -885,11 +948,19 @@ local function resetWorld(checkpoint, tutorial)
 	local firstRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT
 	track = TrackBuilder.new(world, firstRoom, tutorial)
 	cameraZ = TrackBuilder.roomStartZ(firstRoom) + 4
-	track:update(cameraZ, 0)
+	-- The first two rooms are built completely now; the rest a little per frame.
+	track:warmUp(cameraZ)
 
 	raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Include
 	raycastParams.FilterDescendantsInstances = { track.folder }
+
+	overlapParams = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Include
+	overlapParams.FilterDescendantsInstances = { track.folder }
+	overlapParams.MaxParts = 24
+
+	PerfOverlay.watch(world)
 
 	lastRoom = firstRoom
 	lastReportedRoom = firstRoom
@@ -953,7 +1024,7 @@ local function revive(extraBalls)
 	-- Clear everything right in front of the player so they don't crash instantly.
 	for _, hazard in track:hazards() do
 		local ahead = cameraZ - hazard.Position.Z
-		if ahead > -2 and ahead < 40 then
+		if hazard.Parent and ahead > -2 and ahead < 40 then
 			local door = track:doorFor(hazard)
 			if door then
 				track:openDoor(door)
@@ -1044,6 +1115,8 @@ local function step(dt)
 		track:update(cameraZ, worldDt)
 	end
 	stepBalls(ballDt)
+	-- After the balls, so shards from this frame's smashes are placed this frame.
+	Shatter.update(cameraZ)
 
 	if state == "Running" then
 		updateMagnet(worldDt)
@@ -1228,6 +1301,7 @@ end
 
 function RunController.start()
 	task.spawn(hideCoreGui)
+	PerfOverlay.start(Shatter.liveCount)
 	GamepadAim.start()
 	LeaveGift.start({
 		claim = function()

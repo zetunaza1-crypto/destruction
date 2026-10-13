@@ -2,21 +2,38 @@
 	Builds the corridor rooms in front of the camera and deletes the ones behind it.
 	Everything here is created on the player's device only, so nobody else sees it.
 
-	Building a whole room at once takes long enough to make phones stutter, so
-	each room is built in steps, a few milliseconds per frame (Config.ROOM_BUILD_BUDGET):
-	  1. "Shell"  - floor, walls, trim, AND all glass, doors and crystals
-	                (so crash checks never see a room with glass missing)
-	  2. "Decor"  - the zone's decorations
-	  3. "Lights" - real lights and shadows (needs the decorations to exist)
-	The room the camera is about to enter is always finished right away, even
-	if that goes over the budget.
+	Smoothness: building or deleting a whole room in one frame makes phones
+	stutter (a room is 150-300 parts), and at top speed a new room comes every
+	~1.5 seconds. So nothing here ever does a whole room in one frame:
 
-	Low graphics (Settings): rooms ahead are built in thinner slices per frame
-	(LOW_BUILD_BUDGET) so weak phones don't hitch, and the "Lights" step adds no
-	lights or shadows (see LightingFx).
+	  Building - each room is built by its own coroutine (a function that can
+	    pause and continue later). Every part goes through newPart, and newPart
+	    pauses the coroutine as soon as this frame's build time is used up
+	    (Config.ROOM_BUILD_BUDGET, LOW_ROOM_BUILD_BUDGET on Low graphics). The
+	    next frame it carries on exactly where it stopped. Order inside a room:
+	      1. shell (floor, walls, trim) AND all glass, doors and crystals
+	      2. decorations (Decor.luau, through builder.newPart)
+	      3. lights (LightingFx.lightRoom)
+	    Rooms are started one room earlier than they become visible
+	    (Config.ROOMS_AHEAD + 1), so a room is long finished before the camera
+	    gets there. Safety net: a room still unfinished when the camera is
+	    Config.ROOM_FORCE_DISTANCE away is finished at once (Studio warns,
+	    because that means the budget is too small for this device).
+	    The room folder goes into the world right away and its parts arrive a few
+	    per frame. That is on purpose: adding a part to the world has a cost too,
+	    and parenting a finished 300-part folder in one go would be one big
+	    spike again. Half-built rooms are a whole room past the fog, so nobody
+	    sees them.
+
+	  Deleting - rooms behind the camera go to a trash list and lose a few
+	    parts per frame (Config.ROOM_TEARDOWN_BUDGET). They're out of view.
+
+	Room shell parts carry the attribute Shell = true. Everything else of
+	kind "Wall" is decoration that a ball can knock loose (see Shatter.knockLoose).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -29,13 +46,30 @@ local HEIGHT = Config.CORRIDOR_HEIGHT
 local LENGTH = Config.ROOM_LENGTH
 local ORIGIN = Config.TRACK_ORIGIN
 local EYE_Y = ORIGIN.Y + Config.CAMERA_HEIGHT
-local LOW_BUILD_BUDGET = Config.ROOM_BUILD_BUDGET * 0.6 -- seconds per frame on Low graphics
+local BUILD_AHEAD = (Config.ROOMS_AHEAD + 1) * LENGTH -- rooms start building this far ahead (studs)
+local CATCH_UP_DISTANCE = 1.5 * LENGTH -- the room being built is this close: build twice as fast
+local IS_STUDIO = RunService:IsStudio()
 
 local TrackBuilder = {}
 TrackBuilder.__index = TrackBuilder
 
+-- Time slicing -------------------------------------------------------------
+-- The coroutine building a room right now, and when this frame's build time ends.
+local buildThread = nil
+local buildDeadline = math.huge
+
+-- Called before every part is made: if this frame's build time is used up,
+-- pause the room's coroutine until the next frame. Does nothing outside a
+-- room build (or when a room is being finished right away).
+local function pauseIfOverBudget()
+	if buildThread ~= nil and os.clock() > buildDeadline and coroutine.running() == buildThread then
+		coroutine.yield()
+	end
+end
+
 -- kind: "Wall" (balls bounce), "Glass" (hazard), "Crystal", "Door", "Button", "Prop" (breakable decoration)
 local function newPart(parent, kind, props)
+	pauseIfOverBudget()
 	local part = Instance.new("Part")
 	part.Anchored = true
 	part.CanCollide = false
@@ -90,7 +124,12 @@ function TrackBuilder.new(parent, firstRoom, tutorial)
 	self.doorOf = setmetatable({}, { __mode = "k" }) -- door panel / button -> door
 	self.nextRoom = firstRoom or 0
 	self.rng = Random.new()
-	self.buildQueue = {} -- steps still to do, oldest first: { roomIndex, stage, info }
+	self.buildQueue = {} -- rooms still being built, nearest first: { roomIndex, thread, done }
+	self.trash = {} -- rooms behind the camera, deleted a few parts per frame: { folder, children, index }
+	self.hazardList = {} -- cached result of hazards()
+	self.hazardsDirty = true
+	self.shadowRoom = nil -- room index the shadow lights were last set for
+	self.warmedUp = false
 	return self
 end
 
@@ -256,8 +295,27 @@ function TrackBuilder:openDoor(door)
 		return
 	end
 	door.open = true
-	door.button.Color = Color3.fromRGB(80, 255, 120)
-	door.button.CanQuery = false
+	self.hazardsDirty = true
+	-- The button pops (quick swell, then shrinks away) so it doesn't stay
+	-- floating in the middle of the path once the doors slide open.
+	local button = door.button
+	button.Color = Color3.fromRGB(80, 255, 120)
+	button.CanQuery = false
+	local swell = TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = button.Size * 1.4,
+	})
+	local vanish = TweenService:Create(button, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+		Size = Vector3.new(0.05, 0.05, 0.05),
+		Transparency = 1,
+	})
+	swell.Completed:Connect(function()
+		vanish:Play()
+	end)
+	vanish.Completed:Connect(function()
+		button:Destroy()
+	end)
+	swell:Play()
+
 	for _, panel in door.panels do
 		local side = panel:GetAttribute("Side")
 		local goal = panel.CFrame + Vector3.new(side * WIDTH / 2, 0, 0)
@@ -318,21 +376,29 @@ function TrackBuilder:buildShell(roomIndex)
 	local zone = roomIndex // Config.ROOMS_PER_CHECKPOINT
 	local isZoneStart = roomIndex % Config.ROOMS_PER_CHECKPOINT == 0
 
+	-- The folder goes into the world now and fills up over the next frames
+	-- (see the notes at the top).
 	local folder = Instance.new("Folder")
 	folder.Name = "Room" .. roomIndex
-	local room = { folder = folder, glass = {}, doors = {}, crystals = {} }
+	folder.Parent = self.folder
+	local room = { folder = folder, glass = {}, doors = {}, crystals = {}, finished = false }
+	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
 	-- Real surface materials per zone instead of flat plastic.
 	local surfaces = SURFACES[theme.Style] or SURFACES.Lab
 	local wallProps = { Color = theme.Wall, Material = surfaces.Wall, CanCollide = true }
+	-- Shell parts are marked so balls never knock them loose.
+	local function shellPart(props)
+		newPart(folder, "Wall", props):SetAttribute("Shell", true)
+	end
 	local function wall(size, position, material, color)
 		local props = table.clone(wallProps)
 		props.Size = size
 		props.CFrame = CFrame.new(position)
 		props.Material = material or props.Material
 		props.Color = color or props.Color
-		newPart(folder, "Wall", props)
+		shellPart(props)
 	end
 	local floorColor = theme.Wall:Lerp(surfaces.FloorTint, surfaces.FloorTintAmount)
 	wall(Vector3.new(WIDTH, 1, LENGTH), Vector3.new(ORIGIN.X, ORIGIN.Y - 0.5, centerZ), surfaces.Floor, floorColor)
@@ -346,7 +412,7 @@ function TrackBuilder:buildShell(roomIndex)
 		local props = table.clone(accent)
 		props.Size = size
 		props.CFrame = CFrame.new(position)
-		newPart(folder, "Wall", props)
+		shellPart(props)
 	end
 	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + 0.2, startZ))
 	trim(Vector3.new(WIDTH, 0.4, 0.4), Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT - 0.2, startZ))
@@ -365,7 +431,7 @@ function TrackBuilder:buildShell(roomIndex)
 			props.Size = Vector3.new(0.6, HEIGHT, 1.2)
 			props.CFrame = CFrame.new(ORIGIN.X + side * (WIDTH / 2 - 0.3), ORIGIN.Y + HEIGHT / 2, ribZ)
 			props.Color = theme.Wall:Lerp(Color3.new(0, 0, 0), 0.12)
-			newPart(folder, "Wall", props)
+			shellPart(props)
 		end
 	end
 
@@ -406,106 +472,211 @@ function TrackBuilder:buildShell(roomIndex)
 		end
 	end
 
-	folder.Parent = self.folder
-	self.rooms[roomIndex] = room
+	-- Glass, doors and crystals all exist now: crash checks can see them.
+	self.hazardsDirty = true
 
-	-- Decorations and lights come in later frames.
-	local info = {
-		roomIndex = roomIndex,
-		zone = zone,
-		theme = theme,
-		startZ = startZ,
-		isZoneStart = isZoneStart,
-		rng = rng,
-	}
-	self:queueStep({ roomIndex = roomIndex, stage = "Decor", info = info })
-	self:queueStep({ roomIndex = roomIndex, stage = "Lights", info = info })
+	return room,
+		{
+			roomIndex = roomIndex,
+			zone = zone,
+			theme = theme,
+			startZ = startZ,
+			isZoneStart = isZoneStart,
+			rng = rng,
+		}
 end
 
--- Adds a build step, keeping the queue in room order (nearest room first).
-function TrackBuilder:queueStep(job)
-	local queue = self.buildQueue
-	local position = #queue + 1
-	while position > 1 and queue[position - 1].roomIndex > job.roomIndex do
-		position -= 1
-	end
-	table.insert(queue, position, job)
+-- The whole build of one room, run inside its coroutine (pauses in newPart).
+function TrackBuilder:buildRoomSteps(roomIndex)
+	local room, info = self:buildShell(roomIndex)
+	Decor.decorate(self, room, info)
+	-- Real lights from the room's glowing parts, shadows from decorations.
+	LightingFx.lightRoom(room.folder, info.theme, pauseIfOverBudget)
+	room.finished = true
 end
 
--- Runs one queued build step.
-function TrackBuilder:runBuildStep(job)
-	if job.stage == "Shell" then
-		self:buildShell(job.roomIndex)
-		return
+-- Adds a room to the build queue (rooms are queued in order, nearest first).
+function TrackBuilder:queueRoom(roomIndex)
+	local job = { roomIndex = roomIndex, done = false }
+	job.thread = coroutine.create(function()
+		self:buildRoomSteps(roomIndex)
+	end)
+	table.insert(self.buildQueue, job)
+end
+
+-- Continues a room's build until it finishes or `deadline` (os.clock time) passes.
+function TrackBuilder:resumeJob(job, deadline)
+	buildThread, buildDeadline = job.thread, deadline
+	local ok, err = coroutine.resume(job.thread)
+	buildThread, buildDeadline = nil, math.huge
+	if not ok then
+		-- A bug in the build code: report it and move on (the room stays half built).
+		warn("[TrackBuilder] room " .. job.roomIndex .. " failed to build: " .. debug.traceback(job.thread, tostring(err)))
 	end
-	local room = self.rooms[job.roomIndex]
-	if not room then
-		return -- already behind the camera and deleted
-	end
-	if job.stage == "Decor" then
-		Decor.decorate(self, room, job.info)
-	elseif job.stage == "Lights" then
-		-- Real lights from the room's glowing parts, shadows from decorations.
-		LightingFx.lightRoom(room.folder, job.info.theme)
+	if coroutine.status(job.thread) == "dead" then
+		job.done = true
 	end
 end
 
--- Builds a whole room right now (all steps).
+-- Builds a whole room right now.
 function TrackBuilder:buildRoom(roomIndex)
-	self:buildShell(roomIndex)
+	self:queueRoom(roomIndex)
 	self:finishRoomsUpTo(roomIndex)
 end
 
--- Runs every queued step for rooms up to lastRoomIndex, right now.
+-- Finishes every queued room up to lastRoomIndex, right now (no time limit).
 function TrackBuilder:finishRoomsUpTo(lastRoomIndex)
 	local queue = self.buildQueue
 	while queue[1] and queue[1].roomIndex <= lastRoomIndex do
-		self:runBuildStep(table.remove(queue, 1))
+		self:resumeJob(queue[1], math.huge)
+		table.remove(queue, 1)
 	end
+end
+
+-- Queues every room that should be building by now.
+function TrackBuilder:queueAhead(cameraZ)
+	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - BUILD_AHEAD do
+		self:queueRoom(self.nextRoom)
+		self.nextRoom += 1
+	end
+end
+
+-- Call once right after new(): the room the camera starts in and the next one
+-- are built completely now (it's the start of a run, a short pause is fine).
+function TrackBuilder:warmUp(cameraZ)
+	self:queueAhead(cameraZ)
+	self:finishRoomsUpTo(TrackBuilder.roomAt(cameraZ) + 1)
+	self.warmedUp = true
+	self:update(cameraZ, 0)
+end
+
+function TrackBuilder.roomAt(z)
+	return math.max(0, (ORIGIN.Z - z) // LENGTH)
+end
+
+-- Removes a few parts of the rooms in the trash, within `budget` seconds.
+function TrackBuilder:emptyTrash(budget)
+	local trash = self.trash
+	local deadline = os.clock() + budget
+	while trash[1] and os.clock() < deadline do
+		local entry = trash[1]
+		if not entry.children then
+			entry.children = entry.folder:GetChildren()
+			entry.index = 0
+		end
+		local children = entry.children
+		-- A handful at a time between clock checks.
+		for _ = 1, 4 do
+			local i = entry.index + 1
+			local child = children[i]
+			if child == nil then
+				break
+			end
+			entry.index = i
+			child:Destroy()
+		end
+		if entry.index >= #children then
+			entry.folder:Destroy() -- empty now, so this is cheap
+			table.remove(trash, 1)
+		end
+	end
+end
+
+-- Shadow-casting lights only in the room the camera is in and the next one.
+function TrackBuilder:updateShadowRooms(cameraZ, force)
+	local current = TrackBuilder.roomAt(cameraZ)
+	if current == self.shadowRoom and not force then
+		return
+	end
+	self.shadowRoom = current
+	local here = self.rooms[current]
+	local nextRoom = if Config.SHADOW_LIGHT_ROOMS >= 2 then self.rooms[current + 1] else nil
+	LightingFx.setShadowRooms(here and here.folder, nextRoom and nextRoom.folder)
 end
 
 -- Call every frame with the camera's Z position.
 function TrackBuilder:update(cameraZ, dt)
-	local spin = CFrame.Angles(0, dt * 2, 0)
-	for _, room in self.rooms do
-		for _, crystal in room.crystals do
-			if crystal.Parent and crystal.CanQuery then
-				crystal.CFrame = crystal.CFrame * spin
+	local frameStart = os.clock()
+	local low = LightingFx.isLow()
+
+	-- Spin the crystals close enough to see (rooms ahead, within CRYSTAL_SPIN_RANGE).
+	if dt > 0 then
+		local spin = CFrame.Angles(0, dt * 2, 0)
+		local spinRange = Config.CRYSTAL_SPIN_RANGE
+		for roomIndex, room in self.rooms do
+			local startZ = TrackBuilder.roomStartZ(roomIndex)
+			if startZ - LENGTH < cameraZ and startZ > cameraZ - spinRange then
+				for _, crystal in room.crystals do
+					if crystal.Parent and crystal.CanQuery then
+						crystal.CFrame = crystal.CFrame * spin
+					end
+				end
 			end
 		end
 	end
 
-	-- Queue new rooms coming into view (built over the next frames).
-	while TrackBuilder.roomStartZ(self.nextRoom) > cameraZ - Config.ROOMS_AHEAD * LENGTH do
-		self:queueStep({ roomIndex = self.nextRoom, stage = "Shell" })
-		self.nextRoom += 1
-	end
+	self:queueAhead(cameraZ)
 
-	-- The room the camera is in and the next one (starting within one room
-	-- length plus a margin) must be complete: build them now, whatever it costs.
-	local started = os.clock()
-	local mustFinish = (ORIGIN.Z - (cameraZ - LENGTH - 20)) // LENGTH
-	self:finishRoomsUpTo(mustFinish)
-
-	-- Everything further away: only while this frame's time budget lasts.
+	-- Safety net: never let the camera reach an unfinished room.
 	local queue = self.buildQueue
-	local budget = if LightingFx.isLow() then LOW_BUILD_BUDGET else Config.ROOM_BUILD_BUDGET
-	while queue[1] and os.clock() - started < budget do
-		self:runBuildStep(table.remove(queue, 1))
+	while queue[1] and TrackBuilder.roomStartZ(queue[1].roomIndex) > cameraZ - Config.ROOM_FORCE_DISTANCE do
+		if IS_STUDIO and self.warmedUp then
+			warn(
+				"[TrackBuilder] room "
+					.. queue[1].roomIndex
+					.. " was not finished in time and was built in one frame (raise ROOM_BUILD_BUDGET?)"
+			)
+		end
+		self:resumeJob(queue[1], math.huge)
+		table.remove(queue, 1)
 	end
 
+	-- Rooms ahead: only while this frame's build time lasts. Twice the time
+	-- when the room being built is getting close (slow device).
+	local budget = if low then Config.LOW_ROOM_BUILD_BUDGET else Config.ROOM_BUILD_BUDGET
+	if queue[1] and TrackBuilder.roomStartZ(queue[1].roomIndex) > cameraZ - CATCH_UP_DISTANCE then
+		budget *= 2
+	end
+	local deadline = frameStart + budget
+	while queue[1] and os.clock() < deadline do
+		self:resumeJob(queue[1], deadline)
+		if queue[1].done then
+			table.remove(queue, 1)
+		end
+	end
+
+	-- Rooms behind the camera go to the trash...
 	for roomIndex, room in self.rooms do
 		local endZ = TrackBuilder.roomStartZ(roomIndex) - LENGTH
 		if endZ > cameraZ + 10 then
-			room.folder:Destroy()
 			self.rooms[roomIndex] = nil
+			self.hazardsDirty = true
+			table.insert(self.trash, { folder = room.folder })
 		end
 	end
+	-- ...which is emptied a little every frame.
+	self:emptyTrash(if low then Config.LOW_ROOM_TEARDOWN_BUDGET else Config.ROOM_TEARDOWN_BUDGET)
+
+	self:updateShadowRooms(cameraZ, false)
+end
+
+-- Something you can crash into changed (glass broken). hazards() rebuilds its list next time.
+function TrackBuilder:markHazardsChanged()
+	self.hazardsDirty = true
 end
 
 -- Everything you can crash into: unbroken glass and closed doors.
+-- The list is cached and only rebuilt when something changed (a room was
+-- added or removed, glass broke, a door opened), so calling this every frame
+-- costs nothing. Don't change the returned table. Entries can go stale within
+-- a frame (glass broken mid-loop): check hazard.Parent / door.open as before.
 function TrackBuilder:hazards()
-	local result = {}
+	local result = self.hazardList
+	if not self.hazardsDirty then
+		return result
+	end
+	self.hazardsDirty = false
+	table.clear(result)
 	for _, room in self.rooms do
 		for _, glass in room.glass do
 			if glass.Parent then
