@@ -63,11 +63,15 @@
 	Parts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own
 	space (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).
 	src/client/BallFx.luau uses this.
-	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker? } },
+	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker?, Show? } },
 	                   Fx = { Trail?, Particles = { ... }, Light? } }
 	Flicker = { Hz, Min, Max }: the part's transparency jumps at random between Min and Max
 	about Hz times a second (lightning arcs).
 	Lite = true: a spinning part that cheap 'lite' balls (extra multiball balls) still show, standing still.
+	Show = { Period, From, To, Invert? }: the part is visible only while (time mod Period) is in [From, To),
+	or only OUTSIDE that window with Invert = true (e.g. Grinny's creepy face / cute face). All parts
+	of one ball share one clock, so their windows line up. Flicker only runs while the part is shown.
+	Lite balls don't animate: they keep the Invert parts (always shown) and drop the other Show parts.
 ]]
 
 return {
@@ -222,6 +226,33 @@ return {
 				{ Texture = "sparkle", Color = Color3.fromRGB(120, 235, 255), Rate = 10, Size = { 0.1, 0.24 }, Lifetime = { 0.3, 0.6 }, Speed = { 0.4, 1.2 }, LightEmission = 1 },
 			},
 			Light = { Color = Color3.fromRGB(80, 220, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	Grinny = {
+		Diameter = 2,
+		Size = Vector3.new(1.762, 1.558, 1.607),
+		Parts = {
+			Seams = { Color = Color3.fromRGB(168, 96, 14), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Panels = { Color = Color3.fromRGB(255, 194, 28), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Net = { Color = Color3.fromRGB(250, 250, 244), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			CuteEyes = { Color = Color3.fromRGB(22, 16, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			CuteShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			CuteSmile = { Color = Color3.fromRGB(44, 22, 10), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			Blush = { Color = Color3.fromRGB(255, 128, 72), Material = Enum.Material.SmoothPlastic, Transparency = 0.25, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			GrinEyes = { Color = Color3.fromRGB(14, 10, 8), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			GrinShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Mouth = { Color = Color3.fromRGB(26, 12, 9), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Teeth = { Color = Color3.fromRGB(252, 249, 236), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Ghost = { Color = Color3.fromRGB(40, 225, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 20, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.9, To = 3.3 } },
+			GlitchBars = { Color = Color3.fromRGB(215, 250, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 26, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.82, To = 3.08 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(255, 214, 60), Color2 = Color3.fromRGB(70, 34, 8), Lifetime = 0.4, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 226, 90), Rate = 24, Size = { 0.1, 0.3 }, Lifetime = { 0.4, 0.9 }, Speed = { 0.6, 2 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 255, 245), Rate = 8, Size = { 0.05, 0.12 }, Lifetime = { 0.5, 1.1 }, Speed = { 0.3, 1 }, LightEmission = 0.3 },
+			},
+			Light = { Color = Color3.fromRGB(255, 200, 80), Range = 10, Brightness = 1.8 },
 		},
 	},
 }
@@ -445,6 +476,15 @@ Config.Skins = {
 	-- Shell / Ring / Trail: the part-built look until the model is uploaded.
 	{ Id = "Infinity", Name = "Infinity", Price = 0, Animated = true, Source = "REACH ZONE 50", Text = "A TINY BLACK UNIVERSE WITH INFINITY RINGS AND LIGHTNING", Color = Color3.fromRGB(120, 70, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(40, 20, 70), Ring = Color3.fromRGB(255, 205, 110), Trail = Color3.fromRGB(170, 110, 255) },
 	{ Id = "Smashbot", Name = "Smashbot", Price = 0, Animated = true, Source = "SMASH 50,000 GLASS", Unlock = { Stat = "glass", Amount = 50000 }, Text = "A ROBOT BALL WITH OPENING ARMOR AND A GLOWING EYE", Color = Color3.fromRGB(255, 140, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(70, 76, 90), Ring = Color3.fromRGB(255, 150, 40), Trail = Color3.fromRGB(90, 220, 255) },
+	-- Gem-shop animated balls: the same kind of animated Blender model, BOUGHT WITH GEMS
+	-- in the shop (Price > 0, Shop BuySkin), never sold for Robux (no ProductKey, never
+	-- Premium). They get their own "LEGENDARY" card at the top of SHOP (Config.GemBalls).
+	-- Facing = true: its face is on the model's +Z side, so the ball in your hand and
+	-- the shop / menu previews keep that side turned to you instead of spinning around.
+	-- Grinny: a cute smiley that glitches into a creepy grin every few seconds
+	-- (BallStyles Show windows swap the two faces). Shell / Ring / Trail: the
+	-- part-built look until the model is uploaded.
+	{ Id = "Grinny", Name = "Grinny", Price = 25000, Animated = true, Facing = true, Text = "A HAPPY LITTLE HELPER... OR IS IT?", Color = Color3.fromRGB(255, 214, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 236, 140), Ring = Color3.fromRGB(255, 190, 30), Trail = Color3.fromRGB(255, 220, 60) },
 }
 
 -- True for balls drawn as an animated model (premium Robux balls AND earned
@@ -454,14 +494,24 @@ function Config.isAnimatedSkin(skin)
 	return type(skin) == "table" and (skin.Premium == true or skin.Animated == true)
 end
 
--- Ids of the premium (Robux) balls above, in shop order. Never the earned
--- Animated balls: this list is what's sold.
+-- True for an animated ball bought with GEMS in the shop (Animated, not Premium,
+-- Price > 0, e.g. Grinny). Never sold for Robux.
+function Config.isGemBall(skin)
+	return type(skin) == "table" and skin.Animated == true and skin.Premium ~= true and (tonumber(skin.Price) or 0) > 0
+end
+
+-- Ids of the premium (Robux) balls above, in shop order. Never the earned or
+-- gem-shop Animated balls: this list is what's sold for Robux.
 Config.PremiumBalls = {}
--- Ids of the earned animated balls (Animated, never sold), in shop order.
+-- Ids of the earned animated balls (Animated, Price 0, never sold), in shop order.
 Config.EarnedBalls = {}
+-- Ids of the animated balls bought with gems (Config.isGemBall), in shop order.
+Config.GemBalls = {}
 for _, skin in Config.Skins do
 	if skin.Premium then
 		table.insert(Config.PremiumBalls, skin.Id)
+	elseif Config.isGemBall(skin) then
+		table.insert(Config.GemBalls, skin.Id)
 	elseif skin.Animated then
 		table.insert(Config.EarnedBalls, skin.Id)
 	end
@@ -471,7 +521,7 @@ end
 -- (e.g. bought twice while a save was failing): Robux price x this.
 Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
 
--- Blender models of the premium + earned animated balls (assets/balls/*.fbx), uploaded
+-- Blender models of the premium, earned and gem-shop animated balls (assets/balls/*.fbx), uploaded
 -- as Model assets. 0 = not uploaded yet: the part-built version above is used instead.
 Config.BallModels = {
 	Frostbite = 95405037753431,
@@ -482,6 +532,7 @@ Config.BallModels = {
 	Supernova = 72233037920626,
 	Infinity = 123152768181258,
 	Smashbot = 96416348312755,
+	Grinny = 114213745199406,
 }
 
 function Config.getSkin(skinId)
@@ -3722,6 +3773,8 @@ function actions.BuySkin(player, data, skinId)
 	end
 	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>); earned balls
 	-- (Price 0 + Source, incl. the Animated ones like Infinity / Smashbot) are never sold.
+	-- Gem-shop animated balls (Animated, Price > 0, e.g. Grinny for 25,000) are bought
+	-- right here like any gem skin.
 	if skin.Premium or skin.Price <= 0 then
 		return false, skin.Name .. " can't be bought with gems"
 	end
@@ -4194,6 +4247,14 @@ end)
 	rings / orbiting shards) so they already look special.
 	Model parts can spin, pulse (grow / shrink) and flicker (their transparency
 	jumps around at random, e.g. lightning arcs: BallStyles Flicker = { Hz, Min, Max }).
+	They can also show only part of the time (BallStyles Show = { Period, From, To, Invert? }):
+	the part is visible only while (ball clock mod Period) is in [From, To), or only
+	OUTSIDE that window with Invert = true. Grinny uses it to swap its cute face for a
+	creepy grin and back. All parts of one ball read the same clock, so their windows
+	line up (each thrown ball starts at its own random point of the cycle). A part
+	with Show and Flicker only flickers while it's shown. Lite balls don't animate:
+	they keep the Invert parts (always shown) and drop the other Show parts, so a lite
+	Grinny always has exactly its cute face.
 
 	BallFx.create(skinId, radius, options?) -> BasePart
 		The ball to throw. Move it by setting its CFrame (it never needs to turn).
@@ -4230,6 +4291,7 @@ end)
 	  - one RenderStepped loop animates every live animated ball (no per-ball connections)
 	  - flickering parts change at most Hz times a second (half that on Low graphics),
 	    lite balls don't flicker
+	  - Show parts only write Transparency when they appear / disappear
 	  - at most MAX_FULL full-detail balls at once; more become lite versions
 	  - particle rates are shared: the more full balls, the less each one emits
 	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
@@ -4269,6 +4331,7 @@ local LOW_TRAIL_SCALE = 0.75 -- Low graphics: shorter trails
 local HELD_PARTICLE_SCALE = 0.6 -- the ball in your hand sparkles a bit less than a thrown one
 local LOW_FLICKER_SCALE = 0.5 -- Low graphics: flickering parts change half as often
 local MAX_FLICKER_HZ = 30
+local SHOW_PHASE_SPREAD = 10 -- seconds: thrown balls start their Show cycle up to this far apart
 
 local TEXTURES = {
 	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
@@ -4287,7 +4350,7 @@ local FALLBACK = {
 	MagmaHeart = { shell = Enum.Material.Glass, shellAlpha = 0.35, rings = 0, shards = 4 },
 	BlackHole = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 0, disk = true, shards = 0 },
 	Supernova = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 3 },
-	-- Earned balls (never sold).
+	-- Earned balls (never sold) and gem-shop balls.
 	Infinity = {
 		shell = Enum.Material.Glass,
 		shellAlpha = 0.5,
@@ -4301,6 +4364,23 @@ local FALLBACK = {
 				{ Texture = "sparkle", Color = Color3.fromRGB(140, 235, 255), Rate = 12, Size = { 0.06, 0.16 }, Lifetime = { 0.12, 0.3 }, Speed = { 3, 6 }, LightEmission = 1 },
 			},
 			Light = { Color = Color3.fromRGB(150, 90, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	Grinny = {
+		-- No face before the model loads: a glowing yellow ball in a pale glass shell
+		-- with one ring that glitches on and off.
+		shell = Enum.Material.Glass,
+		shellAlpha = 0.55,
+		rings = 1,
+		shards = 0,
+		flicker = { Hz = 5, Min = 0, Max = 1 },
+		fx = {
+			Trail = { Color = Color3.fromRGB(255, 220, 60), Color2 = Color3.fromRGB(255, 160, 30), Lifetime = 0.4, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 235, 120), Rate = 20, Size = { 0.1, 0.26 }, Lifetime = { 0.4, 0.9 }, Speed = { 0.8, 2.2 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(150, 30, 40), Rate = 6, Size = { 0.06, 0.14 }, Lifetime = { 0.1, 0.25 }, Speed = { 2, 4 }, LightEmission = 0.3 },
+			},
+			Light = { Color = Color3.fromRGB(255, 210, 70), Range = 9, Brightness = 1.6 },
 		},
 	},
 	Smashbot = {
@@ -4319,7 +4399,7 @@ local FALLBACK = {
 }
 local DEFAULT_FALLBACK = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 1, shards = 0 }
 local EMPTY_STYLE = { Diameter = 2, Parts = {}, Fx = { Particles = {} } }
-local CENTER_PARTS = { "Core", "Heart", "Shell" } -- model parts that sit on the ball's center
+local CENTER_PARTS = { "Core", "Heart", "Shell", "Panels" } -- model parts that sit on the ball's center
 
 local camera = workspace.CurrentCamera
 
@@ -4423,38 +4503,102 @@ local function flickerSpec(flicker)
 	return { Hz = math.min(hz, MAX_FLICKER_HZ), Min = math.min(low, high), Max = math.max(low, high) }
 end
 
--- Live flicker state for one part of one ball.
-local function newFlicker(part, spec)
-	return { part = part, min = spec.Min, max = spec.Max, hz = spec.Hz, nextAt = 0 }
+-- A BallStyles Show = { Period, From, To, Invert? } cleaned up (nil if it does nothing).
+-- From / To are clamped into [0, Period].
+local function showSpec(show)
+	if type(show) ~= "table" then
+		return nil
+	end
+	local period = tonumber(show.Period) or 0
+	if period ~= period or period <= 0 or period == math.huge then
+		return nil
+	end
+	local from = math.clamp(tonumber(show.From) or 0, 0, period)
+	local to = math.clamp(tonumber(show.To) or period, from, period)
+	return { Period = period, From = from, To = to, Invert = show.Invert == true }
 end
 
--- Each flickering part gets a new random transparency about hz times a second.
--- The gap is random too (0.5x - 1.5x), so arcs never blink in step.
-local function stepFlickers(flickers, t, rateScale)
-	for _, flicker in flickers do
-		if t >= flicker.nextAt then
-			flicker.part.Transparency = flicker.min + (flicker.max - flicker.min) * math.random()
-			flicker.nextAt = t + (0.5 + math.random()) / (flicker.hz * rateScale)
+-- True while a Show part is visible at `clock` (seconds on its ball's clock).
+local function isShown(show, clock)
+	local at = clock % show.Period
+	return (at >= show.From and at < show.To) ~= show.Invert
+end
+
+-- Live transparency state for one part of one ball: flicker and / or show.
+-- base: the part's own transparency (Flicker / Show are on top of it).
+local function newVisual(part, item)
+	local flicker = item.flicker
+	return {
+		part = part,
+		base = item.base,
+		hz = flicker and flicker.Hz,
+		min = flicker and flicker.Min,
+		max = flicker and flicker.Max,
+		nextAt = 0,
+		show = item.show,
+		hidden = nil, -- unknown until the first step, so that one always writes
+	}
+end
+
+-- Every frame for one ball. clock: that ball's Show clock (t + its own offset).
+--  - Show parts outside their window are fully invisible (written only when that changes).
+--  - Flickering parts get a new random transparency about hz times a second while
+--    shown; the gap is random too (0.5x - 1.5x), so arcs never blink in step.
+local function stepVisuals(visuals, t, clock, rateScale)
+	for _, visual in visuals do
+		local show = visual.show
+		if show then
+			local hidden = not isShown(show, clock)
+			if hidden ~= visual.hidden then
+				visual.hidden = hidden
+				if hidden then
+					visual.part.Transparency = 1
+					continue
+				end
+				visual.nextAt = 0 -- just appeared: flicker (or base) right away
+				if not visual.hz then
+					visual.part.Transparency = visual.base
+				end
+			elseif hidden then
+				continue
+			end
+		end
+		if visual.hz and t >= visual.nextAt then
+			local flick = visual.min + (visual.max - visual.min) * math.random()
+			visual.part.Transparency = 1 - (1 - visual.base) * (1 - flick)
+			visual.nextAt = t + (0.5 + math.random()) / (visual.hz * rateScale)
 		end
 	end
 end
 
--- Flicker states for a copy of `proto` (`find(name)` -> that copy's part).
-local function copyFlickers(proto, find)
-	local flickers = {}
-	for _, item in proto.flickers do
+-- Stops a ball's visuals in the lite look (a demoted ball no longer animates):
+-- Invert Show parts at their base transparency, other Show parts hidden.
+local function settleVisuals(visuals)
+	for _, visual in visuals do
+		local show = visual.show
+		if show then
+			visual.hidden = not show.Invert
+			visual.part.Transparency = if show.Invert then visual.base else 1
+		end
+	end
+end
+
+-- Visual states for a copy of `proto` (`find(name)` -> that copy's part).
+local function copyVisuals(proto, find)
+	local visuals = {}
+	for _, item in proto.visuals do
 		local part = find(item.name)
 		if part then
-			table.insert(flickers, newFlicker(part, item.spec))
+			table.insert(visuals, newVisual(part, item))
 		end
 	end
-	return flickers
+	return visuals
 end
 
 -- Welds `part` to the root at `rest` (its place in the ball's own space) and records
 -- its animation, if any. Spins turn around the ball's center; pulses scale;
--- flickers change its transparency.
-local function attach(proto, part, rest, spin, pulse, flicker)
+-- flickers and shows change its transparency.
+local function attach(proto, part, rest, spin, pulse, flicker, show)
 	local joint = Instance.new("Weld")
 	joint.Name = "Joint"
 	joint.Part0 = proto.root
@@ -4475,9 +4619,10 @@ local function attach(proto, part, rest, spin, pulse, flicker)
 			phase = spin and spin.Phase or 0,
 		})
 	end
-	local spec = flickerSpec(flicker)
-	if spec then
-		table.insert(proto.flickers, { name = part.Name, spec = spec })
+	local flickerInfo = flickerSpec(flicker)
+	local showInfo = showSpec(show)
+	if flickerInfo or showInfo then
+		table.insert(proto.visuals, { name = part.Name, base = part.Transparency, flicker = flickerInfo, show = showInfo })
 	end
 end
 
@@ -4612,6 +4757,12 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		if keepStatic and partStyle and partStyle.Spin and not partStyle.Lite then
 			continue
 		end
+		-- Lite balls don't animate, so a Show part can't come and go: keep the Invert
+		-- ones (e.g. Grinny's cute face, shown most of the time) and drop the rest.
+		local show = partStyle and showSpec(partStyle.Show)
+		if lite and show and not show.Invert then
+			continue
+		end
 		if partStyle then
 			part.Color = partStyle.Color
 			part.Material = partStyle.Material
@@ -4623,7 +4774,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		if lite or not partStyle then
 			attach(proto, part, rest)
 		else
-			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse, partStyle.Flicker)
+			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse, partStyle.Flicker, partStyle.Show)
 		end
 	end
 	model:Destroy()
@@ -4728,7 +4879,7 @@ local function prototypeFor(skin, radius, lite)
 	end
 	local diameter = radius * VISUAL_SCALE
 	local scale = diameter / (tonumber(style.Diameter) or 2)
-	proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
+	proto = { root = newRoot(diameter), anims = {}, visuals = {}, emitters = {}, hasLight = false, mesh = false }
 	if template then
 		local ok, built = pcall(buildMesh, proto, skin.Id, style, template, diameter, lite)
 		if ok and built then
@@ -4738,7 +4889,7 @@ local function prototypeFor(skin, radius, lite)
 				warn("[BallFx] could not use the model for", skin.Id, built)
 			end
 			proto.root:Destroy()
-			proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
+			proto = { root = newRoot(diameter), anims = {}, visuals = {}, emitters = {}, hasLight = false, mesh = false }
 		end
 	end
 	if not proto.mesh then
@@ -4777,7 +4928,7 @@ local function rebalance()
 end
 
 local function animate(entry, t, pulses, flickerRate)
-	stepFlickers(entry.flickers, t, flickerRate)
+	stepVisuals(entry.visuals, t, t + entry.clockOffset, flickerRate)
 	for _, anim in entry.anims do
 		local c0 = anim.rest
 		local pulse = anim.pulse
@@ -4910,6 +5061,7 @@ local function demoteOldest()
 			if entry.light then
 				entry.light.Enabled = false
 			end
+			settleVisuals(entry.visuals)
 			return true
 		end
 	end
@@ -4955,7 +5107,8 @@ function BallFx.create(skinId, radius, options)
 	root.Name = if options.mega then "MegaBall" else "Ball"
 	scaleTrail(root, options.trailScale)
 	if not lite then
-		local entry = { root = root, anims = {}, flickers = {}, emitters = {}, light = nil, phase = math.random() }
+		local phase = math.random()
+		local entry = { root = root, anims = {}, visuals = {}, emitters = {}, light = nil, phase = phase, clockOffset = phase * SHOW_PHASE_SPREAD }
 		for _, anim in proto.anims do
 			local part = root:FindFirstChild(anim.name)
 			local joint = part and part:FindFirstChild("Joint")
@@ -4972,9 +5125,12 @@ function BallFx.create(skinId, radius, options)
 				})
 			end
 		end
-		entry.flickers = copyFlickers(proto, function(name)
+		entry.visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
+		-- Right faces from the first frame (a clone starts with every part showing).
+		local now = os.clock()
+		stepVisuals(entry.visuals, now, now + entry.clockOffset, 1)
 		for _, item in proto.emitters do
 			local emitter = root:FindFirstChild(item.name)
 			if emitter then
@@ -5018,7 +5174,7 @@ function BallFx.preview(skinId, diameter)
 	local model = Instance.new("Model")
 	model.Name = "BallPreview"
 	local anims = {}
-	local flickers = {}
+	local visuals = {}
 	local animated = Config.isAnimatedSkin(skin)
 
 	if animated then
@@ -5046,7 +5202,7 @@ function BallFx.preview(skinId, diameter)
 				})
 			end
 		end
-		flickers = copyFlickers(proto, function(name)
+		visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
 		root.Parent = model
@@ -5059,7 +5215,7 @@ function BallFx.preview(skinId, diameter)
 
 	local preview = { model = model, mesh = animated and BallFx.hasMesh(skinId) }
 	function preview.step(t)
-		stepFlickers(flickers, t, 1)
+		stepVisuals(visuals, t, t, 1)
 		for _, anim in anims do
 			local c0 = anim.rest
 			local pulse = anim.pulse
@@ -5077,6 +5233,7 @@ function BallFx.preview(skinId, diameter)
 	function preview.destroy()
 		model:Destroy()
 	end
+	preview.step(os.clock()) -- right faces before the first frame
 	return preview
 end
 
@@ -5093,16 +5250,18 @@ function BallFx.held(skinId, diameter, particleScale)
 	local items = {} -- one per visible part: { part, rest, baseSize, axis, rps, phase, pulse }
 	local root
 	local plain = nil
-	local flickers = {}
+	local visuals = {}
 	local animated = Config.isAnimatedSkin(skin)
 
 	if animated then
 		local proto = prototypeFor(skin, diameter / VISUAL_SCALE, false)
 		held.mesh = proto.mesh
 		root = proto.root:Clone()
-		flickers = copyFlickers(proto, function(name)
+		visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
+		local now = os.clock()
+		stepVisuals(visuals, now, now, 1) -- right faces before the first frame
 		local animByName = {}
 		for _, anim in proto.anims do
 			animByName[anim.name] = anim
@@ -5159,7 +5318,7 @@ function BallFx.held(skinId, diameter, particleScale)
 	function held.place(cframe, scale, t)
 		local resize = scale ~= lastScale
 		lastScale = scale
-		stepFlickers(flickers, t, flickerRate)
+		stepVisuals(visuals, t, t, flickerRate)
 		for i, item in items do
 			local rest = item.rest
 			local s = scale
@@ -7976,6 +8135,8 @@ return Haptics
 		Draws the ball centered on cframe (which also turns it). scale 1 = the
 		normal held size (HeldBall.DIAMETER across for plain balls, a bit more
 		for animated ones). scale <= 0 hides it.
+		Balls with a face (Config.Skins Facing = true, e.g. Grinny) ignore cframe's
+		turn: their +Z side (the face) looks at the camera, with a little wobble.
 	ball.hide()
 	ball.radius() -> studs     -- drawn radius at scale 1
 ]]
@@ -7994,6 +8155,8 @@ local PREMIUM_DIAMETER = 1.25 -- animated (premium + earned) balls have rings / 
 local PREMIUM_SHARE = 1.2 -- ...so they're drawn a little bigger to keep the core readable
 local MIN_SCALE = 0.02 -- smaller than this = hidden
 local MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+local FACING_WOBBLE = math.rad(14) -- how far a ball with a face rocks side to side
+local FACING_WOBBLE_HZ = 0.35
 
 local function graphicsLow()
 	local ok, level = pcall(Settings.graphicsLevel)
@@ -8005,6 +8168,7 @@ function HeldBall.new(particleShare)
 
 	local folder = nil
 	local skinId = "Default"
+	local facing = false -- Config.Skins Facing: keep the face turned to the camera
 	local held = nil -- BallFx.held object
 	local heldLow = nil -- graphics level it was built for
 	local shown = false
@@ -8057,6 +8221,7 @@ function HeldBall.new(particleShare)
 		newSkinId = Config.getSkin(newSkinId).Id
 		if newSkinId ~= skinId then
 			skinId = newSkinId
+			facing = Config.getSkin(skinId).Facing == true
 			failedSkin = nil
 			meshTried = false
 			destroyHeld()
@@ -8088,6 +8253,19 @@ function HeldBall.new(particleShare)
 		if not shown then
 			shown = true
 			held.root.Parent = folder
+		end
+		if facing then
+			-- Face (+Z) toward the camera instead of spinning it away.
+			local camera = workspace.CurrentCamera
+			if camera then
+				local position = cframe.Position
+				local away = position - camera.CFrame.Position
+				if away.Magnitude > 1e-3 then
+					local wobble = math.sin(now * FACING_WOBBLE_HZ * math.pi * 2) * FACING_WOBBLE
+					-- lookAt points -Z at the target, so aim away from the camera: +Z faces it.
+					cframe = CFrame.lookAt(position, position + away, camera.CFrame.UpVector) * CFrame.Angles(0, wobble, 0)
+				end
+			end
 		end
 		-- scale 1 = HeldBall.DIAMETER (x the animated-ball share) across.
 		local size = scale * HeldBall.DIAMETER * held.share / held.diameter
@@ -11452,7 +11630,8 @@ return Settings
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
 	Shatter.impact is the dust puff + chips when a ball hits a wall or the floor.
 	Shatter.skinBurst is the splash in the ball skin's colors wherever a ball hits
-	(premium balls get a themed one: Supernova flare, Black Hole implosion...).
+	(animated balls get a themed one: Supernova flare, Black Hole implosion,
+	Grinny's yellow sparkles with a few dark glitch bits...).
 	Shatter.knockLoose / knockAround knock solid decorations off their spot.
 
 	Smoothness (why it looks like this):
@@ -12519,6 +12698,26 @@ local THEMES = {
 			emitter.RotSpeed = NumberRange.new(-400, 400)
 		end,
 	},
+	-- Gem-shop balls too. Grinny: happy yellow sparkles + a few dark glitch bits
+	-- (pooled chips, GRINNY_BITS below) for its creepy side. Nothing gory.
+	Grinny = {
+		count = 22,
+		setup = function(emitter) -- bright yellow sparkles popping outward
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 245, 150), Color3.fromRGB(255, 195, 30))
+			emitter.Size = fading(0.38, 0.05)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.3, 0.6)
+			emitter.Speed = NumberRange.new(10, 20)
+			emitter.SpreadAngle = Vector2.new(85, 85)
+			emitter.Drag = 5
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-200, 200)
+		end,
+		bits = "Grinny",
+	},
 	-- CyberCore: glowing cyan bits (pooled chips, see below) + the normal sparks.
 }
 local themeSets = {} -- id -> { sparks = set, flare = set? }
@@ -12545,6 +12744,39 @@ local CYBER_BIT_STYLE = {
 	Transparency = 0,
 	Reflectance = 0,
 }
+-- Glitch bits (pooled chips) thrown out of a splash: { count, lowCount, styles }.
+-- Each bit takes the next style in turn.
+local BIT_SETS = {
+	CyberCore = { count = 5, lowCount = 2, styles = { CYBER_BIT_STYLE } },
+	Grinny = {
+		count = 4,
+		lowCount = 2,
+		styles = {
+			{ Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(28, 22, 34), Transparency = 0, Reflectance = 0 },
+			{ Material = Enum.Material.Neon, Color = Color3.fromRGB(200, 30, 60), Transparency = 0, Reflectance = 0 },
+		},
+	},
+}
+
+-- A few small cubes (pooled "Chip" parts) flying off the hit, then fading.
+local function throwBits(position, normal, bitSet)
+	local styles = bitSet.styles
+	for i = 1, if low then bitSet.lowCount else bitSet.count do
+		local entry = acquire("Chip")
+		if not entry then
+			break
+		end
+		local bit = entry.a
+		applyStyle(bit, styles[(i - 1) % #styles + 1], true)
+		bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
+		bit.CFrame = CFrame.new(position + normal * 0.3)
+			* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
+		bit.Anchored = false
+		bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
+		bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
+		addLive(entry, 0, 0.7, 0.3, position.Z)
+	end
+end
 
 -- position: where the ball hit. normal: the surface's normal there (toward the ball).
 -- style: BallFx.impactStyle(skinId). big: a big pane or a mega ball (bigger splash).
@@ -12590,22 +12822,11 @@ function Shatter.skinBurst(position, normal, style, big)
 			flare.holder.CFrame = CFrame.new(position + normal * 0.3)
 			flare.emitter:Emit(if big then 2 else 1)
 		end
-	elseif style.id == "CyberCore" then
-		for _ = 1, if low then 2 else 5 do
-			local entry = acquire("Chip")
-			if not entry then
-				break
-			end
-			local bit = entry.a
-			applyStyle(bit, CYBER_BIT_STYLE, true)
-			bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
-			bit.CFrame = CFrame.new(position + normal * 0.3)
-				* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
-			bit.Anchored = false
-			bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
-			bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
-			addLive(entry, 0, 0.7, 0.3, position.Z)
+		if theme.bits and BIT_SETS[theme.bits] then
+			throwBits(position, normal, BIT_SETS[theme.bits])
 		end
+	elseif style.id == "CyberCore" then
+		throwBits(position, normal, BIT_SETS.CyberCore)
 	end
 end
 
@@ -14656,6 +14877,12 @@ local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded ye
 local EARNED_CARD_H = 140
 local EARNED_VIEW = 76 -- the preview square
 local EARNED_BUTTON_W = 92
+-- Gem-shop animated balls (Config.GemBalls: Grinny): a big "LEGENDARY" card at the very top of SHOP.
+local LEGEND_CARD_H = 190
+local LEGEND_VIEW = 132 -- the preview square
+local LEGEND_SWAY = 0.6 -- radians the preview camera rocks left / right (the face stays in view)
+local LEGEND_SWAY_SPEED = 0.7
+local LEGEND_CONFIRM_TIME = 3 -- seconds a "TAP TO CONFIRM" stays up before BUY resets
 -- The equipped ball at the end of the PLAY button.
 local MENU_BALL_VIEW = 42 -- the window square (PLAY's face is 50 tall)
 local MENU_BALL_SPIN = 0.9 -- radians per second the camera circles it
@@ -16177,7 +16404,8 @@ function UI._buildMenuBall(self, face)
 		if ball.rainbow and preview.model.PrimaryPart then
 			preview.model.PrimaryPart.Color = Color3.fromHSV((now * 0.2) % 1, 0.8, 1)
 		end
-		local angle = now * MENU_BALL_SPIN
+		-- A ball with a face (Facing, e.g. Grinny) rocks in front of it instead of circling.
+		local angle = if ball.facing then math.sin(now * MENU_BALL_SPIN) * LEGEND_SWAY else now * MENU_BALL_SPIN
 		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
 		local float = Vector3.new(0, math.sin(now * 2) * MENU_BALL_FLOAT, 0)
 		ball.camera.CFrame = CFrame.lookAt(eye - float, -float)
@@ -16200,6 +16428,7 @@ function UI._showMenuBall(self, skinId, force)
 	end
 	ball.skinId = skinId
 	ball.rainbow = Config.getSkin(skinId).Rainbow == true
+	ball.facing = Config.getSkin(skinId).Facing == true
 	local ok, preview = pcall(BallFx.preview, skinId, PREMIUM_PREVIEW_DIAMETER)
 	if ok and preview then
 		preview.model.Parent = ball.view
@@ -17035,6 +17264,9 @@ function UI._buildMenuPanel(self, root)
 
 	-- 05 SHOP
 	local shopPage = m.tabs[5].page
+	if #(Config.GemBalls or {}) > 0 then
+		self:_buildGemBalls(shopPage, -30)
+	end
 	if #(Config.PremiumBalls or {}) > 0 then
 		self:_buildPremiumBalls(shopPage, -20)
 	end
@@ -17066,7 +17298,7 @@ function UI._buildMenuPanel(self, root)
 	m.skinCards = {}
 	local skinButtons = {}
 	for order, skin in Config.Skins do
-		-- Premium (Robux) and earned animated balls have their own sections.
+		-- Premium (Robux), earned and gem-shop (LEGENDARY) animated balls have their own sections.
 		if not Config.isAnimatedSkin(skin) then
 			local entry = self:_buildSkinCard(grid, skin, order)
 			m.skinCards[skin.Id] = entry
@@ -18877,6 +19109,7 @@ function UI._rebuildZones(self)
 end
 
 function UI._refreshSkins(self)
+	self:_refreshGemBalls()
 	self:_refreshPremium()
 	self:_refreshEarned()
 	local m = self._menu
@@ -18890,7 +19123,7 @@ function UI._refreshSkins(self)
 	local total = 0
 	for _, skin in Config.Skins do
 		if Config.isAnimatedSkin(skin) then
-			continue -- premium / earned animated balls: their own sections
+			continue -- premium / earned / gem-shop animated balls: their own sections
 		end
 		total += 1
 		if owned[skin.Id] then
@@ -19614,6 +19847,337 @@ function UI._earnedAction(self, entry)
 			self:toast(string.upper(entry.skin.Name) .. " EQUIPPED", "reward")
 		else
 			self:toast(message or "COULD NOT EQUIP", "error")
+		end
+		self:_refreshSkins()
+	end)
+end
+
+-- Gem-shop animated balls ("LEGENDARY") ----------------------------------------------------
+-- The very top of SHOP: one ink card per gem ball (Config.GemBalls, e.g. Grinny for
+-- 25,000 gems). A turning 3D preview (animated like in a run, face toward you), its
+-- name, what it is, the gem price and how far your balance is from it. BUY asks for
+-- a second tap ("TAP TO CONFIRM") because it's a big spend; not enough gems says how
+-- many are missing. Bought through the normal gem path (Shop BuySkin), never Robux.
+
+function UI._buildGemBalls(self, parent, order)
+	local m = self._menu
+	local g = { order = {} }
+	m.gemBalls = g
+
+	local _, right = sectionHeader(parent, order, "05.L", "LEGENDARY BALL")
+	g.right = right
+	for index, id in Config.GemBalls do
+		table.insert(g.order, self:_buildGemBallCard(parent, order + index, id, index))
+	end
+
+	-- One frame loop animates the previews, only while SHOP is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		if not m.root.Visible or m.tab ~= TAB_SHOP then
+			return
+		end
+		local now = os.clock()
+		local checkMesh = now - lastMeshCheck > PREMIUM_MESH_CHECK
+		if checkMesh then
+			lastMeshCheck = now
+		end
+		-- Rock in front of the ball (its face is on the +Z side) instead of circling it.
+		local angle = math.sin(now * LEGEND_SWAY_SPEED) * LEGEND_SWAY
+		local eye = Vector3.new(math.sin(angle), 0.2, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		for _, entry in g.order do
+			-- The Blender model finished loading: swap the part-built stand-in (once).
+			if checkMesh and entry.preview and not entry.preview.mesh and not entry.meshTried and BallFx.hasMesh(entry.skin.Id) then
+				entry.meshTried = true
+				self:_showGemBallPreview(entry)
+				entry.tagLabel.Text = "L-" .. twoDigits(entry.index) .. " / 3D MODEL"
+			end
+			if entry.preview then
+				entry.preview.step(now)
+				entry.camera.CFrame = CFrame.lookAt(eye, Vector3.zero)
+			end
+		end
+	end))
+	self:_refreshGemBalls()
+end
+
+function UI._buildGemBallCard(self, parent, order, id, index)
+	local skin = Config.getSkin(id)
+	local card = new("Frame", {
+		Name = id,
+		BackgroundColor3 = INK,
+		Size = UDim2.new(1, 0, 0, LEGEND_CARD_H),
+		LayoutOrder = order,
+		Parent = parent,
+	})
+	notch(card, 12, 1, 0)
+	stamp(card, "LEGENDARY", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0, 1),
+		Size = UDim2.fromOffset(86, 17),
+		Rotation = -4,
+	}, "accent")
+
+	-- 3D preview: the ink window with the blueprint grid, like the premium one.
+	local backing = new("Frame", {
+		Name = "PreviewBacking",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(LEGEND_VIEW, LEGEND_VIEW),
+		Parent = card,
+	})
+	local grid = blueprintGrid(backing, 6, 6, 0.88)
+	for _, line in grid:GetChildren() do
+		line.BackgroundColor3 = PAPER
+	end
+	stroke(backing, 1, PAPER, 0.6)
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = backing,
+	})
+	brackets(backing, 8, 1, 0.2)
+	for _, item in backing:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	local tagLabel = text({
+		Text = "L-" .. twoDigits(index) .. " / " .. (if BallFx.hasMesh(id) then "3D MODEL" else "LIVE"),
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(6, LEGEND_VIEW + 9),
+		Size = UDim2.fromOffset(LEGEND_VIEW, 10),
+		Parent = card,
+	})
+	text({
+		Text = "GEMS ONLY / YOURS FOREVER",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.35,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(6, LEGEND_VIEW + 22),
+		Size = UDim2.fromOffset(LEGEND_VIEW, 22),
+		Parent = card,
+	})
+
+	-- Right column: what it is, the price, how close you are, the action.
+	local x = LEGEND_VIEW + 14
+	setAccent(text({
+		Text = "LEGENDARY / GEM BALL",
+		TextSize = 8,
+		Position = UDim2.fromOffset(x, 12),
+		Size = UDim2.new(1, -(x + 100), 0, 10),
+		Parent = card,
+	}), "TextColor3")
+	capText(text({
+		Name = "BallName",
+		Text = string.upper(skin.Name),
+		Font = FONT_NUM,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(x, 26),
+		Size = UDim2.new(1, -(x + 8), 0, 20),
+		Parent = card,
+	}), 15, 8)
+	text({
+		Name = "Desc",
+		Text = skin.Text or "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.15,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(x, 50),
+		Size = UDim2.new(1, -(x + 8), 0, 24),
+		Parent = card,
+	})
+	gemIcon(card, 11, UDim2.fromOffset(x + 6, 87))
+	local price = setAccent(capText(text({
+		Name = "Price",
+		Text = commas(skin.Price),
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(x + 18, 78),
+		Size = UDim2.new(1, -(x + 26), 0, 18),
+		Parent = card,
+	}), 13, 8), "TextColor3")
+	local status = text({
+		Name = "Status",
+		Text = "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(x, 101),
+		Size = UDim2.new(1, -(x + 8), 0, 11),
+		Parent = card,
+	})
+	local _, fill = meter(card, {
+		Name = "Meter",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.75,
+		Position = UDim2.fromOffset(x, 115),
+		Size = UDim2.new(1, -(x + 8), 0, 3),
+	})
+
+	local entry = {
+		skin = skin,
+		index = index,
+		view = view,
+		camera = viewCamera,
+		tagLabel = tagLabel,
+		price = price,
+		status = status,
+		fill = fill,
+		busy = false,
+		confirmUntil = nil,
+		state = "buy",
+	}
+	entry.button = hardButton(card, {
+		Name = "Action",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 13,
+		Sub = "",
+		Position = UDim2.fromOffset(x, LEGEND_CARD_H - 62),
+		Size = UDim2.new(1, -(x + 6), 0, 56),
+		OnClick = function()
+			self:_gemBallAction(entry)
+		end,
+	})
+	self:_showGemBallPreview(entry)
+	return entry
+end
+
+function UI._showGemBallPreview(self, entry)
+	if entry.preview then
+		entry.preview.destroy()
+		entry.preview = nil
+	end
+	local ok, preview = pcall(BallFx.preview, entry.skin.Id, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = entry.view
+		entry.preview = preview
+	else
+		warn("[UI] legendary ball preview failed:", preview)
+	end
+end
+
+-- True while BUY is waiting for its second tap.
+local function confirming(entry)
+	return entry.confirmUntil ~= nil and os.clock() < entry.confirmUntil
+end
+
+function UI._refreshGemBalls(self)
+	local g = self._menu and self._menu.gemBalls
+	if not g then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local gems = attrNumber("Gems", 0)
+	local ownedCount = 0
+	for _, entry in g.order do
+		local skin = entry.skin
+		local isOwned = owned[skin.Id] == true
+		local short = math.max(0, skin.Price - gems)
+		if isOwned then
+			ownedCount += 1
+			entry.confirmUntil = nil
+			entry.price.Text = "OWNED"
+			entry.status.Text = "YOURS FOREVER / ALL RUNS"
+			entry.fill.Size = UDim2.fromScale(1, 1)
+		else
+			entry.price.Text = commas(skin.Price)
+			entry.status.Text = if short > 0
+				then "YOU HAVE " .. commas(gems) .. " / NEED " .. commas(short) .. " MORE"
+				else "YOU HAVE ENOUGH GEMS"
+			entry.fill.Size = UDim2.fromScale(math.clamp(gems / math.max(skin.Price, 1), 0, 1), 1)
+		end
+		if entry.busy then
+			continue
+		end
+		local button = entry.button
+		if equipped == skin.Id then
+			entry.state = "equipped"
+			button.setFill("accent")
+			button.setText("EQUIPPED")
+			button.sub.Text = ""
+			button.setEnabled(false)
+		elseif isOwned then
+			entry.state = "owned"
+			button.setFill("paper")
+			button.setText("EQUIP")
+			button.sub.Text = ""
+			button.setEnabled(true)
+		elseif short > 0 then
+			-- Still tappable: it says how many gems are missing.
+			entry.state = "short"
+			entry.confirmUntil = nil
+			button.setFill("paper")
+			button.setText("BUY")
+			button.sub.Text = "NEED " .. commas(short) .. " MORE"
+			button.setEnabled(true)
+		elseif confirming(entry) then
+			entry.state = "confirm"
+			button.setFill("accent")
+			button.setText("TAP TO CONFIRM")
+			button.sub.Text = "-" .. commas(skin.Price) .. " GEMS"
+			button.setEnabled(true)
+		else
+			entry.state = "buy"
+			entry.confirmUntil = nil
+			button.setFill("accent")
+			button.setText("BUY")
+			button.sub.Text = commas(skin.Price) .. " GEMS"
+			button.setEnabled(true)
+		end
+	end
+	g.right.Text = if ownedCount >= #g.order then "OWNED" else "BUY WITH GEMS"
+end
+
+function UI._gemBallAction(self, entry)
+	if entry.busy or entry.state == "equipped" then
+		return
+	end
+	local skin = entry.skin
+	local name = string.upper(skin.Name)
+	if entry.state == "short" then
+		local short = math.max(0, skin.Price - attrNumber("Gems", 0))
+		self:toast("NOT ENOUGH GEMS / NEED " .. commas(short) .. " MORE FOR " .. name, "error")
+		self:_offerTopUp(skin.Price, self._menu.panel)
+		return
+	end
+	if entry.state == "buy" then
+		-- A big spend: ask for a second tap first.
+		entry.confirmUntil = os.clock() + LEGEND_CONFIRM_TIME
+		self:_refreshGemBalls()
+		task.delay(LEGEND_CONFIRM_TIME + 0.05, function()
+			self:_refreshGemBalls()
+		end)
+		return
+	end
+	local buying = entry.state == "confirm"
+	entry.confirmUntil = nil
+	entry.busy = true
+	entry.button.setEnabled(false)
+	entry.button.setText(if buying then "BUYING" else "EQUIPPING")
+	entry.button.sub.Text = ""
+	task.spawn(function()
+		local ok, message = self:_ask(if buying then "onBuySkin" else "onEquipSkin", skin.Id)
+		entry.busy = false
+		if ok then
+			self:toast(name .. (if buying then " UNLOCKED AND EQUIPPED" else " EQUIPPED"), "reward")
+		else
+			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+			if buying then
+				self:_offerTopUp(skin.Price, self._menu.panel)
+			end
 		end
 		self:_refreshSkins()
 	end)

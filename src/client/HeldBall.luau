@@ -20,6 +20,8 @@
 		Draws the ball centered on cframe (which also turns it). scale 1 = the
 		normal held size (HeldBall.DIAMETER across for plain balls, a bit more
 		for animated ones). scale <= 0 hides it.
+		Balls with a face (Config.Skins Facing = true, e.g. Grinny) ignore cframe's
+		turn: their +Z side (the face) looks at the camera, with a little wobble.
 	ball.hide()
 	ball.radius() -> studs     -- drawn radius at scale 1
 ]]
@@ -38,6 +40,8 @@ local PREMIUM_DIAMETER = 1.25 -- animated (premium + earned) balls have rings / 
 local PREMIUM_SHARE = 1.2 -- ...so they're drawn a little bigger to keep the core readable
 local MIN_SCALE = 0.02 -- smaller than this = hidden
 local MESH_CHECK = 1 -- seconds between "has the Blender model loaded yet?" checks
+local FACING_WOBBLE = math.rad(14) -- how far a ball with a face rocks side to side
+local FACING_WOBBLE_HZ = 0.35
 
 local function graphicsLow()
 	local ok, level = pcall(Settings.graphicsLevel)
@@ -49,6 +53,7 @@ function HeldBall.new(particleShare)
 
 	local folder = nil
 	local skinId = "Default"
+	local facing = false -- Config.Skins Facing: keep the face turned to the camera
 	local held = nil -- BallFx.held object
 	local heldLow = nil -- graphics level it was built for
 	local shown = false
@@ -101,6 +106,7 @@ function HeldBall.new(particleShare)
 		newSkinId = Config.getSkin(newSkinId).Id
 		if newSkinId ~= skinId then
 			skinId = newSkinId
+			facing = Config.getSkin(skinId).Facing == true
 			failedSkin = nil
 			meshTried = false
 			destroyHeld()
@@ -132,6 +138,19 @@ function HeldBall.new(particleShare)
 		if not shown then
 			shown = true
 			held.root.Parent = folder
+		end
+		if facing then
+			-- Face (+Z) toward the camera instead of spinning it away.
+			local camera = workspace.CurrentCamera
+			if camera then
+				local position = cframe.Position
+				local away = position - camera.CFrame.Position
+				if away.Magnitude > 1e-3 then
+					local wobble = math.sin(now * FACING_WOBBLE_HZ * math.pi * 2) * FACING_WOBBLE
+					-- lookAt points -Z at the target, so aim away from the camera: +Z faces it.
+					cframe = CFrame.lookAt(position, position + away, camera.CFrame.UpVector) * CFrame.Angles(0, wobble, 0)
+				end
+			end
 		end
 		-- scale 1 = HeldBall.DIAMETER (x the animated-ball share) across.
 		local size = scale * HeldBall.DIAMETER * held.share / held.diameter

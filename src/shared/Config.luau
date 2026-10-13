@@ -212,6 +212,15 @@ Config.Skins = {
 	-- Shell / Ring / Trail: the part-built look until the model is uploaded.
 	{ Id = "Infinity", Name = "Infinity", Price = 0, Animated = true, Source = "REACH ZONE 50", Text = "A TINY BLACK UNIVERSE WITH INFINITY RINGS AND LIGHTNING", Color = Color3.fromRGB(120, 70, 255), Material = Enum.Material.Neon, Shell = Color3.fromRGB(40, 20, 70), Ring = Color3.fromRGB(255, 205, 110), Trail = Color3.fromRGB(170, 110, 255) },
 	{ Id = "Smashbot", Name = "Smashbot", Price = 0, Animated = true, Source = "SMASH 50,000 GLASS", Unlock = { Stat = "glass", Amount = 50000 }, Text = "A ROBOT BALL WITH OPENING ARMOR AND A GLOWING EYE", Color = Color3.fromRGB(255, 140, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(70, 76, 90), Ring = Color3.fromRGB(255, 150, 40), Trail = Color3.fromRGB(90, 220, 255) },
+	-- Gem-shop animated balls: the same kind of animated Blender model, BOUGHT WITH GEMS
+	-- in the shop (Price > 0, Shop BuySkin), never sold for Robux (no ProductKey, never
+	-- Premium). They get their own "LEGENDARY" card at the top of SHOP (Config.GemBalls).
+	-- Facing = true: its face is on the model's +Z side, so the ball in your hand and
+	-- the shop / menu previews keep that side turned to you instead of spinning around.
+	-- Grinny: a cute smiley that glitches into a creepy grin every few seconds
+	-- (BallStyles Show windows swap the two faces). Shell / Ring / Trail: the
+	-- part-built look until the model is uploaded.
+	{ Id = "Grinny", Name = "Grinny", Price = 25000, Animated = true, Facing = true, Text = "A HAPPY LITTLE HELPER... OR IS IT?", Color = Color3.fromRGB(255, 214, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 236, 140), Ring = Color3.fromRGB(255, 190, 30), Trail = Color3.fromRGB(255, 220, 60) },
 }
 
 -- True for balls drawn as an animated model (premium Robux balls AND earned
@@ -221,14 +230,24 @@ function Config.isAnimatedSkin(skin)
 	return type(skin) == "table" and (skin.Premium == true or skin.Animated == true)
 end
 
--- Ids of the premium (Robux) balls above, in shop order. Never the earned
--- Animated balls: this list is what's sold.
+-- True for an animated ball bought with GEMS in the shop (Animated, not Premium,
+-- Price > 0, e.g. Grinny). Never sold for Robux.
+function Config.isGemBall(skin)
+	return type(skin) == "table" and skin.Animated == true and skin.Premium ~= true and (tonumber(skin.Price) or 0) > 0
+end
+
+-- Ids of the premium (Robux) balls above, in shop order. Never the earned or
+-- gem-shop Animated balls: this list is what's sold for Robux.
 Config.PremiumBalls = {}
--- Ids of the earned animated balls (Animated, never sold), in shop order.
+-- Ids of the earned animated balls (Animated, Price 0, never sold), in shop order.
 Config.EarnedBalls = {}
+-- Ids of the animated balls bought with gems (Config.isGemBall), in shop order.
+Config.GemBalls = {}
 for _, skin in Config.Skins do
 	if skin.Premium then
 		table.insert(Config.PremiumBalls, skin.Id)
+	elseif Config.isGemBall(skin) then
+		table.insert(Config.GemBalls, skin.Id)
 	elseif skin.Animated then
 		table.insert(Config.EarnedBalls, skin.Id)
 	end
@@ -238,7 +257,7 @@ end
 -- (e.g. bought twice while a save was failing): Robux price x this.
 Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX = 16
 
--- Blender models of the premium + earned animated balls (assets/balls/*.fbx), uploaded
+-- Blender models of the premium, earned and gem-shop animated balls (assets/balls/*.fbx), uploaded
 -- as Model assets. 0 = not uploaded yet: the part-built version above is used instead.
 Config.BallModels = {
 	Frostbite = 95405037753431,
@@ -249,6 +268,7 @@ Config.BallModels = {
 	Supernova = 72233037920626,
 	Infinity = 123152768181258,
 	Smashbot = 96416348312755,
+	Grinny = 114213745199406,
 }
 
 function Config.getSkin(skinId)

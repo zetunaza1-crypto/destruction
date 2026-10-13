@@ -50,6 +50,8 @@ function actions.BuySkin(player, data, skinId)
 	end
 	-- Premium balls are only sold for Robux (Config.Products.Ball<Id>); earned balls
 	-- (Price 0 + Source, incl. the Animated ones like Infinity / Smashbot) are never sold.
+	-- Gem-shop animated balls (Animated, Price > 0, e.g. Grinny for 25,000) are bought
+	-- right here like any gem skin.
 	if skin.Premium or skin.Price <= 0 then
 		return false, skin.Name .. " can't be bought with gems"
 	end

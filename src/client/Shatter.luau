@@ -10,7 +10,8 @@
 	Shatter.shieldBreak is the burst shown when a Shield boost absorbs a crash.
 	Shatter.impact is the dust puff + chips when a ball hits a wall or the floor.
 	Shatter.skinBurst is the splash in the ball skin's colors wherever a ball hits
-	(premium balls get a themed one: Supernova flare, Black Hole implosion...).
+	(animated balls get a themed one: Supernova flare, Black Hole implosion,
+	Grinny's yellow sparkles with a few dark glitch bits...).
 	Shatter.knockLoose / knockAround knock solid decorations off their spot.
 
 	Smoothness (why it looks like this):
@@ -1077,6 +1078,26 @@ local THEMES = {
 			emitter.RotSpeed = NumberRange.new(-400, 400)
 		end,
 	},
+	-- Gem-shop balls too. Grinny: happy yellow sparkles + a few dark glitch bits
+	-- (pooled chips, GRINNY_BITS below) for its creepy side. Nothing gory.
+	Grinny = {
+		count = 22,
+		setup = function(emitter) -- bright yellow sparkles popping outward
+			emitter.Texture = SPARKLE_TEXTURE
+			emitter.EmissionDirection = Enum.NormalId.Front
+			emitter.LightEmission = 1
+			emitter.Color = ColorSequence.new(Color3.fromRGB(255, 245, 150), Color3.fromRGB(255, 195, 30))
+			emitter.Size = fading(0.38, 0.05)
+			emitter.Transparency = NumberSequence.new(0, 1)
+			emitter.Lifetime = NumberRange.new(0.3, 0.6)
+			emitter.Speed = NumberRange.new(10, 20)
+			emitter.SpreadAngle = Vector2.new(85, 85)
+			emitter.Drag = 5
+			emitter.Rotation = NumberRange.new(0, 360)
+			emitter.RotSpeed = NumberRange.new(-200, 200)
+		end,
+		bits = "Grinny",
+	},
 	-- CyberCore: glowing cyan bits (pooled chips, see below) + the normal sparks.
 }
 local themeSets = {} -- id -> { sparks = set, flare = set? }
@@ -1103,6 +1124,39 @@ local CYBER_BIT_STYLE = {
 	Transparency = 0,
 	Reflectance = 0,
 }
+-- Glitch bits (pooled chips) thrown out of a splash: { count, lowCount, styles }.
+-- Each bit takes the next style in turn.
+local BIT_SETS = {
+	CyberCore = { count = 5, lowCount = 2, styles = { CYBER_BIT_STYLE } },
+	Grinny = {
+		count = 4,
+		lowCount = 2,
+		styles = {
+			{ Material = Enum.Material.SmoothPlastic, Color = Color3.fromRGB(28, 22, 34), Transparency = 0, Reflectance = 0 },
+			{ Material = Enum.Material.Neon, Color = Color3.fromRGB(200, 30, 60), Transparency = 0, Reflectance = 0 },
+		},
+	},
+}
+
+-- A few small cubes (pooled "Chip" parts) flying off the hit, then fading.
+local function throwBits(position, normal, bitSet)
+	local styles = bitSet.styles
+	for i = 1, if low then bitSet.lowCount else bitSet.count do
+		local entry = acquire("Chip")
+		if not entry then
+			break
+		end
+		local bit = entry.a
+		applyStyle(bit, styles[(i - 1) % #styles + 1], true)
+		bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
+		bit.CFrame = CFrame.new(position + normal * 0.3)
+			* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
+		bit.Anchored = false
+		bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
+		bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
+		addLive(entry, 0, 0.7, 0.3, position.Z)
+	end
+end
 
 -- position: where the ball hit. normal: the surface's normal there (toward the ball).
 -- style: BallFx.impactStyle(skinId). big: a big pane or a mega ball (bigger splash).
@@ -1148,22 +1202,11 @@ function Shatter.skinBurst(position, normal, style, big)
 			flare.holder.CFrame = CFrame.new(position + normal * 0.3)
 			flare.emitter:Emit(if big then 2 else 1)
 		end
-	elseif style.id == "CyberCore" then
-		for _ = 1, if low then 2 else 5 do
-			local entry = acquire("Chip")
-			if not entry then
-				break
-			end
-			local bit = entry.a
-			applyStyle(bit, CYBER_BIT_STYLE, true)
-			bit.Size = Vector3.one * rng:NextNumber(0.12, 0.24)
-			bit.CFrame = CFrame.new(position + normal * 0.3)
-				* CFrame.Angles(rng:NextNumber(0, TAU), rng:NextNumber(0, TAU), 0)
-			bit.Anchored = false
-			bit.AssemblyLinearVelocity = normal * rng:NextNumber(8, 16) + rng:NextUnitVector() * 6 + UP * 3
-			bit.AssemblyAngularVelocity = rng:NextUnitVector() * rng:NextNumber(6, 14)
-			addLive(entry, 0, 0.7, 0.3, position.Z)
+		if theme.bits and BIT_SETS[theme.bits] then
+			throwBits(position, normal, BIT_SETS[theme.bits])
 		end
+	elseif style.id == "CyberCore" then
+		throwBits(position, normal, BIT_SETS.CyberCore)
 	end
 end
 

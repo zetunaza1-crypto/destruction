@@ -5,11 +5,15 @@
 	Parts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own
 	space (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).
 	src/client/BallFx.luau uses this.
-	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker? } },
+	BallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker?, Show? } },
 	                   Fx = { Trail?, Particles = { ... }, Light? } }
 	Flicker = { Hz, Min, Max }: the part's transparency jumps at random between Min and Max
 	about Hz times a second (lightning arcs).
 	Lite = true: a spinning part that cheap 'lite' balls (extra multiball balls) still show, standing still.
+	Show = { Period, From, To, Invert? }: the part is visible only while (time mod Period) is in [From, To),
+	or only OUTSIDE that window with Invert = true (e.g. Grinny's creepy face / cute face). All parts
+	of one ball share one clock, so their windows line up. Flicker only runs while the part is shown.
+	Lite balls don't animate: they keep the Invert parts (always shown) and drop the other Show parts.
 ]]
 
 return {
@@ -164,6 +168,33 @@ return {
 				{ Texture = "sparkle", Color = Color3.fromRGB(120, 235, 255), Rate = 10, Size = { 0.1, 0.24 }, Lifetime = { 0.3, 0.6 }, Speed = { 0.4, 1.2 }, LightEmission = 1 },
 			},
 			Light = { Color = Color3.fromRGB(80, 220, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	Grinny = {
+		Diameter = 2,
+		Size = Vector3.new(1.762, 1.558, 1.607),
+		Parts = {
+			Seams = { Color = Color3.fromRGB(168, 96, 14), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Panels = { Color = Color3.fromRGB(255, 194, 28), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			Net = { Color = Color3.fromRGB(250, 250, 244), Material = Enum.Material.SmoothPlastic, Transparency = 0 },
+			CuteEyes = { Color = Color3.fromRGB(22, 16, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			CuteShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			CuteSmile = { Color = Color3.fromRGB(44, 22, 10), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			Blush = { Color = Color3.fromRGB(255, 128, 72), Material = Enum.Material.SmoothPlastic, Transparency = 0.25, Show = { Period = 4, From = 2.9, To = 4, Invert = true } },
+			GrinEyes = { Color = Color3.fromRGB(14, 10, 8), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			GrinShine = { Color = Color3.fromRGB(255, 255, 255), Material = Enum.Material.Neon, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Mouth = { Color = Color3.fromRGB(26, 12, 9), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Teeth = { Color = Color3.fromRGB(252, 249, 236), Material = Enum.Material.SmoothPlastic, Transparency = 0, Show = { Period = 4, From = 2.9, To = 4 } },
+			Ghost = { Color = Color3.fromRGB(40, 225, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 20, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.9, To = 3.3 } },
+			GlitchBars = { Color = Color3.fromRGB(215, 250, 255), Material = Enum.Material.Neon, Transparency = 0, Flicker = { Hz = 26, Min = 0, Max = 1 }, Show = { Period = 4, From = 2.82, To = 3.08 } },
+		},
+		Fx = {
+			Trail = { Color = Color3.fromRGB(255, 214, 60), Color2 = Color3.fromRGB(70, 34, 8), Lifetime = 0.4, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 226, 90), Rate = 24, Size = { 0.1, 0.3 }, Lifetime = { 0.4, 0.9 }, Speed = { 0.6, 2 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 255, 245), Rate = 8, Size = { 0.05, 0.12 }, Lifetime = { 0.5, 1.1 }, Speed = { 0.3, 1 }, LightEmission = 0.3 },
+			},
+			Light = { Color = Color3.fromRGB(255, 200, 80), Range = 10, Brightness = 1.8 },
 		},
 	},
 }

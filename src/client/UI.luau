@@ -94,6 +94,12 @@ local PREMIUM_MESH_CHECK = 1 -- seconds between "has the Blender model loaded ye
 local EARNED_CARD_H = 140
 local EARNED_VIEW = 76 -- the preview square
 local EARNED_BUTTON_W = 92
+-- Gem-shop animated balls (Config.GemBalls: Grinny): a big "LEGENDARY" card at the very top of SHOP.
+local LEGEND_CARD_H = 190
+local LEGEND_VIEW = 132 -- the preview square
+local LEGEND_SWAY = 0.6 -- radians the preview camera rocks left / right (the face stays in view)
+local LEGEND_SWAY_SPEED = 0.7
+local LEGEND_CONFIRM_TIME = 3 -- seconds a "TAP TO CONFIRM" stays up before BUY resets
 -- The equipped ball at the end of the PLAY button.
 local MENU_BALL_VIEW = 42 -- the window square (PLAY's face is 50 tall)
 local MENU_BALL_SPIN = 0.9 -- radians per second the camera circles it
@@ -1615,7 +1621,8 @@ function UI._buildMenuBall(self, face)
 		if ball.rainbow and preview.model.PrimaryPart then
 			preview.model.PrimaryPart.Color = Color3.fromHSV((now * 0.2) % 1, 0.8, 1)
 		end
-		local angle = now * MENU_BALL_SPIN
+		-- A ball with a face (Facing, e.g. Grinny) rocks in front of it instead of circling.
+		local angle = if ball.facing then math.sin(now * MENU_BALL_SPIN) * LEGEND_SWAY else now * MENU_BALL_SPIN
 		local eye = Vector3.new(math.sin(angle), 0.35, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
 		local float = Vector3.new(0, math.sin(now * 2) * MENU_BALL_FLOAT, 0)
 		ball.camera.CFrame = CFrame.lookAt(eye - float, -float)
@@ -1638,6 +1645,7 @@ function UI._showMenuBall(self, skinId, force)
 	end
 	ball.skinId = skinId
 	ball.rainbow = Config.getSkin(skinId).Rainbow == true
+	ball.facing = Config.getSkin(skinId).Facing == true
 	local ok, preview = pcall(BallFx.preview, skinId, PREMIUM_PREVIEW_DIAMETER)
 	if ok and preview then
 		preview.model.Parent = ball.view
@@ -2473,6 +2481,9 @@ function UI._buildMenuPanel(self, root)
 
 	-- 05 SHOP
 	local shopPage = m.tabs[5].page
+	if #(Config.GemBalls or {}) > 0 then
+		self:_buildGemBalls(shopPage, -30)
+	end
 	if #(Config.PremiumBalls or {}) > 0 then
 		self:_buildPremiumBalls(shopPage, -20)
 	end
@@ -2504,7 +2515,7 @@ function UI._buildMenuPanel(self, root)
 	m.skinCards = {}
 	local skinButtons = {}
 	for order, skin in Config.Skins do
-		-- Premium (Robux) and earned animated balls have their own sections.
+		-- Premium (Robux), earned and gem-shop (LEGENDARY) animated balls have their own sections.
 		if not Config.isAnimatedSkin(skin) then
 			local entry = self:_buildSkinCard(grid, skin, order)
 			m.skinCards[skin.Id] = entry
@@ -4315,6 +4326,7 @@ function UI._rebuildZones(self)
 end
 
 function UI._refreshSkins(self)
+	self:_refreshGemBalls()
 	self:_refreshPremium()
 	self:_refreshEarned()
 	local m = self._menu
@@ -4328,7 +4340,7 @@ function UI._refreshSkins(self)
 	local total = 0
 	for _, skin in Config.Skins do
 		if Config.isAnimatedSkin(skin) then
-			continue -- premium / earned animated balls: their own sections
+			continue -- premium / earned / gem-shop animated balls: their own sections
 		end
 		total += 1
 		if owned[skin.Id] then
@@ -5052,6 +5064,337 @@ function UI._earnedAction(self, entry)
 			self:toast(string.upper(entry.skin.Name) .. " EQUIPPED", "reward")
 		else
 			self:toast(message or "COULD NOT EQUIP", "error")
+		end
+		self:_refreshSkins()
+	end)
+end
+
+-- Gem-shop animated balls ("LEGENDARY") ----------------------------------------------------
+-- The very top of SHOP: one ink card per gem ball (Config.GemBalls, e.g. Grinny for
+-- 25,000 gems). A turning 3D preview (animated like in a run, face toward you), its
+-- name, what it is, the gem price and how far your balance is from it. BUY asks for
+-- a second tap ("TAP TO CONFIRM") because it's a big spend; not enough gems says how
+-- many are missing. Bought through the normal gem path (Shop BuySkin), never Robux.
+
+function UI._buildGemBalls(self, parent, order)
+	local m = self._menu
+	local g = { order = {} }
+	m.gemBalls = g
+
+	local _, right = sectionHeader(parent, order, "05.L", "LEGENDARY BALL")
+	g.right = right
+	for index, id in Config.GemBalls do
+		table.insert(g.order, self:_buildGemBallCard(parent, order + index, id, index))
+	end
+
+	-- One frame loop animates the previews, only while SHOP is on screen.
+	local lastMeshCheck = 0
+	table.insert(self._connections, RunService.RenderStepped:Connect(function()
+		if not m.root.Visible or m.tab ~= TAB_SHOP then
+			return
+		end
+		local now = os.clock()
+		local checkMesh = now - lastMeshCheck > PREMIUM_MESH_CHECK
+		if checkMesh then
+			lastMeshCheck = now
+		end
+		-- Rock in front of the ball (its face is on the +Z side) instead of circling it.
+		local angle = math.sin(now * LEGEND_SWAY_SPEED) * LEGEND_SWAY
+		local eye = Vector3.new(math.sin(angle), 0.2, math.cos(angle)) * PREMIUM_CAMERA_DISTANCE
+		for _, entry in g.order do
+			-- The Blender model finished loading: swap the part-built stand-in (once).
+			if checkMesh and entry.preview and not entry.preview.mesh and not entry.meshTried and BallFx.hasMesh(entry.skin.Id) then
+				entry.meshTried = true
+				self:_showGemBallPreview(entry)
+				entry.tagLabel.Text = "L-" .. twoDigits(entry.index) .. " / 3D MODEL"
+			end
+			if entry.preview then
+				entry.preview.step(now)
+				entry.camera.CFrame = CFrame.lookAt(eye, Vector3.zero)
+			end
+		end
+	end))
+	self:_refreshGemBalls()
+end
+
+function UI._buildGemBallCard(self, parent, order, id, index)
+	local skin = Config.getSkin(id)
+	local card = new("Frame", {
+		Name = id,
+		BackgroundColor3 = INK,
+		Size = UDim2.new(1, 0, 0, LEGEND_CARD_H),
+		LayoutOrder = order,
+		Parent = parent,
+	})
+	notch(card, 12, 1, 0)
+	stamp(card, "LEGENDARY", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0, 1),
+		Size = UDim2.fromOffset(86, 17),
+		Rotation = -4,
+	}, "accent")
+
+	-- 3D preview: the ink window with the blueprint grid, like the premium one.
+	local backing = new("Frame", {
+		Name = "PreviewBacking",
+		BackgroundColor3 = INK,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(LEGEND_VIEW, LEGEND_VIEW),
+		Parent = card,
+	})
+	local grid = blueprintGrid(backing, 6, 6, 0.88)
+	for _, line in grid:GetChildren() do
+		line.BackgroundColor3 = PAPER
+	end
+	stroke(backing, 1, PAPER, 0.6)
+	local view = new("ViewportFrame", {
+		Name = "Preview",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Ambient = Color3.fromRGB(150, 150, 165),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -2, -1),
+		Parent = backing,
+	})
+	brackets(backing, 8, 1, 0.2)
+	for _, item in backing:GetChildren() do
+		if item.Name == "Bracket" then
+			item.BackgroundColor3 = PAPER
+			item.ZIndex = 2
+		end
+	end
+	local viewCamera = new("Camera", { FieldOfView = 40, Parent = view })
+	view.CurrentCamera = viewCamera
+	local tagLabel = text({
+		Text = "L-" .. twoDigits(index) .. " / " .. (if BallFx.hasMesh(id) then "3D MODEL" else "LIVE"),
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(6, LEGEND_VIEW + 9),
+		Size = UDim2.fromOffset(LEGEND_VIEW, 10),
+		Parent = card,
+	})
+	text({
+		Text = "GEMS ONLY / YOURS FOREVER",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.35,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(6, LEGEND_VIEW + 22),
+		Size = UDim2.fromOffset(LEGEND_VIEW, 22),
+		Parent = card,
+	})
+
+	-- Right column: what it is, the price, how close you are, the action.
+	local x = LEGEND_VIEW + 14
+	setAccent(text({
+		Text = "LEGENDARY / GEM BALL",
+		TextSize = 8,
+		Position = UDim2.fromOffset(x, 12),
+		Size = UDim2.new(1, -(x + 100), 0, 10),
+		Parent = card,
+	}), "TextColor3")
+	capText(text({
+		Name = "BallName",
+		Text = string.upper(skin.Name),
+		Font = FONT_NUM,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(x, 26),
+		Size = UDim2.new(1, -(x + 8), 0, 20),
+		Parent = card,
+	}), 15, 8)
+	text({
+		Name = "Desc",
+		Text = skin.Text or "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTransparency = 0.15,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Position = UDim2.fromOffset(x, 50),
+		Size = UDim2.new(1, -(x + 8), 0, 24),
+		Parent = card,
+	})
+	gemIcon(card, 11, UDim2.fromOffset(x + 6, 87))
+	local price = setAccent(capText(text({
+		Name = "Price",
+		Text = commas(skin.Price),
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(x + 18, 78),
+		Size = UDim2.new(1, -(x + 26), 0, 18),
+		Parent = card,
+	}), 13, 8), "TextColor3")
+	local status = text({
+		Name = "Status",
+		Text = "",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(x, 101),
+		Size = UDim2.new(1, -(x + 8), 0, 11),
+		Parent = card,
+	})
+	local _, fill = meter(card, {
+		Name = "Meter",
+		BackgroundColor3 = PAPER,
+		BackgroundTransparency = 0.75,
+		Position = UDim2.fromOffset(x, 115),
+		Size = UDim2.new(1, -(x + 8), 0, 3),
+	})
+
+	local entry = {
+		skin = skin,
+		index = index,
+		view = view,
+		camera = viewCamera,
+		tagLabel = tagLabel,
+		price = price,
+		status = status,
+		fill = fill,
+		busy = false,
+		confirmUntil = nil,
+		state = "buy",
+	}
+	entry.button = hardButton(card, {
+		Name = "Action",
+		Fill = "accent",
+		Text = "BUY",
+		TextSize = 13,
+		Sub = "",
+		Position = UDim2.fromOffset(x, LEGEND_CARD_H - 62),
+		Size = UDim2.new(1, -(x + 6), 0, 56),
+		OnClick = function()
+			self:_gemBallAction(entry)
+		end,
+	})
+	self:_showGemBallPreview(entry)
+	return entry
+end
+
+function UI._showGemBallPreview(self, entry)
+	if entry.preview then
+		entry.preview.destroy()
+		entry.preview = nil
+	end
+	local ok, preview = pcall(BallFx.preview, entry.skin.Id, PREMIUM_PREVIEW_DIAMETER)
+	if ok and preview then
+		preview.model.Parent = entry.view
+		entry.preview = preview
+	else
+		warn("[UI] legendary ball preview failed:", preview)
+	end
+end
+
+-- True while BUY is waiting for its second tap.
+local function confirming(entry)
+	return entry.confirmUntil ~= nil and os.clock() < entry.confirmUntil
+end
+
+function UI._refreshGemBalls(self)
+	local g = self._menu and self._menu.gemBalls
+	if not g then
+		return
+	end
+	local owned = ownedSkins()
+	local equipped = player:GetAttribute("EquippedSkin") or "Default"
+	local gems = attrNumber("Gems", 0)
+	local ownedCount = 0
+	for _, entry in g.order do
+		local skin = entry.skin
+		local isOwned = owned[skin.Id] == true
+		local short = math.max(0, skin.Price - gems)
+		if isOwned then
+			ownedCount += 1
+			entry.confirmUntil = nil
+			entry.price.Text = "OWNED"
+			entry.status.Text = "YOURS FOREVER / ALL RUNS"
+			entry.fill.Size = UDim2.fromScale(1, 1)
+		else
+			entry.price.Text = commas(skin.Price)
+			entry.status.Text = if short > 0
+				then "YOU HAVE " .. commas(gems) .. " / NEED " .. commas(short) .. " MORE"
+				else "YOU HAVE ENOUGH GEMS"
+			entry.fill.Size = UDim2.fromScale(math.clamp(gems / math.max(skin.Price, 1), 0, 1), 1)
+		end
+		if entry.busy then
+			continue
+		end
+		local button = entry.button
+		if equipped == skin.Id then
+			entry.state = "equipped"
+			button.setFill("accent")
+			button.setText("EQUIPPED")
+			button.sub.Text = ""
+			button.setEnabled(false)
+		elseif isOwned then
+			entry.state = "owned"
+			button.setFill("paper")
+			button.setText("EQUIP")
+			button.sub.Text = ""
+			button.setEnabled(true)
+		elseif short > 0 then
+			-- Still tappable: it says how many gems are missing.
+			entry.state = "short"
+			entry.confirmUntil = nil
+			button.setFill("paper")
+			button.setText("BUY")
+			button.sub.Text = "NEED " .. commas(short) .. " MORE"
+			button.setEnabled(true)
+		elseif confirming(entry) then
+			entry.state = "confirm"
+			button.setFill("accent")
+			button.setText("TAP TO CONFIRM")
+			button.sub.Text = "-" .. commas(skin.Price) .. " GEMS"
+			button.setEnabled(true)
+		else
+			entry.state = "buy"
+			entry.confirmUntil = nil
+			button.setFill("accent")
+			button.setText("BUY")
+			button.sub.Text = commas(skin.Price) .. " GEMS"
+			button.setEnabled(true)
+		end
+	end
+	g.right.Text = if ownedCount >= #g.order then "OWNED" else "BUY WITH GEMS"
+end
+
+function UI._gemBallAction(self, entry)
+	if entry.busy or entry.state == "equipped" then
+		return
+	end
+	local skin = entry.skin
+	local name = string.upper(skin.Name)
+	if entry.state == "short" then
+		local short = math.max(0, skin.Price - attrNumber("Gems", 0))
+		self:toast("NOT ENOUGH GEMS / NEED " .. commas(short) .. " MORE FOR " .. name, "error")
+		self:_offerTopUp(skin.Price, self._menu.panel)
+		return
+	end
+	if entry.state == "buy" then
+		-- A big spend: ask for a second tap first.
+		entry.confirmUntil = os.clock() + LEGEND_CONFIRM_TIME
+		self:_refreshGemBalls()
+		task.delay(LEGEND_CONFIRM_TIME + 0.05, function()
+			self:_refreshGemBalls()
+		end)
+		return
+	end
+	local buying = entry.state == "confirm"
+	entry.confirmUntil = nil
+	entry.busy = true
+	entry.button.setEnabled(false)
+	entry.button.setText(if buying then "BUYING" else "EQUIPPING")
+	entry.button.sub.Text = ""
+	task.spawn(function()
+		local ok, message = self:_ask(if buying then "onBuySkin" else "onEquipSkin", skin.Id)
+		entry.busy = false
+		if ok then
+			self:toast(name .. (if buying then " UNLOCKED AND EQUIPPED" else " EQUIPPED"), "reward")
+		else
+			self:toast(message or (if buying then "PURCHASE FAILED" else "COULD NOT EQUIP"), "error")
+			if buying then
+				self:_offerTopUp(skin.Price, self._menu.panel)
+			end
 		end
 		self:_refreshSkins()
 	end)

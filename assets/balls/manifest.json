@@ -1385,5 +1385,321 @@
         "brightness": 2
       }
     }
+  },
+  "Grinny": {
+    "file": "Grinny.fbx",
+    "diameter": 2.0,
+    "triangles": 2912,
+    "size": [
+      1.762,
+      1.558,
+      1.607
+    ],
+    "parts": {
+      "Seams": {
+        "color": [
+          168,
+          96,
+          14
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Seams",
+        "triangles": 168
+      },
+      "Panels": {
+        "color": [
+          255,
+          194,
+          28
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Panels",
+        "triangles": 656
+      },
+      "Net": {
+        "color": [
+          250,
+          250,
+          244
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Net",
+        "triangles": 850
+      },
+      "CuteEyes": {
+        "color": [
+          22,
+          16,
+          12
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_CuteEyes",
+        "triangles": 92,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0,
+          "invert": true
+        }
+      },
+      "CuteShine": {
+        "color": [
+          255,
+          255,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_CuteShine",
+        "triangles": 80,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0,
+          "invert": true
+        }
+      },
+      "CuteSmile": {
+        "color": [
+          44,
+          22,
+          10
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_CuteSmile",
+        "triangles": 84,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0,
+          "invert": true
+        }
+      },
+      "Blush": {
+        "color": [
+          255,
+          128,
+          72
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.25,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Blush",
+        "triangles": 76,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0,
+          "invert": true
+        }
+      },
+      "GrinEyes": {
+        "color": [
+          14,
+          10,
+          8
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_GrinEyes",
+        "triangles": 108,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0
+        }
+      },
+      "GrinShine": {
+        "color": [
+          255,
+          255,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_GrinShine",
+        "triangles": 44,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0
+        }
+      },
+      "Mouth": {
+        "color": [
+          26,
+          12,
+          9
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Mouth",
+        "triangles": 170,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0
+        }
+      },
+      "Teeth": {
+        "color": [
+          252,
+          249,
+          236
+        ],
+        "material": "SmoothPlastic",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Teeth",
+        "triangles": 340,
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 4.0
+        }
+      },
+      "Ghost": {
+        "color": [
+          40,
+          225,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_Ghost",
+        "triangles": 160,
+        "flicker": {
+          "hz": 20,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "show": {
+          "period": 4.0,
+          "from": 2.9,
+          "to": 3.3
+        }
+      },
+      "GlitchBars": {
+        "color": [
+          215,
+          250,
+          255
+        ],
+        "material": "Neon",
+        "transparency": 0.0,
+        "spin": null,
+        "pulse": null,
+        "mesh": "Grinny_GlitchBars",
+        "triangles": 84,
+        "flicker": {
+          "hz": 26,
+          "min": 0.0,
+          "max": 1.0
+        },
+        "show": {
+          "period": 4.0,
+          "from": 2.82,
+          "to": 3.08
+        }
+      }
+    },
+    "fx": {
+      "trail": {
+        "color": [
+          255,
+          214,
+          60
+        ],
+        "color2": [
+          70,
+          34,
+          8
+        ],
+        "lifetime": 0.4,
+        "widthScale": 1.1
+      },
+      "particles": [
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            226,
+            90
+          ],
+          "rate": 24,
+          "size": [
+            0.1,
+            0.3
+          ],
+          "lifetime": [
+            0.4,
+            0.9
+          ],
+          "speed": [
+            0.6,
+            2.0
+          ],
+          "lightEmission": 1
+        },
+        {
+          "texture": "sparkle",
+          "color": [
+            255,
+            255,
+            245
+          ],
+          "rate": 8,
+          "size": [
+            0.05,
+            0.12
+          ],
+          "lifetime": [
+            0.5,
+            1.1
+          ],
+          "speed": [
+            0.3,
+            1.0
+          ],
+          "lightEmission": 0.3
+        }
+      ],
+      "light": {
+        "color": [
+          255,
+          200,
+          80
+        ],
+        "range": 10,
+        "brightness": 1.8
+      }
+    }
   }
 }

@@ -7,11 +7,13 @@ safe to run again):
   1. Uploads the chosen sounds from assets/sounds        -> Config.Sounds
   2. Uploads every model in assets/models (*.fbx)        -> Config.Models
   3. Uploads every ball model in assets/balls (*.fbx)   -> Config.BallModels
-     (premium Robux balls AND earned balls like Infinity / Smashbot)
+     (premium Robux balls, earned balls like Infinity / Smashbot AND gem-shop
+     balls like Grinny)
   4. Creates the game passes (with their images)         -> Config.GamePasses
   5. Creates the developer products (with their images)  -> Config.Products
      (incl. the premium balls, icons assets/images/ball_<id>.png; never the
-     earned balls in EARNED_BALLS - those are rewards, not for sale)
+     earned balls in EARNED_BALLS - those are rewards, not for sale - and never
+     the gem-shop balls in GEM_BALLS - those are bought with gems only)
   6. Applies the experience + server settings (name, description, 20 players
      per server, devices, voice chat off, private servers off)
   7. Writes all the IDs into src/shared/Config.luau, and regenerates
@@ -118,6 +120,13 @@ PREMIUM_BALLS = {
 EARNED_BALLS = ("Infinity", "Smashbot")
 assert not set(EARNED_BALLS) & set(PREMIUM_BALLS), "an earned ball must never be sold"
 
+# Animated balls bought in the game's shop with GEMS (Config.Skins Price > 0, e.g.
+# Grinny for 25,000 gems). Their models are uploaded into Config.BallModels like the
+# others, but they are never sold for Robux: no developer product or game pass.
+GEM_BALLS = ("Grinny",)
+assert not set(GEM_BALLS) & set(PREMIUM_BALLS), "a gem ball must never be sold for Robux"
+assert not set(GEM_BALLS) & set(EARNED_BALLS), "a ball is either earned or bought with gems"
+
 
 def ball_icon(ball_id):
     """assets/images/ball_<id>.png (lowercase id first, then the exact id)."""
@@ -130,6 +139,7 @@ def ball_icon(ball_id):
 for _ball_id, (_name, _description, _price) in PREMIUM_BALLS.items():
     PRODUCTS["Ball" + _ball_id] = (_name, _description, _price, ball_icon(_ball_id))
 assert not any("Ball" + _ball_id in PRODUCTS for _ball_id in EARNED_BALLS), "an earned ball must never be sold"
+assert not any("Ball" + _ball_id in PRODUCTS for _ball_id in GEM_BALLS), "a gem ball must never be sold for Robux"
 
 EXPERIENCE_NAME = "Shatter Run"
 EXPERIENCE_DESCRIPTION = (
@@ -319,7 +329,7 @@ def step_models(ids):
 
 
 def step_balls(ids):
-    print("\n[3/9] Ball models (premium + earned)")
+    print("\n[3/9] Ball models (premium + earned + gem shop)")
     if not os.path.exists(BALL_MANIFEST):
         print("  no assets/balls/manifest.json yet - skipped")
         return
@@ -336,7 +346,7 @@ def step_balls(ids):
         if DRY_RUN:
             print(f"  {key}: would upload {os.path.basename(path)}")
             continue
-        kind = "Earned" if key in EARNED_BALLS else "Premium"
+        kind = "Earned" if key in EARNED_BALLS else "Gem shop" if key in GEM_BALLS else "Premium"
         asset_id = upload_asset("Model", path, f"ShatterRun Ball {key}", f"{kind} ball model for Shatter Run.", "model/fbx")
         ids["BallModels"][key] = asset_id
         save_ids(ids)
@@ -529,11 +539,15 @@ def ball_styles_luau(manifest, source):
         "\tParts match the model's part names (<Id>_<Part>). Spin axes are in the ball's own",
         "\tspace (Roblox, Y up). Size = the model's real bounding box at Diameter (studs).",
         "\tsrc/client/BallFx.luau uses this.",
-        "\tBallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker? } },",
+        "\tBallStyles[Id] = { Diameter, Size?, Parts = { [Part] = { Color, Material, Transparency, Spin?, Pulse?, Flicker?, Show? } },",
         "\t                   Fx = { Trail?, Particles = { ... }, Light? } }",
         "\tFlicker = { Hz, Min, Max }: the part's transparency jumps at random between Min and Max",
         "\tabout Hz times a second (lightning arcs).",
         "\tLite = true: a spinning part that cheap 'lite' balls (extra multiball balls) still show, standing still.",
+        "\tShow = { Period, From, To, Invert? }: the part is visible only while (time mod Period) is in [From, To),",
+        "\tor only OUTSIDE that window with Invert = true (e.g. Grinny's creepy face / cute face). All parts",
+        "\tof one ball share one clock, so their windows line up. Flicker only runs while the part is shown.",
+        "\tLite balls don't animate: they keep the Invert parts (always shown) and drop the other Show parts.",
         "]]",
         "",
         "return {",
@@ -570,6 +584,13 @@ def ball_styles_luau(manifest, source):
                 high = max(0.0, min(1.0, _num(flicker.get("max"), 1.0)))
                 low, high = min(low, high), max(low, high)
                 fields.append(f"Flicker = {{ Hz = {_fmt(flicker.get('hz'))}, Min = {_fmt(low)}, Max = {_fmt(high)} }}")
+            show = style.get("show")
+            if isinstance(show, dict) and _num(show.get("period")) > 0:
+                period = _num(show.get("period"))
+                start = max(0.0, min(period, _num(show.get("from"), 0.0)))
+                stop = max(start, min(period, _num(show.get("to"), period)))
+                invert = ", Invert = true" if show.get("invert") is True else ""
+                fields.append(f"Show = {{ Period = {_fmt(period)}, From = {_fmt(start)}, To = {_fmt(stop)}{invert} }}")
             if style.get("lite") is True:
                 fields.append("Lite = true")
             out.append(f"\t\t\t{part} = {{ " + ", ".join(fields) + " },")

@@ -10,6 +10,14 @@
 	rings / orbiting shards) so they already look special.
 	Model parts can spin, pulse (grow / shrink) and flicker (their transparency
 	jumps around at random, e.g. lightning arcs: BallStyles Flicker = { Hz, Min, Max }).
+	They can also show only part of the time (BallStyles Show = { Period, From, To, Invert? }):
+	the part is visible only while (ball clock mod Period) is in [From, To), or only
+	OUTSIDE that window with Invert = true. Grinny uses it to swap its cute face for a
+	creepy grin and back. All parts of one ball read the same clock, so their windows
+	line up (each thrown ball starts at its own random point of the cycle). A part
+	with Show and Flicker only flickers while it's shown. Lite balls don't animate:
+	they keep the Invert parts (always shown) and drop the other Show parts, so a lite
+	Grinny always has exactly its cute face.
 
 	BallFx.create(skinId, radius, options?) -> BasePart
 		The ball to throw. Move it by setting its CFrame (it never needs to turn).
@@ -46,6 +54,7 @@
 	  - one RenderStepped loop animates every live animated ball (no per-ball connections)
 	  - flickering parts change at most Hz times a second (half that on Low graphics),
 	    lite balls don't flicker
+	  - Show parts only write Transparency when they appear / disappear
 	  - at most MAX_FULL full-detail balls at once; more become lite versions
 	  - particle rates are shared: the more full balls, the less each one emits
 	  - only the newest MAX_LIGHTS balls get a light (none on Low graphics)
@@ -85,6 +94,7 @@ local LOW_TRAIL_SCALE = 0.75 -- Low graphics: shorter trails
 local HELD_PARTICLE_SCALE = 0.6 -- the ball in your hand sparkles a bit less than a thrown one
 local LOW_FLICKER_SCALE = 0.5 -- Low graphics: flickering parts change half as often
 local MAX_FLICKER_HZ = 30
+local SHOW_PHASE_SPREAD = 10 -- seconds: thrown balls start their Show cycle up to this far apart
 
 local TEXTURES = {
 	sparkle = "rbxasset://textures/particles/sparkles_main.dds",
@@ -103,7 +113,7 @@ local FALLBACK = {
 	MagmaHeart = { shell = Enum.Material.Glass, shellAlpha = 0.35, rings = 0, shards = 4 },
 	BlackHole = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 0, disk = true, shards = 0 },
 	Supernova = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 2, shards = 3 },
-	-- Earned balls (never sold).
+	-- Earned balls (never sold) and gem-shop balls.
 	Infinity = {
 		shell = Enum.Material.Glass,
 		shellAlpha = 0.5,
@@ -117,6 +127,23 @@ local FALLBACK = {
 				{ Texture = "sparkle", Color = Color3.fromRGB(140, 235, 255), Rate = 12, Size = { 0.06, 0.16 }, Lifetime = { 0.12, 0.3 }, Speed = { 3, 6 }, LightEmission = 1 },
 			},
 			Light = { Color = Color3.fromRGB(150, 90, 255), Range = 10, Brightness = 2 },
+		},
+	},
+	Grinny = {
+		-- No face before the model loads: a glowing yellow ball in a pale glass shell
+		-- with one ring that glitches on and off.
+		shell = Enum.Material.Glass,
+		shellAlpha = 0.55,
+		rings = 1,
+		shards = 0,
+		flicker = { Hz = 5, Min = 0, Max = 1 },
+		fx = {
+			Trail = { Color = Color3.fromRGB(255, 220, 60), Color2 = Color3.fromRGB(255, 160, 30), Lifetime = 0.4, WidthScale = 1.1 },
+			Particles = {
+				{ Texture = "sparkle", Color = Color3.fromRGB(255, 235, 120), Rate = 20, Size = { 0.1, 0.26 }, Lifetime = { 0.4, 0.9 }, Speed = { 0.8, 2.2 }, LightEmission = 1 },
+				{ Texture = "sparkle", Color = Color3.fromRGB(150, 30, 40), Rate = 6, Size = { 0.06, 0.14 }, Lifetime = { 0.1, 0.25 }, Speed = { 2, 4 }, LightEmission = 0.3 },
+			},
+			Light = { Color = Color3.fromRGB(255, 210, 70), Range = 9, Brightness = 1.6 },
 		},
 	},
 	Smashbot = {
@@ -135,7 +162,7 @@ local FALLBACK = {
 }
 local DEFAULT_FALLBACK = { shell = Enum.Material.ForceField, shellAlpha = 0, rings = 1, shards = 0 }
 local EMPTY_STYLE = { Diameter = 2, Parts = {}, Fx = { Particles = {} } }
-local CENTER_PARTS = { "Core", "Heart", "Shell" } -- model parts that sit on the ball's center
+local CENTER_PARTS = { "Core", "Heart", "Shell", "Panels" } -- model parts that sit on the ball's center
 
 local camera = workspace.CurrentCamera
 
@@ -239,38 +266,102 @@ local function flickerSpec(flicker)
 	return { Hz = math.min(hz, MAX_FLICKER_HZ), Min = math.min(low, high), Max = math.max(low, high) }
 end
 
--- Live flicker state for one part of one ball.
-local function newFlicker(part, spec)
-	return { part = part, min = spec.Min, max = spec.Max, hz = spec.Hz, nextAt = 0 }
+-- A BallStyles Show = { Period, From, To, Invert? } cleaned up (nil if it does nothing).
+-- From / To are clamped into [0, Period].
+local function showSpec(show)
+	if type(show) ~= "table" then
+		return nil
+	end
+	local period = tonumber(show.Period) or 0
+	if period ~= period or period <= 0 or period == math.huge then
+		return nil
+	end
+	local from = math.clamp(tonumber(show.From) or 0, 0, period)
+	local to = math.clamp(tonumber(show.To) or period, from, period)
+	return { Period = period, From = from, To = to, Invert = show.Invert == true }
 end
 
--- Each flickering part gets a new random transparency about hz times a second.
--- The gap is random too (0.5x - 1.5x), so arcs never blink in step.
-local function stepFlickers(flickers, t, rateScale)
-	for _, flicker in flickers do
-		if t >= flicker.nextAt then
-			flicker.part.Transparency = flicker.min + (flicker.max - flicker.min) * math.random()
-			flicker.nextAt = t + (0.5 + math.random()) / (flicker.hz * rateScale)
+-- True while a Show part is visible at `clock` (seconds on its ball's clock).
+local function isShown(show, clock)
+	local at = clock % show.Period
+	return (at >= show.From and at < show.To) ~= show.Invert
+end
+
+-- Live transparency state for one part of one ball: flicker and / or show.
+-- base: the part's own transparency (Flicker / Show are on top of it).
+local function newVisual(part, item)
+	local flicker = item.flicker
+	return {
+		part = part,
+		base = item.base,
+		hz = flicker and flicker.Hz,
+		min = flicker and flicker.Min,
+		max = flicker and flicker.Max,
+		nextAt = 0,
+		show = item.show,
+		hidden = nil, -- unknown until the first step, so that one always writes
+	}
+end
+
+-- Every frame for one ball. clock: that ball's Show clock (t + its own offset).
+--  - Show parts outside their window are fully invisible (written only when that changes).
+--  - Flickering parts get a new random transparency about hz times a second while
+--    shown; the gap is random too (0.5x - 1.5x), so arcs never blink in step.
+local function stepVisuals(visuals, t, clock, rateScale)
+	for _, visual in visuals do
+		local show = visual.show
+		if show then
+			local hidden = not isShown(show, clock)
+			if hidden ~= visual.hidden then
+				visual.hidden = hidden
+				if hidden then
+					visual.part.Transparency = 1
+					continue
+				end
+				visual.nextAt = 0 -- just appeared: flicker (or base) right away
+				if not visual.hz then
+					visual.part.Transparency = visual.base
+				end
+			elseif hidden then
+				continue
+			end
+		end
+		if visual.hz and t >= visual.nextAt then
+			local flick = visual.min + (visual.max - visual.min) * math.random()
+			visual.part.Transparency = 1 - (1 - visual.base) * (1 - flick)
+			visual.nextAt = t + (0.5 + math.random()) / (visual.hz * rateScale)
 		end
 	end
 end
 
--- Flicker states for a copy of `proto` (`find(name)` -> that copy's part).
-local function copyFlickers(proto, find)
-	local flickers = {}
-	for _, item in proto.flickers do
+-- Stops a ball's visuals in the lite look (a demoted ball no longer animates):
+-- Invert Show parts at their base transparency, other Show parts hidden.
+local function settleVisuals(visuals)
+	for _, visual in visuals do
+		local show = visual.show
+		if show then
+			visual.hidden = not show.Invert
+			visual.part.Transparency = if show.Invert then visual.base else 1
+		end
+	end
+end
+
+-- Visual states for a copy of `proto` (`find(name)` -> that copy's part).
+local function copyVisuals(proto, find)
+	local visuals = {}
+	for _, item in proto.visuals do
 		local part = find(item.name)
 		if part then
-			table.insert(flickers, newFlicker(part, item.spec))
+			table.insert(visuals, newVisual(part, item))
 		end
 	end
-	return flickers
+	return visuals
 end
 
 -- Welds `part` to the root at `rest` (its place in the ball's own space) and records
 -- its animation, if any. Spins turn around the ball's center; pulses scale;
--- flickers change its transparency.
-local function attach(proto, part, rest, spin, pulse, flicker)
+-- flickers and shows change its transparency.
+local function attach(proto, part, rest, spin, pulse, flicker, show)
 	local joint = Instance.new("Weld")
 	joint.Name = "Joint"
 	joint.Part0 = proto.root
@@ -291,9 +382,10 @@ local function attach(proto, part, rest, spin, pulse, flicker)
 			phase = spin and spin.Phase or 0,
 		})
 	end
-	local spec = flickerSpec(flicker)
-	if spec then
-		table.insert(proto.flickers, { name = part.Name, spec = spec })
+	local flickerInfo = flickerSpec(flicker)
+	local showInfo = showSpec(show)
+	if flickerInfo or showInfo then
+		table.insert(proto.visuals, { name = part.Name, base = part.Transparency, flicker = flickerInfo, show = showInfo })
 	end
 end
 
@@ -428,6 +520,12 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		if keepStatic and partStyle and partStyle.Spin and not partStyle.Lite then
 			continue
 		end
+		-- Lite balls don't animate, so a Show part can't come and go: keep the Invert
+		-- ones (e.g. Grinny's cute face, shown most of the time) and drop the rest.
+		local show = partStyle and showSpec(partStyle.Show)
+		if lite and show and not show.Invert then
+			continue
+		end
 		if partStyle then
 			part.Color = partStyle.Color
 			part.Material = partStyle.Material
@@ -439,7 +537,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		if lite or not partStyle then
 			attach(proto, part, rest)
 		else
-			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse, partStyle.Flicker)
+			attach(proto, part, rest, partStyle.Spin, partStyle.Pulse, partStyle.Flicker, partStyle.Show)
 		end
 	end
 	model:Destroy()
@@ -544,7 +642,7 @@ local function prototypeFor(skin, radius, lite)
 	end
 	local diameter = radius * VISUAL_SCALE
 	local scale = diameter / (tonumber(style.Diameter) or 2)
-	proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
+	proto = { root = newRoot(diameter), anims = {}, visuals = {}, emitters = {}, hasLight = false, mesh = false }
 	if template then
 		local ok, built = pcall(buildMesh, proto, skin.Id, style, template, diameter, lite)
 		if ok and built then
@@ -554,7 +652,7 @@ local function prototypeFor(skin, radius, lite)
 				warn("[BallFx] could not use the model for", skin.Id, built)
 			end
 			proto.root:Destroy()
-			proto = { root = newRoot(diameter), anims = {}, flickers = {}, emitters = {}, hasLight = false, mesh = false }
+			proto = { root = newRoot(diameter), anims = {}, visuals = {}, emitters = {}, hasLight = false, mesh = false }
 		end
 	end
 	if not proto.mesh then
@@ -593,7 +691,7 @@ local function rebalance()
 end
 
 local function animate(entry, t, pulses, flickerRate)
-	stepFlickers(entry.flickers, t, flickerRate)
+	stepVisuals(entry.visuals, t, t + entry.clockOffset, flickerRate)
 	for _, anim in entry.anims do
 		local c0 = anim.rest
 		local pulse = anim.pulse
@@ -726,6 +824,7 @@ local function demoteOldest()
 			if entry.light then
 				entry.light.Enabled = false
 			end
+			settleVisuals(entry.visuals)
 			return true
 		end
 	end
@@ -771,7 +870,8 @@ function BallFx.create(skinId, radius, options)
 	root.Name = if options.mega then "MegaBall" else "Ball"
 	scaleTrail(root, options.trailScale)
 	if not lite then
-		local entry = { root = root, anims = {}, flickers = {}, emitters = {}, light = nil, phase = math.random() }
+		local phase = math.random()
+		local entry = { root = root, anims = {}, visuals = {}, emitters = {}, light = nil, phase = phase, clockOffset = phase * SHOW_PHASE_SPREAD }
 		for _, anim in proto.anims do
 			local part = root:FindFirstChild(anim.name)
 			local joint = part and part:FindFirstChild("Joint")
@@ -788,9 +888,12 @@ function BallFx.create(skinId, radius, options)
 				})
 			end
 		end
-		entry.flickers = copyFlickers(proto, function(name)
+		entry.visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
+		-- Right faces from the first frame (a clone starts with every part showing).
+		local now = os.clock()
+		stepVisuals(entry.visuals, now, now + entry.clockOffset, 1)
 		for _, item in proto.emitters do
 			local emitter = root:FindFirstChild(item.name)
 			if emitter then
@@ -834,7 +937,7 @@ function BallFx.preview(skinId, diameter)
 	local model = Instance.new("Model")
 	model.Name = "BallPreview"
 	local anims = {}
-	local flickers = {}
+	local visuals = {}
 	local animated = Config.isAnimatedSkin(skin)
 
 	if animated then
@@ -862,7 +965,7 @@ function BallFx.preview(skinId, diameter)
 				})
 			end
 		end
-		flickers = copyFlickers(proto, function(name)
+		visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
 		root.Parent = model
@@ -875,7 +978,7 @@ function BallFx.preview(skinId, diameter)
 
 	local preview = { model = model, mesh = animated and BallFx.hasMesh(skinId) }
 	function preview.step(t)
-		stepFlickers(flickers, t, 1)
+		stepVisuals(visuals, t, t, 1)
 		for _, anim in anims do
 			local c0 = anim.rest
 			local pulse = anim.pulse
@@ -893,6 +996,7 @@ function BallFx.preview(skinId, diameter)
 	function preview.destroy()
 		model:Destroy()
 	end
+	preview.step(os.clock()) -- right faces before the first frame
 	return preview
 end
 
@@ -909,16 +1013,18 @@ function BallFx.held(skinId, diameter, particleScale)
 	local items = {} -- one per visible part: { part, rest, baseSize, axis, rps, phase, pulse }
 	local root
 	local plain = nil
-	local flickers = {}
+	local visuals = {}
 	local animated = Config.isAnimatedSkin(skin)
 
 	if animated then
 		local proto = prototypeFor(skin, diameter / VISUAL_SCALE, false)
 		held.mesh = proto.mesh
 		root = proto.root:Clone()
-		flickers = copyFlickers(proto, function(name)
+		visuals = copyVisuals(proto, function(name)
 			return root:FindFirstChild(name)
 		end)
+		local now = os.clock()
+		stepVisuals(visuals, now, now, 1) -- right faces before the first frame
 		local animByName = {}
 		for _, anim in proto.anims do
 			animByName[anim.name] = anim
@@ -975,7 +1081,7 @@ function BallFx.held(skinId, diameter, particleScale)
 	function held.place(cframe, scale, t)
 		local resize = scale ~= lastScale
 		lastScale = scale
-		stepFlickers(flickers, t, flickerRate)
+		stepVisuals(visuals, t, t, flickerRate)
 		for i, item in items do
 			local rest = item.rest
 			local s = scale
