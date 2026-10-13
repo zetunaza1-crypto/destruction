@@ -56,6 +56,12 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 --   startCheckpoint, startMeters, metersRewarded,
 --   reported (run stats already paid for), counted (run added to Stats.runs),
 --   boosts ({ [boostId] = true } used on this run), doubleGems,
+--   meterGems (gems paid for distance on this run, for 2x Gems back pay),
+--   midRunBoosts ({ [boostId] = count } turned on by UseBoostNow, for ReturnBoost),
+--   shieldsOn / megaBallsOn (Shields / Mega Balls turned on this run, the most
+--   ReturnUnusedBoosts can give back), unusedReturned (already given back),
+--   lastUnused ({ shield, megaballThrows } the device reported with its last
+--   RunEnded, given back if they leave from the game over screen),
 --   lastRoom (last room index accepted from RoomReached), roomClock (active
 --   seconds the next room is measured from), pausedMaxStuds (cached time cap
 --   while paused), lastEndedAt (os.clock() of the last RunEnded we handled)
@@ -158,6 +164,45 @@ local function createLeaderstats(player)
 	leaderstats.Parent = player
 end
 
+-- Unused boosts ------------------------------------------------------------------
+-- A Shield or Mega Ball still unused when the run really ends (PLAY AGAIN / MENU
+-- from the game over screen without a revive, or leaving the game) goes back to
+-- the inventory: "your next crash is free" shouldn't vanish because the run
+-- ended by running out of balls. Capped at what this run actually turned on,
+-- and only once per run.
+
+-- Reads a whole, non-negative count from a client table (anything else = 0).
+local function readCount(source, name)
+	local value = if type(source) == "table" then source[name] else nil
+	if type(value) ~= "number" or value ~= value or value == math.huge then
+		return 0
+	end
+	return math.max(0, math.floor(value))
+end
+
+-- Returns how many Shields and Mega Balls went back to the inventory.
+local function refundUnusedBoosts(player, data, run, shieldCount, megaThrows)
+	if run.unusedReturned then
+		return 0, 0
+	end
+	run.unusedReturned = true
+	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
+	local shields = math.min(shieldCount, run.shieldsOn)
+	local megaBalls = math.min(megaThrows // throwsPerMega, run.megaBallsOn)
+	run.shieldsOn -= shields
+	run.megaBallsOn -= megaBalls
+	if shields > 0 then
+		Progression.addBoost(data, "Shield", shields)
+	end
+	if megaBalls > 0 then
+		Progression.addBoost(data, "MegaBall", megaBalls)
+	end
+	if shields > 0 or megaBalls > 0 then
+		PlayerData.publish(player, { "Boosts" })
+	end
+	return shields, megaBalls
+end
+
 local function onPlayerAdded(player)
 	sessionStarts[player] = sessionStarts[player] or os.clock()
 	createLeaderstats(player)
@@ -170,6 +215,13 @@ for _, player in Players:GetPlayers() do
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	-- Left from the game over screen: give back unused boosts (the device can't
+	-- tell us any more, so use what it reported with its last RunEnded).
+	local run = activeRuns[player]
+	local data = PlayerData.get(player)
+	if run and data and run.pausedAt and run.lastUnused then
+		refundUnusedBoosts(player, data, run, run.lastUnused.shield, run.lastUnused.megaballThrows)
+	end
 	activeRuns[player] = nil
 	runCounts[player] = nil
 	sessionStarts[player] = nil
@@ -205,11 +257,105 @@ Shop.addAction("UseBoostNow", function(player, data, boostId)
 		return false, "You don't have that boost"
 	end
 	run.boosts[boostId] = true
+	run.midRunBoosts[boostId] = (run.midRunBoosts[boostId] or 0) + 1
+	if boostId == "Shield" then
+		run.shieldsOn += 1
+	elseif boostId == "MegaBall" then
+		run.megaBallsOn += 1
+	end
+	local changed = { "Boosts" }
 	if boostId == "DoubleGems" then
 		run.doubleGems = true
+		-- "Double gems for one run": also pay the extra 1x for the distance of
+		-- this run that was already paid (e.g. before a revive). Only this run's
+		-- distance gems, and only once (2x can't stack or be turned on twice).
+		local backPay = run.meterGems
+		if backPay > 0 then
+			run.meterGems += backPay
+			data.Gems += backPay
+			table.insert(changed, "Gems")
+			Progression.fire(player, { type = "Reward", text = "2x gems: +" .. backPay .. " for this run so far" })
+		end
 	end
+	PlayerData.publish(player, changed)
+	return true
+end)
+
+-- Shop action "ReturnBoost"(boostId): UseBoostNow said yes, but by the time the
+-- answer reached the device the run had ended. Puts that boost back in the
+-- inventory, but only one UseBoostNow really took on this run.
+-- 2x Gems can't be returned: it already doubled this run's gems on the server.
+Shop.addAction("ReturnBoost", function(player, data, boostId)
+	if not Progression.isBoost(boostId) then
+		return false, "That boost doesn't exist"
+	end
+	if boostId == "DoubleGems" then
+		return false, "2x gems already counted for this run"
+	end
+	local run = activeRuns[player]
+	local taken = if run then run.midRunBoosts[boostId] or 0 else 0
+	if taken < 1 then
+		return false, "Nothing to give back"
+	end
+	run.midRunBoosts[boostId] = taken - 1
+	if boostId == "Shield" then
+		run.shieldsOn = math.max(0, run.shieldsOn - 1)
+	elseif boostId == "MegaBall" then
+		run.megaBallsOn = math.max(0, run.megaBallsOn - 1)
+	end
+	Progression.addBoost(data, boostId, 1)
 	PlayerData.publish(player, { "Boosts" })
 	return true
+end)
+
+-- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t }): the
+-- device sends this once when a run really ends (PLAY AGAIN or MENU from the
+-- game over screen, no revive). Only while the run is stopped at game over, and
+-- only once per run (see refundUnusedBoosts for the caps).
+Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
+	if type(unused) ~= "table" then
+		return false, "Bad request"
+	end
+	local run = activeRuns[player]
+	if not run or not run.pausedAt then
+		return false, "No finished run"
+	end
+	if run.unusedReturned then
+		return true -- already done for this run
+	end
+	local shields, megaBalls =
+		refundUnusedBoosts(player, data, run, readCount(unused, "shield"), readCount(unused, "megaballThrows"))
+	local parts = {}
+	if shields > 0 then
+		table.insert(parts, shields .. " " .. Config.Boosts.Shield.Name)
+	end
+	if megaBalls > 0 then
+		table.insert(parts, megaBalls .. " " .. Config.Boosts.MegaBall.Name)
+	end
+	if #parts > 0 then
+		return true, "Unused boosts saved: " .. table.concat(parts, " + ")
+	end
+	return true
+end)
+
+-- Shop action "UseBonusBalls"(amount): the device used balls from a Revive /
+-- Ball Pack right away (mid-run or on the game over screen), so they come back
+-- out of the saved BonusBalls (see Monetization). Never below zero.
+Shop.addAction("UseBonusBalls", function(player, data, amount)
+	if type(amount) ~= "number" or amount ~= amount or amount <= 0 or amount == math.huge then
+		return false, "Bad amount"
+	end
+	local used = math.min(math.floor(amount), data.BonusBalls)
+	if used > 0 then
+		PlayerData.update(player, { BonusBalls = data.BonusBalls - used })
+	end
+	return true
+end)
+
+-- Shop action "RecheckPasses": the menu opened; picks up a game pass bought
+-- outside this server. Rate limited in Monetization.
+Shop.addAction("RecheckPasses", function(player)
+	return Monetization.recheckPasses(player)
 end)
 
 -- Shop action "ResumeRun": the device sends this after it has really revived
@@ -291,6 +437,12 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 		counted = false,
 		boosts = {},
 		doubleGems = false,
+		meterGems = 0,
+		midRunBoosts = {},
+		shieldsOn = 0,
+		megaBallsOn = 0,
+		unusedReturned = false,
+		lastUnused = nil,
 		lastRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT, -- the room the run starts in
 		roomClock = 0,
 		pausedMaxStuds = nil,
@@ -313,6 +465,10 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 			run.boosts[boostId] = true
 			if boostId == "DoubleGems" then
 				run.doubleGems = true
+			elseif boostId == "Shield" then
+				run.shieldsOn += 1
+			elseif boostId == "MegaBall" then
+				run.megaBallsOn += 1
 			end
 		end
 	end
@@ -396,6 +552,12 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if type(runStats) ~= "table" then
 		runStats = {}
 	end
+	-- Shields / Mega Ball throws still unused at this game over (given back if
+	-- they leave from the game over screen; see PlayerRemoving).
+	run.lastUnused = {
+		shield = readCount(runStats, "unusedShield"),
+		megaballThrows = readCount(runStats, "unusedMegaThrows"),
+	}
 
 	-- Anti-cheat: the distance is the smallest of
 	--  * what the device says,
@@ -445,6 +607,7 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 		multiplier *= 2 -- DoubleGems boost
 	end
 	local gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * multiplier)
+	run.meterGems += gemsEarned
 	local xp = Config.XP
 	local xpEarned = math.floor(
 		newMeters * xp.PerMeter

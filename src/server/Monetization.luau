@@ -16,16 +16,39 @@ local Remotes = ReplicatedStorage.Remotes
 local Monetization = {}
 
 -- Gems given instead when a StreakSaver is bought while the streak is fine.
-local STREAK_SAVER_FALLBACK_GEMS = 100
+-- Never less than the same Robux buys as gems (Gem Top-Up: 150 gems for ~15 R$).
+local STREAK_SAVER_FALLBACK_GEMS = 150
+-- Gems given instead when Season Premium is bought by someone who already has it
+-- this season (e.g. bought while their save was still loading). Worth ~199 R$.
+local SEASON_PREMIUM_FALLBACK_GEMS = 3200
 
--- Products the server delivers itself. Everything else (balls) is delivered
--- to the player's device, because runs happen there.
+-- Game pass ownership checks (UserOwnsGamePassAsync) sometimes fail (throttling,
+-- web outages), so each one is tried a few times before giving up.
+local PASS_CHECK_ATTEMPTS = 4
+local PASS_CHECK_WAIT = 2 -- seconds; doubles after each failed try
+-- The "RecheckPasses" shop action (menu opened) runs at most this often per player.
+local RECHECK_PASSES_COOLDOWN = 60
+
+-- Products with their own rules. Boosts, balls and gem packs are below.
+-- Every product is recorded in the save here; the device is also told with
+-- PurchaseGranted (balls / boosts can then be used right away mid-run).
 -- These must not yield: they run inside ProcessReceipt.
 local serverRewards = {
 	-- One-time offer. If it's somehow bought twice, the gems are still given
 	-- (the skin and effect are already owned), so a purchase is never wasted.
 	StarterPack = function(player, data)
 		local product = Config.Products.StarterPack
+		if data.StarterPackBought then
+			-- Bought again (e.g. while their save was loading): the items are
+			-- already theirs, so say clearly that the gems are what they got.
+			data.Gems += product.Gems
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY OWNED THE STARTER ITEMS: +" .. product.Gems .. " GEMS",
+			})
+			return
+		end
 		local text = Progression.grantReward(data, { Gems = product.Gems, Skin = product.Skin, Fx = product.Fx })
 		data.StarterPackBought = true
 		PlayerData.publish(player, Progression.REWARD_FIELDS)
@@ -35,8 +58,19 @@ local serverRewards = {
 
 	-- Unlocks the premium track of the current season (tiers already reached
 	-- become claimable right away).
+	-- Already premium this season (bought twice, or while the save was loading):
+	-- they get SEASON_PREMIUM_FALLBACK_GEMS instead, so the purchase isn't wasted.
 	SeasonPremium = function(player, data)
 		Progression.ensureSeason(data)
+		if data.SeasonPremium then
+			data.Gems += SEASON_PREMIUM_FALLBACK_GEMS
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY HAD PREMIUM: +" .. SEASON_PREMIUM_FALLBACK_GEMS .. " GEMS INSTEAD",
+			})
+			return
+		end
 		data.SeasonPremium = true
 		PlayerData.publish(player, { "SeasonId", "SeasonTier", "SeasonXP", "SeasonClaimed", "SeasonPremium" })
 		Progression.fire(player, { type = "Reward", text = "Premium season pass unlocked" })
@@ -81,6 +115,18 @@ local function boostReward(boostId)
 	end
 end
 
+-- Ball products (Revive, BallPack): the balls are always saved first as
+-- BonusBalls, so they can never be lost (the player leaves, the purchase finishes
+-- after a rejoin, the device is back in the menu...). If the device is mid-run or
+-- on the game over screen it uses them right away and takes them back out with
+-- the "UseBonusBalls" shop action; otherwise the next run starts with them.
+local function ballsReward(amount)
+	return function(player, data)
+		data.BonusBalls += amount
+		PlayerData.publish(player, { "BonusBalls" })
+	end
+end
+
 -- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
 -- Gems that has no special handler above.
 local function rewardFor(productKey, product)
@@ -89,6 +135,9 @@ local function rewardFor(productKey, product)
 	end
 	if product.Boost and Progression.isBoost(product.Boost) then
 		return boostReward(product.Boost)
+	end
+	if type(product.Balls) == "number" and product.Balls > 0 then
+		return ballsReward(math.floor(product.Balls))
 	end
 	if product.Gems then
 		return function(player, data)
@@ -103,15 +152,56 @@ function Monetization.ownsPass(player, passKey)
 	return player:GetAttribute("Pass_" .. passKey) == true
 end
 
-local function checkPasses(player)
-	for passKey, pass in Config.GamePasses do
-		if pass.Id ~= 0 then
-			local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.Id)
-			if ok and owns then
+-- Asks Roblox whether the player owns one pass, retrying a failed call a few
+-- times (with growing waits) so a hiccup doesn't hide a pass they paid for.
+-- Yields. Sets Pass_<Key> when they own it.
+local function checkPass(player, passKey, pass)
+	local wait = PASS_CHECK_WAIT
+	for attempt = 1, PASS_CHECK_ATTEMPTS do
+		if not player.Parent or Monetization.ownsPass(player, passKey) then
+			return
+		end
+		local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.Id)
+		if ok then
+			if owns then
 				player:SetAttribute("Pass_" .. passKey, true)
 			end
+			return
+		end
+		warn("Could not check pass", passKey, "for", player.Name, "attempt", attempt, owns)
+		if attempt < PASS_CHECK_ATTEMPTS then
+			task.wait(wait)
+			wait *= 2
 		end
 	end
+end
+
+-- Checks every pass the player doesn't have yet (each one in its own thread,
+-- so one slow check doesn't hold up the others).
+local function checkPasses(player)
+	for passKey, pass in Config.GamePasses do
+		if pass.Id ~= 0 and not Monetization.ownsPass(player, passKey) then
+			task.spawn(checkPass, player, passKey, pass)
+		end
+	end
+end
+
+-- player -> os.clock() of the last "RecheckPasses".
+local lastRecheck = {}
+
+-- Shop action "RecheckPasses" (the menu opened): picks up a pass bought outside
+-- this server (website, another server) without rejoining. At most once every
+-- RECHECK_PASSES_COOLDOWN seconds per player. Doesn't yield (the checks run in
+-- the background and set Pass_<Key> when they finish).
+function Monetization.recheckPasses(player)
+	local now = os.clock()
+	local last = lastRecheck[player]
+	if last and now - last < RECHECK_PASSES_COOLDOWN then
+		return false, "Checked recently"
+	end
+	lastRecheck[player] = now
+	checkPasses(player)
+	return true
 end
 
 -- Roblox calls this for every developer product purchase, and keeps retrying
@@ -163,12 +253,16 @@ function Monetization.init()
 	MarketplaceService.ProcessReceipt = processReceipt
 
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-		if not purchased then
-			return
-		end
 		for passKey, pass in Config.GamePasses do
-			if pass.Id == passId then
-				player:SetAttribute("Pass_" .. passKey, true)
+			if pass.Id ~= 0 and pass.Id == passId then
+				if purchased then
+					player:SetAttribute("Pass_" .. passKey, true)
+				else
+					-- Not bought now, but maybe they already own it and our check on
+					-- join failed (Roblox then says "you already own this").
+					-- Checking again turns it on right away.
+					task.spawn(checkPass, player, passKey, pass)
+				end
 			end
 		end
 	end)
@@ -177,6 +271,9 @@ function Monetization.init()
 	for _, player in Players:GetPlayers() do
 		task.spawn(checkPasses, player)
 	end
+	Players.PlayerRemoving:Connect(function(player)
+		lastRecheck[player] = nil
+	end)
 end
 
 return Monetization

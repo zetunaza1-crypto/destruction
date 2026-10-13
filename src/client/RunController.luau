@@ -138,7 +138,6 @@ local lastReportedRoom = 0 -- last room index sent to the server with RoomReache
 local startCheckpoint = 0
 local shake = 0
 local activeBalls = {}
-local pendingBalls = 0 -- balls bought while not in a run, added to the next one
 local reportedMeters = 0
 local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
 -- Counted from the start of the run (a revive continues it). Sent with RunEnded.
@@ -164,6 +163,14 @@ local kickRoll = 0 -- radians, camera tilted sideways (crash), easing back to 0
 local shakeOn = Settings.get("shake") ~= false
 local flashesOn = Settings.get("flashes") ~= false
 local runSerial = 0 -- RunStarted events sent; the server echoes it with BoostsActivated
+local unusedBoostsSent = true -- ReturnUnusedBoosts already sent for this run (none before the first run)
+
+-- Purchases
+-- A Robux prompt opened during a run freezes the run until it closes, so the
+-- player can't crash while reading it. Safety net: never frozen longer than this.
+local PROMPT_FREEZE_MAX = 120
+local promptFreezeUntil = 0 -- os.clock() the freeze ends at (0 = not frozen)
+local rerollAfterPurchase = nil -- mission id to reroll once an ExtraReroll purchase arrives
 
 -- Helpers --------------------------------------------------------------------
 
@@ -600,10 +607,15 @@ local function spawnBall(origin, velocity, mega, preSweep)
 	part.CFrame = CFrame.new(ball.position)
 end
 
+-- True while a Robux prompt opened mid-run is on screen (the run is frozen).
+local function promptFrozen()
+	return promptFreezeUntil > 0 and os.clock() < promptFreezeUntil
+end
+
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
-	if state ~= "Running" or balls <= 0 then
+	if state ~= "Running" or balls <= 0 or promptFrozen() then
 		return false
 	end
 	local now = os.clock()
@@ -839,7 +851,11 @@ local function gameOver()
 	end
 	local newMeters = math.max(0, distance - reportedMeters)
 	reportedMeters = math.max(reportedMeters, distance)
-	Remotes.RunEnded:FireServer(distance, table.clone(runStats))
+	local report = table.clone(runStats)
+	-- Unused boosts: the server gives them back if the player leaves from here.
+	report.unusedShield = boost.shield
+	report.unusedMegaThrows = boost.megaball
+	Remotes.RunEnded:FireServer(distance, report)
 	Tutorial.setPaused(true)
 
 	-- Personal best only counts runs started from the beginning (same as the server).
@@ -967,6 +983,29 @@ local function resetWorld(checkpoint, tutorial)
 	applyTheme(checkpoint)
 end
 
+local shopRequest -- defined in the Purchases section below
+
+-- The run is really over (PLAY AGAIN or MENU from the game over screen, without
+-- a revive): unused Shields and Mega Ball throws go back to the inventory.
+-- Sent once per run; the server checks it against what the run really turned on.
+local function returnUnusedBoosts()
+	if state ~= "GameOver" or unusedBoostsSent then
+		return
+	end
+	unusedBoostsSent = true
+	local shield, throws = boost.shield, boost.megaball
+	if shield <= 0 and throws < MEGA.Throws then
+		return -- nothing that could be given back
+	end
+	-- Sent now (before RunStarted / resetWorld), answered in the background.
+	task.spawn(function()
+		local ok, message = shopRequest("ReturnUnusedBoosts", { shield = shield, megaballThrows = throws })
+		if ok and type(message) == "string" then
+			ui:toast(message, "reward")
+		end
+	end)
+end
+
 -- boostIds: boosts picked in the menu (may be nil/empty). They only switch on
 -- once the server confirms them (see onBoostsActivated).
 local function startRun(checkpoint, boostIds)
@@ -977,6 +1016,9 @@ local function startRun(checkpoint, boostIds)
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
 	startCheckpoint = checkpoint
 
+	returnUnusedBoosts() -- PLAY AGAIN from the game over screen
+	unusedBoostsSent = false
+
 	-- Brand-new players get the guided first run.
 	local tutorialRun = checkpoint == 0 and Tutorial.isNeeded()
 	Tutorial.reset()
@@ -985,14 +1027,14 @@ local function startRun(checkpoint, boostIds)
 		Tutorial.start(track)
 	end
 
-	-- Bonus balls from the daily streak (the server resets them when the run starts).
+	-- Bonus balls from the daily streak, and Revive / Ball Pack balls bought
+	-- outside a run (the server saved them and resets them when the run starts).
 	local bonusBalls = math.max(0, math.floor(tonumber(player:GetAttribute("BonusBalls")) or 0))
 
-	balls = Config.START_BALLS + pendingBalls + bonusBalls
+	balls = Config.START_BALLS + bonusBalls
 	if ownsPass("VIP") then
 		balls += Config.GamePasses.VIP.ExtraStartBalls
 	end
-	pendingBalls = 0
 	multiball = minimumMultiball()
 	streak = 0
 	speed = Config.START_SPEED
@@ -1050,10 +1092,14 @@ local function showMenu()
 	if state == "Running" then
 		gameOver()
 	end
+	returnUnusedBoosts() -- MENU from the game over screen
 	state = "Menu"
 	Tutorial.reset()
 	resetWorld(0)
 	ui:showMenu()
+	-- A game pass bought outside this server (website, another server) shows up
+	-- without rejoining. The server limits how often this really checks.
+	task.spawn(shopRequest, "RecheckPasses")
 end
 
 -- Frame loop -----------------------------------------------------------------
@@ -1083,15 +1129,18 @@ local function step(dt)
 	local worldDt = dt
 	local ballDt = dt -- balls ignore most of the tutorial's slow-down
 	if state == "Running" then
-		tickBoosts(dt)
+		-- A Robux prompt is on screen: everything in the run stands still
+		-- (boost timers too) until it closes.
+		local runDt = if promptFrozen() then 0 else dt
+		tickBoosts(runDt)
 		-- The tutorial slows time while it waits for the player to act.
-		local tutorialScale = Tutorial.update(dt, cameraZ)
+		local tutorialScale = Tutorial.update(runDt, cameraZ)
 		lastTutorialScale = tutorialScale
 		-- Hit-stop: a split-second freeze after a big smash.
-		local freeze = tickHitStop(dt)
-		worldDt = dt * timeScale * tutorialScale * freeze
-		ballDt = dt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
-		Tutorial.scanForTips(dt, cameraZ, track)
+		local freeze = tickHitStop(runDt)
+		worldDt = runDt * timeScale * tutorialScale * freeze
+		ballDt = runDt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
+		Tutorial.scanForTips(runDt, cameraZ, track)
 
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
 		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
@@ -1153,8 +1202,41 @@ end
 
 -- Purchases ------------------------------------------------------------------
 
-local function promptProduct(productKey)
+-- Robux purchases are only allowed once the server has loaded the player's save
+-- (otherwise the server can't record them, or sells something already owned).
+local function canBuy()
+	if player:GetAttribute("DataFailed") == true then
+		ui:toast("YOUR SAVE DIDN'T LOAD - REJOIN BEFORE BUYING", "error")
+		return false
+	end
+	if player:GetAttribute("DataLoaded") ~= true then
+		ui:toast("STILL LOADING YOUR SAVE - TRY AGAIN IN A MOMENT", "info")
+		return false
+	end
+	return true
+end
+
+-- Freezes the run while a Robux prompt opened mid-run is on screen.
+local function freezeForPrompt()
+	if state == "Running" then
+		promptFreezeUntil = os.clock() + PROMPT_FREEZE_MAX
+	end
+end
+
+local function onPromptClosed()
+	promptFreezeUntil = 0
+end
+
+-- context: extra info from the UI. For "ExtraReroll" it's the mission id, which
+-- is rerolled automatically once the purchase arrives.
+local function promptProduct(productKey, context)
 	local product = Config.Products[productKey]
+	if not product or product.Id == 0 then
+		return
+	end
+	if not canBuy() then
+		return
+	end
 	-- Don't let anyone pay twice for something they already have.
 	if productKey == "StarterPack" and player:GetAttribute("StarterPackBought") == true then
 		ui:toast("ALREADY OWNED", "reward")
@@ -1174,19 +1256,30 @@ local function promptProduct(productKey)
 			return
 		end
 	end
-	if product and product.Id ~= 0 then
-		MarketplaceService:PromptProductPurchase(player, product.Id)
+	if productKey == "ExtraReroll" then
+		rerollAfterPurchase = if type(context) == "string" then context else nil
+	end
+	local ok = pcall(MarketplaceService.PromptProductPurchase, MarketplaceService, player, product.Id)
+	if ok then
+		freezeForPrompt()
 	end
 end
 
 local function promptPass(passKey)
 	local pass = Config.GamePasses[passKey]
-	if pass and pass.Id ~= 0 then
-		MarketplaceService:PromptGamePassPurchase(player, pass.Id)
+	if not pass or pass.Id == 0 then
+		return
+	end
+	if not canBuy() then
+		return
+	end
+	local ok = pcall(MarketplaceService.PromptGamePassPurchase, MarketplaceService, player, pass.Id)
+	if ok then
+		freezeForPrompt()
 	end
 end
 
-local function shopRequest(action, argument)
+shopRequest = function(action, argument)
 	local ok, success, message = pcall(function()
 		return Remotes.ShopRequest:InvokeServer(action, argument)
 	end)
@@ -1198,12 +1291,50 @@ end
 
 -- A Robux boost always goes to the boost inventory first. Bought during a run,
 -- we ask the server to use it right away; it's only switched on if the server says yes.
+-- If the run ended while we waited for the answer, it goes back to the inventory.
 local function useBoostNow(boostId)
 	local ok = shopRequest("UseBoostNow", boostId)
-	if ok and state ~= "Menu" and activateBoost(boostId) then
-		ui:toast(boostName(boostId) .. " ON", "reward")
-	else
+	if not ok then
 		ui:toast(boostName(boostId) .. " ADDED TO YOUR BOOSTS", "reward")
+		return
+	end
+	if boostId == "DoubleGems" then
+		-- Already counted on the server for this run's gems, even if it just ended.
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+		return
+	end
+	if state == "Running" then
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+		return
+	end
+	-- The run ended in the meantime: put it back.
+	if shopRequest("ReturnBoost", boostId) then
+		ui:toast(boostName(boostId) .. " ADDED TO YOUR BOOSTS", "reward")
+	elseif state == "GameOver" then
+		-- Couldn't give it back (very unlikely): use it on this run instead,
+		-- so it still helps if they revive.
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+	end
+end
+
+-- ExtraReroll bought from a mission row: swap that mission right away.
+local function rerollBoughtMission()
+	local missionId = rerollAfterPurchase
+	rerollAfterPurchase = nil
+	if not missionId then
+		return
+	end
+	local ok, message = shopRequest("RerollMission", missionId)
+	if ok then
+		ui:toast(if type(message) == "string" then message else "MISSION SWAPPED", "reward")
+	else
+		ui:toast(
+			(if type(message) == "string" then message .. " - " else "") .. "YOUR REROLL IS SAVED",
+			"info"
+		)
 	end
 end
 
@@ -1217,27 +1348,40 @@ local function onPurchaseGranted(productKey)
 		end
 		return
 	end
+	if productKey == "ExtraReroll" then
+		task.spawn(rerollBoughtMission)
+		return
+	end
 	-- Starter pack / season pass are announced by the server's Progress "Reward" event.
 	if product and product.Gems and productKey ~= "StarterPack" then
 		ui:toast("+" .. product.Gems .. " GEMS", "reward")
 		return
 	end
-	if not product or not product.Balls then
+	if not product or type(product.Balls) ~= "number" then
 		return
 	end
 
+	-- The server already saved these balls as BonusBalls. Used right away here,
+	-- they're taken back out of the save ("UseBonusBalls"); in the menu they
+	-- simply wait for the next run.
+	local amount = product.Balls
 	if state == "GameOver" then
-		if revive(product.Balls) then
-			-- The server paused the run's clock at game over; start it again.
-			task.spawn(shopRequest, "ResumeRun")
+		if revive(amount) then
+			task.spawn(function()
+				shopRequest("UseBonusBalls", amount)
+				-- The server paused the run's clock at game over; start it again.
+				shopRequest("ResumeRun")
+			end)
 		end
+		ui:toast("+" .. amount .. " BALLS", "reward")
 	elseif state == "Running" then
-		balls += product.Balls
+		balls += amount
 		updateHud()
+		task.spawn(shopRequest, "UseBonusBalls", amount)
+		ui:toast("+" .. amount .. " BALLS", "reward")
 	else
-		pendingBalls += product.Balls
+		ui:toast("SAVED: +" .. amount .. " BALLS AT THE START OF YOUR NEXT RUN", "reward")
 	end
-	ui:toast("+" .. product.Balls .. " BALLS", "reward")
 end
 
 -- The server confirmed which picked boosts started (and used them up).
@@ -1325,6 +1469,7 @@ function RunController.start()
 		onRevive = function()
 			promptProduct("Revive")
 		end,
+		-- onBuyProduct(productKey, context): context is the mission id for "ExtraReroll".
 		onBuyProduct = promptProduct,
 		onBuyPass = promptPass,
 		onBuySkin = function(skinId)
@@ -1348,6 +1493,22 @@ function RunController.start()
 	task.spawn(disableCharacterControls)
 
 	Remotes.PurchaseGranted.OnClientEvent:Connect(onPurchaseGranted)
+	-- These fire on this device when a Robux prompt closes (bought or not).
+	MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, purchased)
+		if userId ~= player.UserId then
+			return
+		end
+		onPromptClosed()
+		-- Cancelled: forget which mission the reroll was for.
+		if not purchased and productId == Config.Products.ExtraReroll.Id then
+			rerollAfterPurchase = nil
+		end
+	end)
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(who)
+		if who == player then
+			onPromptClosed()
+		end
+	end)
 
 	-- Level ups, missions done, season tiers, run summaries, rewards.
 	task.spawn(function()

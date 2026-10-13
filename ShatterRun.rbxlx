@@ -158,7 +158,7 @@ Config.MissionPool = {
 -- rewards need Products.SeasonPremium. Bump SEASON_ID to start a new season.
 Config.SEASON_ID = 1
 Config.SEASON_NAME = "SEASON 1: FIRST CRACK"
-Config.SEASON_ENDS = 0 -- os.time() the season ends (0 = no countdown shown)
+Config.SEASON_ENDS = 1797292800 -- 15 Dec 2026 00:00 UTC (shown as a countdown; never end a season early)
 Config.SEASON_TIER_XP = 300
 Config.SeasonTiers = {} -- filled below: SeasonTiers[tier] = { Free = reward?, Premium = reward }
 for tier = 1, 30 do
@@ -247,6 +247,8 @@ end
 -- and paste the IDs here. An ID of 0 hides that button in the game.
 -- Suggested prices are just a starting point.
 Config.Products = {
+	-- Ball products: the server saves the balls first (BonusBalls), so bought
+	-- outside a run they start the next run instead of being lost.
 	Revive = { Id = 3718291625, Balls = 25 }, -- game over screen (~25 R$)
 	BallPack = { Id = 3718291633, Balls = 50 }, -- during a run (~15 R$)
 	-- Gem packs: bigger packs are better value.
@@ -278,7 +280,7 @@ Config.Products = {
 -- from streaks, level ups and the season pass so players get a taste first.
 Config.Boosts = {
 	Shield = { Name = "SHIELD", Text = "YOUR NEXT CRASH IS FREE", Gems = 150, Color = Color3.fromRGB(80, 200, 255) },
-	Magnet = { Name = "MAGNET", Text = "CRYSTALS FLY TO YOU", Gems = 120, Duration = 20, Range = 22, Color = Color3.fromRGB(255, 80, 120) },
+	Magnet = { Name = "MAGNET", Text = "CRYSTALS FLY TO YOU FOR 20S", Gems = 120, Duration = 20, Range = 22, Color = Color3.fromRGB(255, 80, 120) },
 	DoubleGems = { Name = "2X GEMS", Text = "DOUBLE GEMS THIS RUN", Gems = 200, Color = Color3.fromRGB(255, 200, 50) },
 	MegaBall = { Name = "MEGA BALL", Text = "NEXT 10 THROWS ARE GIANT", Gems = 150, Throws = 10, Scale = 3, Color = Color3.fromRGB(255, 120, 30) },
 	SlowMo = { Name = "SLOW-MO", Text = "SLOW TIME FOR 8 SECONDS", Gems = 100, Duration = 8, TimeScale = 0.5, Color = Color3.fromRGB(150, 110, 255) },
@@ -707,6 +709,12 @@ ReplicatedStorage:SetAttribute("SeasonEnds", Config.SEASON_ENDS)
 --   startCheckpoint, startMeters, metersRewarded,
 --   reported (run stats already paid for), counted (run added to Stats.runs),
 --   boosts ({ [boostId] = true } used on this run), doubleGems,
+--   meterGems (gems paid for distance on this run, for 2x Gems back pay),
+--   midRunBoosts ({ [boostId] = count } turned on by UseBoostNow, for ReturnBoost),
+--   shieldsOn / megaBallsOn (Shields / Mega Balls turned on this run, the most
+--   ReturnUnusedBoosts can give back), unusedReturned (already given back),
+--   lastUnused ({ shield, megaballThrows } the device reported with its last
+--   RunEnded, given back if they leave from the game over screen),
 --   lastRoom (last room index accepted from RoomReached), roomClock (active
 --   seconds the next room is measured from), pausedMaxStuds (cached time cap
 --   while paused), lastEndedAt (os.clock() of the last RunEnded we handled)
@@ -809,6 +817,45 @@ local function createLeaderstats(player)
 	leaderstats.Parent = player
 end
 
+-- Unused boosts ------------------------------------------------------------------
+-- A Shield or Mega Ball still unused when the run really ends (PLAY AGAIN / MENU
+-- from the game over screen without a revive, or leaving the game) goes back to
+-- the inventory: "your next crash is free" shouldn't vanish because the run
+-- ended by running out of balls. Capped at what this run actually turned on,
+-- and only once per run.
+
+-- Reads a whole, non-negative count from a client table (anything else = 0).
+local function readCount(source, name)
+	local value = if type(source) == "table" then source[name] else nil
+	if type(value) ~= "number" or value ~= value or value == math.huge then
+		return 0
+	end
+	return math.max(0, math.floor(value))
+end
+
+-- Returns how many Shields and Mega Balls went back to the inventory.
+local function refundUnusedBoosts(player, data, run, shieldCount, megaThrows)
+	if run.unusedReturned then
+		return 0, 0
+	end
+	run.unusedReturned = true
+	local throwsPerMega = math.max(1, Config.Boosts.MegaBall.Throws)
+	local shields = math.min(shieldCount, run.shieldsOn)
+	local megaBalls = math.min(megaThrows // throwsPerMega, run.megaBallsOn)
+	run.shieldsOn -= shields
+	run.megaBallsOn -= megaBalls
+	if shields > 0 then
+		Progression.addBoost(data, "Shield", shields)
+	end
+	if megaBalls > 0 then
+		Progression.addBoost(data, "MegaBall", megaBalls)
+	end
+	if shields > 0 or megaBalls > 0 then
+		PlayerData.publish(player, { "Boosts" })
+	end
+	return shields, megaBalls
+end
+
 local function onPlayerAdded(player)
 	sessionStarts[player] = sessionStarts[player] or os.clock()
 	createLeaderstats(player)
@@ -821,6 +868,13 @@ for _, player in Players:GetPlayers() do
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	-- Left from the game over screen: give back unused boosts (the device can't
+	-- tell us any more, so use what it reported with its last RunEnded).
+	local run = activeRuns[player]
+	local data = PlayerData.get(player)
+	if run and data and run.pausedAt and run.lastUnused then
+		refundUnusedBoosts(player, data, run, run.lastUnused.shield, run.lastUnused.megaballThrows)
+	end
 	activeRuns[player] = nil
 	runCounts[player] = nil
 	sessionStarts[player] = nil
@@ -856,11 +910,105 @@ Shop.addAction("UseBoostNow", function(player, data, boostId)
 		return false, "You don't have that boost"
 	end
 	run.boosts[boostId] = true
+	run.midRunBoosts[boostId] = (run.midRunBoosts[boostId] or 0) + 1
+	if boostId == "Shield" then
+		run.shieldsOn += 1
+	elseif boostId == "MegaBall" then
+		run.megaBallsOn += 1
+	end
+	local changed = { "Boosts" }
 	if boostId == "DoubleGems" then
 		run.doubleGems = true
+		-- "Double gems for one run": also pay the extra 1x for the distance of
+		-- this run that was already paid (e.g. before a revive). Only this run's
+		-- distance gems, and only once (2x can't stack or be turned on twice).
+		local backPay = run.meterGems
+		if backPay > 0 then
+			run.meterGems += backPay
+			data.Gems += backPay
+			table.insert(changed, "Gems")
+			Progression.fire(player, { type = "Reward", text = "2x gems: +" .. backPay .. " for this run so far" })
+		end
 	end
+	PlayerData.publish(player, changed)
+	return true
+end)
+
+-- Shop action "ReturnBoost"(boostId): UseBoostNow said yes, but by the time the
+-- answer reached the device the run had ended. Puts that boost back in the
+-- inventory, but only one UseBoostNow really took on this run.
+-- 2x Gems can't be returned: it already doubled this run's gems on the server.
+Shop.addAction("ReturnBoost", function(player, data, boostId)
+	if not Progression.isBoost(boostId) then
+		return false, "That boost doesn't exist"
+	end
+	if boostId == "DoubleGems" then
+		return false, "2x gems already counted for this run"
+	end
+	local run = activeRuns[player]
+	local taken = if run then run.midRunBoosts[boostId] or 0 else 0
+	if taken < 1 then
+		return false, "Nothing to give back"
+	end
+	run.midRunBoosts[boostId] = taken - 1
+	if boostId == "Shield" then
+		run.shieldsOn = math.max(0, run.shieldsOn - 1)
+	elseif boostId == "MegaBall" then
+		run.megaBallsOn = math.max(0, run.megaBallsOn - 1)
+	end
+	Progression.addBoost(data, boostId, 1)
 	PlayerData.publish(player, { "Boosts" })
 	return true
+end)
+
+-- Shop action "ReturnUnusedBoosts"({ shield = n, megaballThrows = t }): the
+-- device sends this once when a run really ends (PLAY AGAIN or MENU from the
+-- game over screen, no revive). Only while the run is stopped at game over, and
+-- only once per run (see refundUnusedBoosts for the caps).
+Shop.addAction("ReturnUnusedBoosts", function(player, data, unused)
+	if type(unused) ~= "table" then
+		return false, "Bad request"
+	end
+	local run = activeRuns[player]
+	if not run or not run.pausedAt then
+		return false, "No finished run"
+	end
+	if run.unusedReturned then
+		return true -- already done for this run
+	end
+	local shields, megaBalls =
+		refundUnusedBoosts(player, data, run, readCount(unused, "shield"), readCount(unused, "megaballThrows"))
+	local parts = {}
+	if shields > 0 then
+		table.insert(parts, shields .. " " .. Config.Boosts.Shield.Name)
+	end
+	if megaBalls > 0 then
+		table.insert(parts, megaBalls .. " " .. Config.Boosts.MegaBall.Name)
+	end
+	if #parts > 0 then
+		return true, "Unused boosts saved: " .. table.concat(parts, " + ")
+	end
+	return true
+end)
+
+-- Shop action "UseBonusBalls"(amount): the device used balls from a Revive /
+-- Ball Pack right away (mid-run or on the game over screen), so they come back
+-- out of the saved BonusBalls (see Monetization). Never below zero.
+Shop.addAction("UseBonusBalls", function(player, data, amount)
+	if type(amount) ~= "number" or amount ~= amount or amount <= 0 or amount == math.huge then
+		return false, "Bad amount"
+	end
+	local used = math.min(math.floor(amount), data.BonusBalls)
+	if used > 0 then
+		PlayerData.update(player, { BonusBalls = data.BonusBalls - used })
+	end
+	return true
+end)
+
+-- Shop action "RecheckPasses": the menu opened; picks up a game pass bought
+-- outside this server. Rate limited in Monetization.
+Shop.addAction("RecheckPasses", function(player)
+	return Monetization.recheckPasses(player)
 end)
 
 -- Shop action "ResumeRun": the device sends this after it has really revived
@@ -942,6 +1090,12 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 		counted = false,
 		boosts = {},
 		doubleGems = false,
+		meterGems = 0,
+		midRunBoosts = {},
+		shieldsOn = 0,
+		megaBallsOn = 0,
+		unusedReturned = false,
+		lastUnused = nil,
 		lastRoom = checkpoint * Config.ROOMS_PER_CHECKPOINT, -- the room the run starts in
 		roomClock = 0,
 		pausedMaxStuds = nil,
@@ -964,6 +1118,10 @@ Remotes.RunStarted.OnServerEvent:Connect(function(player, startCheckpoint, boost
 			run.boosts[boostId] = true
 			if boostId == "DoubleGems" then
 				run.doubleGems = true
+			elseif boostId == "Shield" then
+				run.shieldsOn += 1
+			elseif boostId == "MegaBall" then
+				run.megaBallsOn += 1
 			end
 		end
 	end
@@ -1047,6 +1205,12 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 	if type(runStats) ~= "table" then
 		runStats = {}
 	end
+	-- Shields / Mega Ball throws still unused at this game over (given back if
+	-- they leave from the game over screen; see PlayerRemoving).
+	run.lastUnused = {
+		shield = readCount(runStats, "unusedShield"),
+		megaballThrows = readCount(runStats, "unusedMegaThrows"),
+	}
 
 	-- Anti-cheat: the distance is the smallest of
 	--  * what the device says,
@@ -1096,6 +1260,7 @@ Remotes.RunEnded.OnServerEvent:Connect(function(player, meters, runStats)
 		multiplier *= 2 -- DoubleGems boost
 	end
 	local gemsEarned = math.floor(newMeters * Config.GEMS_PER_METER * multiplier)
+	run.meterGems += gemsEarned
 	local xp = Config.XP
 	local xpEarned = math.floor(
 		newMeters * xp.PerMeter
@@ -1286,16 +1451,39 @@ local Remotes = ReplicatedStorage.Remotes
 local Monetization = {}
 
 -- Gems given instead when a StreakSaver is bought while the streak is fine.
-local STREAK_SAVER_FALLBACK_GEMS = 100
+-- Never less than the same Robux buys as gems (Gem Top-Up: 150 gems for ~15 R$).
+local STREAK_SAVER_FALLBACK_GEMS = 150
+-- Gems given instead when Season Premium is bought by someone who already has it
+-- this season (e.g. bought while their save was still loading). Worth ~199 R$.
+local SEASON_PREMIUM_FALLBACK_GEMS = 3200
 
--- Products the server delivers itself. Everything else (balls) is delivered
--- to the player's device, because runs happen there.
+-- Game pass ownership checks (UserOwnsGamePassAsync) sometimes fail (throttling,
+-- web outages), so each one is tried a few times before giving up.
+local PASS_CHECK_ATTEMPTS = 4
+local PASS_CHECK_WAIT = 2 -- seconds; doubles after each failed try
+-- The "RecheckPasses" shop action (menu opened) runs at most this often per player.
+local RECHECK_PASSES_COOLDOWN = 60
+
+-- Products with their own rules. Boosts, balls and gem packs are below.
+-- Every product is recorded in the save here; the device is also told with
+-- PurchaseGranted (balls / boosts can then be used right away mid-run).
 -- These must not yield: they run inside ProcessReceipt.
 local serverRewards = {
 	-- One-time offer. If it's somehow bought twice, the gems are still given
 	-- (the skin and effect are already owned), so a purchase is never wasted.
 	StarterPack = function(player, data)
 		local product = Config.Products.StarterPack
+		if data.StarterPackBought then
+			-- Bought again (e.g. while their save was loading): the items are
+			-- already theirs, so say clearly that the gems are what they got.
+			data.Gems += product.Gems
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY OWNED THE STARTER ITEMS: +" .. product.Gems .. " GEMS",
+			})
+			return
+		end
 		local text = Progression.grantReward(data, { Gems = product.Gems, Skin = product.Skin, Fx = product.Fx })
 		data.StarterPackBought = true
 		PlayerData.publish(player, Progression.REWARD_FIELDS)
@@ -1305,8 +1493,19 @@ local serverRewards = {
 
 	-- Unlocks the premium track of the current season (tiers already reached
 	-- become claimable right away).
+	-- Already premium this season (bought twice, or while the save was loading):
+	-- they get SEASON_PREMIUM_FALLBACK_GEMS instead, so the purchase isn't wasted.
 	SeasonPremium = function(player, data)
 		Progression.ensureSeason(data)
+		if data.SeasonPremium then
+			data.Gems += SEASON_PREMIUM_FALLBACK_GEMS
+			PlayerData.publish(player, { "Gems" })
+			Progression.fire(player, {
+				type = "Reward",
+				text = "YOU ALREADY HAD PREMIUM: +" .. SEASON_PREMIUM_FALLBACK_GEMS .. " GEMS INSTEAD",
+			})
+			return
+		end
 		data.SeasonPremium = true
 		PlayerData.publish(player, { "SeasonId", "SeasonTier", "SeasonXP", "SeasonClaimed", "SeasonPremium" })
 		Progression.fire(player, { type = "Reward", text = "Premium season pass unlocked" })
@@ -1351,6 +1550,18 @@ local function boostReward(boostId)
 	end
 end
 
+-- Ball products (Revive, BallPack): the balls are always saved first as
+-- BonusBalls, so they can never be lost (the player leaves, the purchase finishes
+-- after a rejoin, the device is back in the menu...). If the device is mid-run or
+-- on the game over screen it uses them right away and takes them back out with
+-- the "UseBonusBalls" shop action; otherwise the next run starts with them.
+local function ballsReward(amount)
+	return function(player, data)
+		data.BonusBalls += amount
+		PlayerData.publish(player, { "BonusBalls" })
+	end
+end
+
 -- Plain gem packs (GemPack, GemPackMedium, GemPackLarge...): any product with
 -- Gems that has no special handler above.
 local function rewardFor(productKey, product)
@@ -1359,6 +1570,9 @@ local function rewardFor(productKey, product)
 	end
 	if product.Boost and Progression.isBoost(product.Boost) then
 		return boostReward(product.Boost)
+	end
+	if type(product.Balls) == "number" and product.Balls > 0 then
+		return ballsReward(math.floor(product.Balls))
 	end
 	if product.Gems then
 		return function(player, data)
@@ -1373,15 +1587,56 @@ function Monetization.ownsPass(player, passKey)
 	return player:GetAttribute("Pass_" .. passKey) == true
 end
 
-local function checkPasses(player)
-	for passKey, pass in Config.GamePasses do
-		if pass.Id ~= 0 then
-			local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.Id)
-			if ok and owns then
+-- Asks Roblox whether the player owns one pass, retrying a failed call a few
+-- times (with growing waits) so a hiccup doesn't hide a pass they paid for.
+-- Yields. Sets Pass_<Key> when they own it.
+local function checkPass(player, passKey, pass)
+	local wait = PASS_CHECK_WAIT
+	for attempt = 1, PASS_CHECK_ATTEMPTS do
+		if not player.Parent or Monetization.ownsPass(player, passKey) then
+			return
+		end
+		local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass.Id)
+		if ok then
+			if owns then
 				player:SetAttribute("Pass_" .. passKey, true)
 			end
+			return
+		end
+		warn("Could not check pass", passKey, "for", player.Name, "attempt", attempt, owns)
+		if attempt < PASS_CHECK_ATTEMPTS then
+			task.wait(wait)
+			wait *= 2
 		end
 	end
+end
+
+-- Checks every pass the player doesn't have yet (each one in its own thread,
+-- so one slow check doesn't hold up the others).
+local function checkPasses(player)
+	for passKey, pass in Config.GamePasses do
+		if pass.Id ~= 0 and not Monetization.ownsPass(player, passKey) then
+			task.spawn(checkPass, player, passKey, pass)
+		end
+	end
+end
+
+-- player -> os.clock() of the last "RecheckPasses".
+local lastRecheck = {}
+
+-- Shop action "RecheckPasses" (the menu opened): picks up a pass bought outside
+-- this server (website, another server) without rejoining. At most once every
+-- RECHECK_PASSES_COOLDOWN seconds per player. Doesn't yield (the checks run in
+-- the background and set Pass_<Key> when they finish).
+function Monetization.recheckPasses(player)
+	local now = os.clock()
+	local last = lastRecheck[player]
+	if last and now - last < RECHECK_PASSES_COOLDOWN then
+		return false, "Checked recently"
+	end
+	lastRecheck[player] = now
+	checkPasses(player)
+	return true
 end
 
 -- Roblox calls this for every developer product purchase, and keeps retrying
@@ -1433,12 +1688,16 @@ function Monetization.init()
 	MarketplaceService.ProcessReceipt = processReceipt
 
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-		if not purchased then
-			return
-		end
 		for passKey, pass in Config.GamePasses do
-			if pass.Id == passId then
-				player:SetAttribute("Pass_" .. passKey, true)
+			if pass.Id ~= 0 and pass.Id == passId then
+				if purchased then
+					player:SetAttribute("Pass_" .. passKey, true)
+				else
+					-- Not bought now, but maybe they already own it and our check on
+					-- join failed (Roblox then says "you already own this").
+					-- Checking again turns it on right away.
+					task.spawn(checkPass, player, passKey, pass)
+				end
 			end
 		end
 	end)
@@ -1447,6 +1706,9 @@ function Monetization.init()
 	for _, player in Players:GetPlayers() do
 		task.spawn(checkPasses, player)
 	end
+	Players.PlayerRemoving:Connect(function(player)
+		lastRecheck[player] = nil
+	end)
 end
 
 return Monetization
@@ -1523,7 +1785,10 @@ local DEFAULT_DATA = {
 	SeasonClaimed = { free = {}, premium = {} },
 
 	StarterPackBought = false,
-	BonusBalls = 0, -- added to the next run
+	-- Added to the next run: daily streak balls, and Revive / Ball Pack balls
+	-- (saved here first so a purchase can never be lost; the device takes them
+	-- back out with "UseBonusBalls" when it uses them right away).
+	BonusBalls = 0,
 	Boosts = {}, -- { [boostId] = count }: welcome gift, level ups, streak, season, shop
 	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
 	Settings = table.clone(Config.DefaultSettings), -- volume, vibration, graphics...
@@ -1681,6 +1946,11 @@ function PlayerData.load(player)
 	-- If loading failed we never save, so we can't wipe their real data.
 	profiles[player] = { data = data, canSave = ok, dirty = false, saving = false }
 	publishAll(player, data)
+	-- Tells the UI whether it's safe to sell things. Robux buttons stay off until
+	-- DataLoaded is true; DataFailed shows "your save didn't load - rejoin".
+	-- Set after publishAll, so every other attribute is already there.
+	player:SetAttribute("DataFailed", not ok)
+	player:SetAttribute("DataLoaded", ok)
 end
 
 function PlayerData.get(player)
@@ -5996,7 +6266,6 @@ local lastReportedRoom = 0 -- last room index sent to the server with RoomReache
 local startCheckpoint = 0
 local shake = 0
 local activeBalls = {}
-local pendingBalls = 0 -- balls bought while not in a run, added to the next one
 local reportedMeters = 0
 local runFx -- shatter effect equipped for this run (Config.ShatterFx entry)
 -- Counted from the start of the run (a revive continues it). Sent with RunEnded.
@@ -6022,6 +6291,14 @@ local kickRoll = 0 -- radians, camera tilted sideways (crash), easing back to 0
 local shakeOn = Settings.get("shake") ~= false
 local flashesOn = Settings.get("flashes") ~= false
 local runSerial = 0 -- RunStarted events sent; the server echoes it with BoostsActivated
+local unusedBoostsSent = true -- ReturnUnusedBoosts already sent for this run (none before the first run)
+
+-- Purchases
+-- A Robux prompt opened during a run freezes the run until it closes, so the
+-- player can't crash while reading it. Safety net: never frozen longer than this.
+local PROMPT_FREEZE_MAX = 120
+local promptFreezeUntil = 0 -- os.clock() the freeze ends at (0 = not frozen)
+local rerollAfterPurchase = nil -- mission id to reroll once an ExtraReroll purchase arrives
 
 -- Helpers --------------------------------------------------------------------
 
@@ -6458,10 +6735,15 @@ local function spawnBall(origin, velocity, mega, preSweep)
 	part.CFrame = CFrame.new(ball.position)
 end
 
+-- True while a Robux prompt opened mid-run is on screen (the run is frozen).
+local function promptFrozen()
+	return promptFreezeUntil > 0 and os.clock() < promptFreezeUntil
+end
+
 -- Throws along a ray from the camera (see throw / throwAtViewport below).
 -- Returns true if a ball was thrown.
 local function throwAlong(ray)
-	if state ~= "Running" or balls <= 0 then
+	if state ~= "Running" or balls <= 0 or promptFrozen() then
 		return false
 	end
 	local now = os.clock()
@@ -6697,7 +6979,11 @@ local function gameOver()
 	end
 	local newMeters = math.max(0, distance - reportedMeters)
 	reportedMeters = math.max(reportedMeters, distance)
-	Remotes.RunEnded:FireServer(distance, table.clone(runStats))
+	local report = table.clone(runStats)
+	-- Unused boosts: the server gives them back if the player leaves from here.
+	report.unusedShield = boost.shield
+	report.unusedMegaThrows = boost.megaball
+	Remotes.RunEnded:FireServer(distance, report)
 	Tutorial.setPaused(true)
 
 	-- Personal best only counts runs started from the beginning (same as the server).
@@ -6825,6 +7111,29 @@ local function resetWorld(checkpoint, tutorial)
 	applyTheme(checkpoint)
 end
 
+local shopRequest -- defined in the Purchases section below
+
+-- The run is really over (PLAY AGAIN or MENU from the game over screen, without
+-- a revive): unused Shields and Mega Ball throws go back to the inventory.
+-- Sent once per run; the server checks it against what the run really turned on.
+local function returnUnusedBoosts()
+	if state ~= "GameOver" or unusedBoostsSent then
+		return
+	end
+	unusedBoostsSent = true
+	local shield, throws = boost.shield, boost.megaball
+	if shield <= 0 and throws < MEGA.Throws then
+		return -- nothing that could be given back
+	end
+	-- Sent now (before RunStarted / resetWorld), answered in the background.
+	task.spawn(function()
+		local ok, message = shopRequest("ReturnUnusedBoosts", { shield = shield, megaballThrows = throws })
+		if ok and type(message) == "string" then
+			ui:toast(message, "reward")
+		end
+	end)
+end
+
 -- boostIds: boosts picked in the menu (may be nil/empty). They only switch on
 -- once the server confirms them (see onBoostsActivated).
 local function startRun(checkpoint, boostIds)
@@ -6835,6 +7144,9 @@ local function startRun(checkpoint, boostIds)
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
 	startCheckpoint = checkpoint
 
+	returnUnusedBoosts() -- PLAY AGAIN from the game over screen
+	unusedBoostsSent = false
+
 	-- Brand-new players get the guided first run.
 	local tutorialRun = checkpoint == 0 and Tutorial.isNeeded()
 	Tutorial.reset()
@@ -6843,14 +7155,14 @@ local function startRun(checkpoint, boostIds)
 		Tutorial.start(track)
 	end
 
-	-- Bonus balls from the daily streak (the server resets them when the run starts).
+	-- Bonus balls from the daily streak, and Revive / Ball Pack balls bought
+	-- outside a run (the server saved them and resets them when the run starts).
 	local bonusBalls = math.max(0, math.floor(tonumber(player:GetAttribute("BonusBalls")) or 0))
 
-	balls = Config.START_BALLS + pendingBalls + bonusBalls
+	balls = Config.START_BALLS + bonusBalls
 	if ownsPass("VIP") then
 		balls += Config.GamePasses.VIP.ExtraStartBalls
 	end
-	pendingBalls = 0
 	multiball = minimumMultiball()
 	streak = 0
 	speed = Config.START_SPEED
@@ -6908,10 +7220,14 @@ local function showMenu()
 	if state == "Running" then
 		gameOver()
 	end
+	returnUnusedBoosts() -- MENU from the game over screen
 	state = "Menu"
 	Tutorial.reset()
 	resetWorld(0)
 	ui:showMenu()
+	-- A game pass bought outside this server (website, another server) shows up
+	-- without rejoining. The server limits how often this really checks.
+	task.spawn(shopRequest, "RecheckPasses")
 end
 
 -- Frame loop -----------------------------------------------------------------
@@ -6941,15 +7257,18 @@ local function step(dt)
 	local worldDt = dt
 	local ballDt = dt -- balls ignore most of the tutorial's slow-down
 	if state == "Running" then
-		tickBoosts(dt)
+		-- A Robux prompt is on screen: everything in the run stands still
+		-- (boost timers too) until it closes.
+		local runDt = if promptFrozen() then 0 else dt
+		tickBoosts(runDt)
 		-- The tutorial slows time while it waits for the player to act.
-		local tutorialScale = Tutorial.update(dt, cameraZ)
+		local tutorialScale = Tutorial.update(runDt, cameraZ)
 		lastTutorialScale = tutorialScale
 		-- Hit-stop: a split-second freeze after a big smash.
-		local freeze = tickHitStop(dt)
-		worldDt = dt * timeScale * tutorialScale * freeze
-		ballDt = dt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
-		Tutorial.scanForTips(dt, cameraZ, track)
+		local freeze = tickHitStop(runDt)
+		worldDt = runDt * timeScale * tutorialScale * freeze
+		ballDt = runDt * timeScale * math.max(tutorialScale, TUTORIAL_MIN_BALL_SPEED) * freeze
+		Tutorial.scanForTips(runDt, cameraZ, track)
 
 		local zoneRooms = currentRoom() - startCheckpoint * Config.ROOMS_PER_CHECKPOINT
 		speed = math.min(Config.MAX_SPEED, Config.START_SPEED + zoneRooms * Config.SPEED_GAIN_PER_ROOM)
@@ -7011,8 +7330,41 @@ end
 
 -- Purchases ------------------------------------------------------------------
 
-local function promptProduct(productKey)
+-- Robux purchases are only allowed once the server has loaded the player's save
+-- (otherwise the server can't record them, or sells something already owned).
+local function canBuy()
+	if player:GetAttribute("DataFailed") == true then
+		ui:toast("YOUR SAVE DIDN'T LOAD - REJOIN BEFORE BUYING", "error")
+		return false
+	end
+	if player:GetAttribute("DataLoaded") ~= true then
+		ui:toast("STILL LOADING YOUR SAVE - TRY AGAIN IN A MOMENT", "info")
+		return false
+	end
+	return true
+end
+
+-- Freezes the run while a Robux prompt opened mid-run is on screen.
+local function freezeForPrompt()
+	if state == "Running" then
+		promptFreezeUntil = os.clock() + PROMPT_FREEZE_MAX
+	end
+end
+
+local function onPromptClosed()
+	promptFreezeUntil = 0
+end
+
+-- context: extra info from the UI. For "ExtraReroll" it's the mission id, which
+-- is rerolled automatically once the purchase arrives.
+local function promptProduct(productKey, context)
 	local product = Config.Products[productKey]
+	if not product or product.Id == 0 then
+		return
+	end
+	if not canBuy() then
+		return
+	end
 	-- Don't let anyone pay twice for something they already have.
 	if productKey == "StarterPack" and player:GetAttribute("StarterPackBought") == true then
 		ui:toast("ALREADY OWNED", "reward")
@@ -7032,19 +7384,30 @@ local function promptProduct(productKey)
 			return
 		end
 	end
-	if product and product.Id ~= 0 then
-		MarketplaceService:PromptProductPurchase(player, product.Id)
+	if productKey == "ExtraReroll" then
+		rerollAfterPurchase = if type(context) == "string" then context else nil
+	end
+	local ok = pcall(MarketplaceService.PromptProductPurchase, MarketplaceService, player, product.Id)
+	if ok then
+		freezeForPrompt()
 	end
 end
 
 local function promptPass(passKey)
 	local pass = Config.GamePasses[passKey]
-	if pass and pass.Id ~= 0 then
-		MarketplaceService:PromptGamePassPurchase(player, pass.Id)
+	if not pass or pass.Id == 0 then
+		return
+	end
+	if not canBuy() then
+		return
+	end
+	local ok = pcall(MarketplaceService.PromptGamePassPurchase, MarketplaceService, player, pass.Id)
+	if ok then
+		freezeForPrompt()
 	end
 end
 
-local function shopRequest(action, argument)
+shopRequest = function(action, argument)
 	local ok, success, message = pcall(function()
 		return Remotes.ShopRequest:InvokeServer(action, argument)
 	end)
@@ -7056,12 +7419,50 @@ end
 
 -- A Robux boost always goes to the boost inventory first. Bought during a run,
 -- we ask the server to use it right away; it's only switched on if the server says yes.
+-- If the run ended while we waited for the answer, it goes back to the inventory.
 local function useBoostNow(boostId)
 	local ok = shopRequest("UseBoostNow", boostId)
-	if ok and state ~= "Menu" and activateBoost(boostId) then
-		ui:toast(boostName(boostId) .. " ON", "reward")
-	else
+	if not ok then
 		ui:toast(boostName(boostId) .. " ADDED TO YOUR BOOSTS", "reward")
+		return
+	end
+	if boostId == "DoubleGems" then
+		-- Already counted on the server for this run's gems, even if it just ended.
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+		return
+	end
+	if state == "Running" then
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+		return
+	end
+	-- The run ended in the meantime: put it back.
+	if shopRequest("ReturnBoost", boostId) then
+		ui:toast(boostName(boostId) .. " ADDED TO YOUR BOOSTS", "reward")
+	elseif state == "GameOver" then
+		-- Couldn't give it back (very unlikely): use it on this run instead,
+		-- so it still helps if they revive.
+		activateBoost(boostId)
+		ui:toast(boostName(boostId) .. " ON", "reward")
+	end
+end
+
+-- ExtraReroll bought from a mission row: swap that mission right away.
+local function rerollBoughtMission()
+	local missionId = rerollAfterPurchase
+	rerollAfterPurchase = nil
+	if not missionId then
+		return
+	end
+	local ok, message = shopRequest("RerollMission", missionId)
+	if ok then
+		ui:toast(if type(message) == "string" then message else "MISSION SWAPPED", "reward")
+	else
+		ui:toast(
+			(if type(message) == "string" then message .. " - " else "") .. "YOUR REROLL IS SAVED",
+			"info"
+		)
 	end
 end
 
@@ -7075,27 +7476,40 @@ local function onPurchaseGranted(productKey)
 		end
 		return
 	end
+	if productKey == "ExtraReroll" then
+		task.spawn(rerollBoughtMission)
+		return
+	end
 	-- Starter pack / season pass are announced by the server's Progress "Reward" event.
 	if product and product.Gems and productKey ~= "StarterPack" then
 		ui:toast("+" .. product.Gems .. " GEMS", "reward")
 		return
 	end
-	if not product or not product.Balls then
+	if not product or type(product.Balls) ~= "number" then
 		return
 	end
 
+	-- The server already saved these balls as BonusBalls. Used right away here,
+	-- they're taken back out of the save ("UseBonusBalls"); in the menu they
+	-- simply wait for the next run.
+	local amount = product.Balls
 	if state == "GameOver" then
-		if revive(product.Balls) then
-			-- The server paused the run's clock at game over; start it again.
-			task.spawn(shopRequest, "ResumeRun")
+		if revive(amount) then
+			task.spawn(function()
+				shopRequest("UseBonusBalls", amount)
+				-- The server paused the run's clock at game over; start it again.
+				shopRequest("ResumeRun")
+			end)
 		end
+		ui:toast("+" .. amount .. " BALLS", "reward")
 	elseif state == "Running" then
-		balls += product.Balls
+		balls += amount
 		updateHud()
+		task.spawn(shopRequest, "UseBonusBalls", amount)
+		ui:toast("+" .. amount .. " BALLS", "reward")
 	else
-		pendingBalls += product.Balls
+		ui:toast("SAVED: +" .. amount .. " BALLS AT THE START OF YOUR NEXT RUN", "reward")
 	end
-	ui:toast("+" .. product.Balls .. " BALLS", "reward")
 end
 
 -- The server confirmed which picked boosts started (and used them up).
@@ -7183,6 +7597,7 @@ function RunController.start()
 		onRevive = function()
 			promptProduct("Revive")
 		end,
+		-- onBuyProduct(productKey, context): context is the mission id for "ExtraReroll".
 		onBuyProduct = promptProduct,
 		onBuyPass = promptPass,
 		onBuySkin = function(skinId)
@@ -7206,6 +7621,22 @@ function RunController.start()
 	task.spawn(disableCharacterControls)
 
 	Remotes.PurchaseGranted.OnClientEvent:Connect(onPurchaseGranted)
+	-- These fire on this device when a Robux prompt closes (bought or not).
+	MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, purchased)
+		if userId ~= player.UserId then
+			return
+		end
+		onPromptClosed()
+		-- Cancelled: forget which mission the reroll was for.
+		if not purchased and productId == Config.Products.ExtraReroll.Id then
+			rerollAfterPurchase = nil
+		end
+	end)
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(who)
+		if who == player then
+			onPromptClosed()
+		end
+	end)
 
 	-- Level ups, missions done, season tiers, run summaries, rewards.
 	task.spawn(function()
@@ -9846,6 +10277,12 @@ return Tutorial
 	a segmented control that write straight to Settings.luau, which every other
 	module listens to. The UI itself follows "flashes" (no red flash / pulsing
 	alarm / shield burst when off) and "shake" (no HUD shake when off).
+
+	Robux: the server sets the DataLoaded attribute only after the player's save
+	really loaded (DataFailed when it couldn't). Until DataLoaded, every Robux
+	button is drawn pressed-flat and a tap only explains why, offers that depend
+	on the save (starter pack, season premium, revive, gem top-up) stay hidden,
+	and a DataFailed banner asks the player to rejoin before buying.
 ]]
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -9927,6 +10364,21 @@ local TOPUP_H = 56
 local TOPUP_BUY_W = 84
 local TOPUP_CLOSE_W = 50
 local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
+
+-- Save state gate for Robux buttons (see the note at the top).
+local SAVE_FAILED_TEXT = "YOUR SAVE DIDN'T LOAD - REJOIN BEFORE BUYING"
+local SAVE_LOADING_TEXT = "STILL LOADING YOUR SAVE - TRY AGAIN IN A MOMENT"
+local SAVE_BANNER_H = 36 -- the DataFailed strip at the bottom of the menu panel
+local ROBUX_CALLBACKS = { onBuyProduct = true, onBuyPass = true, onRevive = true }
+
+-- Season premium stops being sold in the last days of a season.
+local SEASON_LAST_SALE = 3 * 86400
+
+-- Daily streak: a broken streak's CLAIM asks twice before restarting at day 1,
+-- and stays off while a streak saver purchase is on its way.
+local RESTART_CONFIRM_TIME = 4 -- seconds the "TAP AGAIN" confirm stays armed
+local SAVER_PROMPT_WAIT = 30 -- longest we wait for the Robux prompt to close
+local SAVER_GRANT_WAIT = 15 -- after paying, longest we wait for the server to save the streak
 
 -- Settings sheet (drawn on the same 600x340 sheet as everything else).
 local SETTINGS_W = 520
@@ -10018,6 +10470,26 @@ end
 
 local function hasPass(key)
 	return player:GetAttribute("Pass_" .. key) == true
+end
+
+-- True only once the server says the save really loaded (never on a failed load).
+local function saveLoaded()
+	return player:GetAttribute("DataLoaded") == true and player:GetAttribute("DataFailed") ~= true
+end
+
+local function saveFailed()
+	return player:GetAttribute("DataFailed") == true
+end
+
+-- When the season ends (0 = no end date set).
+local function seasonEnds()
+	return tonumber(ReplicatedStorage:GetAttribute("SeasonEnds")) or tonumber(Config.SEASON_ENDS) or 0
+end
+
+-- Premium isn't sold once less than SEASON_LAST_SALE is left (or the season is over).
+local function seasonSaleClosed(now)
+	local ends = seasonEnds()
+	return ends > 0 and ends - now < SEASON_LAST_SALE
 end
 
 -- Progression data ------------------------------------------------------------------
@@ -10470,6 +10942,7 @@ local FILLS = {
 	even on the smallest phone sheet.
 	opts: Name, Size, Position, AnchorPoint, LayoutOrder, Fill, Text, TextSize,
 	Align, Index (small label top-left), Sub (small second line), OnClick
+	A disabled button ignores taps, except that it calls button.onBlocked if set.
 ]]
 local function hardButton(parent, opts)
 	local holder = new("TextButton", {
@@ -10584,8 +11057,12 @@ local function hardButton(parent, opts)
 	holder.MouseLeave:Connect(release)
 	holder.Activated:Connect(function()
 		release()
-		if button.enabled and opts.OnClick then
-			opts.OnClick()
+		if button.enabled then
+			if opts.OnClick then
+				opts.OnClick()
+			end
+		elseif button.onBlocked then
+			button.onBlocked() -- e.g. a Robux button before the save loaded says why
 		end
 	end)
 
@@ -11477,6 +11954,7 @@ function UI._buildBoostPop(self, left, chipY)
 			end
 		end,
 	})
+	self:_robuxButton(pop.robux)
 	pop.gems.holder.NextSelectionUp = close
 	pop.robux.holder.NextSelectionUp = close
 	pop.gems.holder.NextSelectionRight = pop.robux.holder
@@ -11784,6 +12262,7 @@ function UI._buildTopUp(self, root)
 			self:_fire("onBuyProduct", "GemTopUp")
 		end,
 	})
+	self:_robuxButton(t.buy)
 	withPrice(id, Enum.InfoType.Product, function(price)
 		t.buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -11813,8 +12292,8 @@ end
 -- gives. Returns whether it is showing.
 function UI._offerTopUp(self, price, host)
 	local t = self._topUp
-	if not t or not host then
-		return false
+	if not t or not host or not saveLoaded() then
+		return false -- never push a Robux offer before the save loaded
 	end
 	local short = math.floor((tonumber(price) or 0) - attrNumber("Gems", 0))
 	if short <= 0 or short > Config.Products.GemTopUp.Gems then
@@ -11995,6 +12474,36 @@ function UI._buildMenuPanel(self, root)
 		Size = UDim2.new(0.6, -22, 1, -4),
 	}, Enum.HorizontalAlignment.Right)
 
+	-- Save didn't load: a strip above the footer (pages shrink to make room,
+	-- see _refreshSaveState). Robux buttons are off until they rejoin.
+	local banner = new("Frame", {
+		Name = "SaveBanner",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, -FOOTER_H),
+		Size = UDim2.new(1, 0, 0, SAVE_BANNER_H),
+		Visible = false,
+		Parent = panel,
+	})
+	hatch(banner, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
+	capText(setAccent(text({
+		Text = "YOUR SAVE DIDN'T LOAD",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(16, 4),
+		Size = UDim2.new(1, -24, 0, 16),
+		Parent = banner,
+	}), "TextColor3"), 11, 7)
+	text({
+		Text = "REJOIN BEFORE BUYING / ROBUX SHOP IS OFF UNTIL THEN",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(16, 21),
+		Size = UDim2.new(1, -24, 0, 11),
+		Parent = banner,
+	})
+	m.saveBanner = banner
+
 	-- 01 PLAY: global top runs + upgrades
 	local playPage = m.tabs[1].page
 	local _, runsRight = sectionHeader(playPage, 1, "01.1", "TOP RUNS")
@@ -12125,6 +12634,7 @@ function UI._buildGemPack(self, parent, order, key)
 			self:_fire("onBuyProduct", key)
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -12169,6 +12679,7 @@ function UI._buildStarterCard(self, parent, order)
 			self:_fire("onBuyProduct", "StarterPack")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		if buy.sub.Parent then
 			buy.sub.Text = "R$ " .. commas(price)
@@ -12560,9 +13071,14 @@ function UI._buildStreakSaver(self, sheet)
 		Position = UDim2.new(1, -2, 0.5, 0),
 		Size = UDim2.fromOffset(92, 50),
 		OnClick = function()
+			-- CLAIM stays off until this purchase is done (see _saverPending), so a
+			-- tap on CLAIM can't restart the streak before the saver lands.
+			self._saverPendingUntil = os.clock() + SAVER_PROMPT_WAIT
+			self:_refreshDaily()
 			self:_fire("onBuyProduct", "StreakSaver")
 		end,
 	})
+	self:_robuxButton(buy)
 	d.saverBuy = buy
 	withPrice(id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
@@ -12583,6 +13099,27 @@ function UI._layoutStreakSaver(self, saveDay)
 	d.sheet.Size = UDim2.fromOffset(d.sheet.Size.X.Offset, d.height + extra)
 	d.close.holder.Position = UDim2.fromOffset(12, 152 + extra)
 	d.claim.holder.Position = UDim2.fromOffset(116, 152 + extra)
+	-- Gamepad: UP from the bottom row reaches the SAVE button while it shows.
+	local saverButton = if show then d.saverBuy.holder else nil
+	d.close.holder.NextSelectionUp = saverButton
+	d.claim.holder.NextSelectionUp = saverButton
+	if d.saverBuy then
+		d.saverBuy.holder.NextSelectionDown = d.claim.holder
+	end
+	if not show then
+		d.restartArmedUntil = nil
+	end
+end
+
+-- True while a streak saver purchase is on its way (prompt open, or paid and
+-- waiting for the server). CLAIM stays off meanwhile; see _tickDailySheet.
+function UI._saverPending(self)
+	local untilTime = self._saverPendingUntil
+	if untilTime and os.clock() < untilTime then
+		return true
+	end
+	self._saverPendingUntil = nil
+	return false
 end
 
 -- Day cell states; only runs when the streak day / readiness changes.
@@ -12623,18 +13160,42 @@ function UI._tickDailySheet(self, state)
 		return
 	end
 	local reward = Config.DailyStreak[state.day] or {}
-	if state.ready ~= d.ready then
-		d.ready = state.ready
-		d.claim.setFill(if state.ready then "accent" else "paper")
-		d.claim.setEnabled(state.ready)
-	end
-	d.claim.index.Text = if state.ready then "CLAIM / DAY " .. state.day else "NEXT CLAIM IN"
-	if state.ready then
-		d.claim.setText("CLAIM +" .. commas(reward.Gems or 0) .. " GEMS")
-	elseif state.wait then
-		d.claim.setText(clock(state.wait))
+	local gems = commas(reward.Gems or 0)
+	-- While the streak can still be saved, claiming would restart it at day 1,
+	-- so the button says exactly that and asks twice.
+	local restart = state.ready and state.saveDay ~= nil
+	local mode
+	if not state.ready then
+		mode = "wait"
+	elseif restart and self:_saverPending() then
+		mode = "pending"
+	elseif restart and d.restartArmedUntil and os.clock() < d.restartArmedUntil then
+		mode = "confirm"
+	elseif restart then
+		mode = "restart"
 	else
-		d.claim.setText("--:--:--")
+		mode = "claim"
+	end
+	if mode ~= d.mode then
+		d.mode = mode
+		d.claim.setFill(if mode == "claim" or mode == "confirm" then "accent" else "paper")
+		d.claim.setEnabled(mode ~= "wait" and mode ~= "pending")
+	end
+	if mode == "wait" then
+		d.claim.index.Text = "NEXT CLAIM IN"
+		d.claim.setText(if state.wait then clock(state.wait) else "--:--:--")
+	elseif mode == "pending" then
+		d.claim.index.Text = "STREAK SAVER / ON ITS WAY"
+		d.claim.setText("SAVING STREAK...")
+	elseif mode == "confirm" then
+		d.claim.index.Text = "SURE? YOUR STREAK GOES BACK TO DAY 1"
+		d.claim.setText("TAP AGAIN TO RESTART")
+	elseif mode == "restart" then
+		d.claim.index.Text = "SKIP THE SAVER / CLAIM +" .. gems .. " GEMS"
+		d.claim.setText("RESTART AT DAY 1")
+	else
+		d.claim.index.Text = "CLAIM / DAY " .. state.day
+		d.claim.setText("CLAIM +" .. gems .. " GEMS")
 	end
 end
 
@@ -12697,6 +13258,7 @@ function UI._buildOfferSheet(self, layer)
 			self:_fire("onBuyProduct", "StarterPack")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -12712,8 +13274,8 @@ function UI._maybeShowOffer(self)
 	if self._menuOpens < OFFER_AFTER_MENU_OPENS then
 		return
 	end
-	if player:GetAttribute("Gems") == nil then
-		return -- data not loaded yet; we don't know if they own it
+	if not saveLoaded() then
+		return -- save not loaded (or failed to): we don't know if they own it
 	end
 	if player:GetAttribute("StarterPackBought") == true then
 		self._offerShown = true
@@ -12726,11 +13288,13 @@ end
 function UI._refreshStarter(self)
 	local m = self._menu
 	local bought = player:GetAttribute("StarterPackBought") == true
+	-- Until the save loads we can't know whether they already bought it.
+	local show = not bought and saveLoaded()
 	if m.starterCard then
-		m.starterCard.Visible = not bought
-		m.starterHeader.Visible = not bought
+		m.starterCard.Visible = show
+		m.starterHeader.Visible = show
 	end
-	if bought and m.modalOpen == "offer" then
+	if not show and m.modalOpen == "offer" then
 		self:_closeModal()
 	end
 end
@@ -12906,9 +13470,12 @@ function UI._buildMissionRow(self, parent, index, mission, rerolls)
 			Position = UDim2.new(1, -6, 0.5, 0),
 			Size = UDim2.fromOffset(88, 50),
 			OnClick = function()
-				self:_fire("onBuyProduct", "ExtraReroll")
+				-- The mission id rides along so the controller can swap this
+				-- mission as soon as the reroll is granted.
+				self:_fire("onBuyProduct", "ExtraReroll", mission.id)
 			end,
 		})
+		self:_robuxButton(button)
 		button.sub.TextSize = 7
 		withPrice(productId("ExtraReroll"), Enum.InfoType.Product, function(price)
 			if button.sub.Parent then
@@ -13050,11 +13617,14 @@ function UI._buildSeasonPage(self, page)
 			self:_fire("onBuyProduct", "SeasonPremium")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product and product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
 	s.unlock = unlock
 	s.active = tag(page, "PREMIUM TRACK ACTIVE", { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = 3, Visible = false }, true)
+	-- Last days of a season: premium isn't sold any more, and this says why.
+	s.closed, s.closedLabel = tag(page, "PREMIUM CLOSED / SEASON ENDS SOON", { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = 3, Visible = false })
 
 	local _, trackRight = sectionHeader(page, 4, "03.2", "REWARDS")
 	s.trackRight = trackRight
@@ -13128,6 +13698,30 @@ function UI._refreshSeasonProgress(self)
 	end
 end
 
+-- Premium UNLOCK card: only once the save loaded (we must know they don't own
+-- it), and never in the last SEASON_LAST_SALE of a season. Runs every second
+-- with the countdowns, so the card goes away on time.
+function UI._refreshSeasonUnlock(self)
+	local s = self._menu.season
+	local premium = player:GetAttribute("SeasonPremium") == true
+	local product = Config.Products.SeasonPremium
+	local onSale = product ~= nil and product.Id ~= 0 and not premium and saveLoaded()
+	local now = math.floor(workspace:GetServerTimeNow())
+	local closed = seasonSaleClosed(now)
+	local showUnlock = onSale and not closed
+	local showClosed = onSale and closed
+	if s.unlock.Visible ~= showUnlock then
+		s.unlock.Visible = showUnlock
+	end
+	if s.closed.Visible ~= showClosed then
+		s.closed.Visible = showClosed
+	end
+	if showClosed then
+		s.closedLabel.Text = if seasonEnds() > now then "PREMIUM CLOSED / SEASON ENDS SOON" else "SEASON ENDED / NEW SEASON SOON"
+	end
+	s.active.Visible = premium
+end
+
 -- Rebuilds the 30-tier track only when tier, ownership or claims change.
 function UI._rebuildSeason(self, force)
 	local m = self._menu
@@ -13141,9 +13735,7 @@ function UI._rebuildSeason(self, force)
 	end
 	s.key = key
 	local claimed = readSeasonClaimed()
-	local product = Config.Products.SeasonPremium
-	s.unlock.Visible = not premium and product ~= nil and product.Id ~= 0
-	s.active.Visible = premium
+	self:_refreshSeasonUnlock()
 
 	local focusPath = self:_captureFocus(s.scroll)
 	clearRows(s.scroll)
@@ -13358,12 +13950,13 @@ function UI._refreshCountdowns(self)
 	else
 		m.missionsReset.Text = ""
 	end
-	local ends = tonumber(ReplicatedStorage:GetAttribute("SeasonEnds")) or Config.SEASON_ENDS
-	if ends and ends > 0 then
+	local ends = seasonEnds()
+	if ends > 0 then
 		m.season.right.Text = if ends > now then "ENDS IN " .. longClock(ends - now) else "SEASON ENDED"
 	else
 		m.season.right.Text = ""
 	end
+	self:_refreshSeasonUnlock()
 end
 
 -- Menu data ---------------------------------------------------------------------------------
@@ -13476,11 +14069,25 @@ function UI._refreshDaily(self)
 end
 
 function UI._claimDaily(self)
-	if self._dailyBusy or not dailyState().ready then
+	local state = dailyState()
+	if self._dailyBusy or not state.ready then
 		return
 	end
-	self._dailyBusy = true
 	local d = self._dailySheet
+	if state.saveDay then
+		-- Claiming now restarts a streak that could still be saved: never while
+		-- a saver is being bought, and only on a second tap.
+		if self:_saverPending() then
+			return
+		end
+		if not (d.restartArmedUntil and os.clock() < d.restartArmedUntil) then
+			d.restartArmedUntil = os.clock() + RESTART_CONFIRM_TIME
+			self:_tickDailySheet(state)
+			return
+		end
+	end
+	d.restartArmedUntil = nil
+	self._dailyBusy = true
 	d.claim.setEnabled(false)
 	d.claim.setText("CLAIMING")
 	self._menu.daily.setText("CLAIMING")
@@ -13495,7 +14102,7 @@ function UI._claimDaily(self)
 		self._dailyBusy = false
 		self._dailyReady = nil
 		self._menu.dailyKey = nil
-		d.ready = nil
+		d.mode = nil
 		if ok then
 			-- The server's Reward event toasts the amount; here the day gets stamped.
 			local cell = d.cells[claimedDay]
@@ -13587,9 +14194,12 @@ function UI._rebuildPasses(self)
 	local focusPath = self:_captureFocus(m.passes)
 	clearRows(m.passes)
 	local shown = 0
+	-- Checkpoints only matters once there is a zone to start from.
+	local reached = math.max(0, math.floor(tonumber(player:GetAttribute("Checkpoint")) or 0))
 	for order, key in PASS_ORDER do
 		local pass = Config.GamePasses[key]
-		if pass and pass.Id ~= 0 and not hasPass(key) then
+		local useful = key ~= "Checkpoints" or reached > 0
+		if pass and pass.Id ~= 0 and not hasPass(key) and useful then
 			shown += 1
 			local info = PASS_INFO[key]
 			local card = new("Frame", { Name = key, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = m.passes })
@@ -13626,6 +14236,7 @@ function UI._rebuildPasses(self)
 					self:_fire("onBuyPass", key)
 				end,
 			})
+			self:_robuxButton(buy)
 			withPrice(pass.Id, Enum.InfoType.GamePass, function(price)
 				if buy.sub.Parent then
 					buy.sub.Text = "R$ " .. commas(price)
@@ -13652,7 +14263,7 @@ function UI._rebuildZones(self)
 		local unlock = hardButton(holder, {
 			Name = "UnlockAll",
 			Fill = "accent",
-			Text = "UNLOCK ALL ZONES",
+			Text = "START FROM ZONES YOU REACHED",
 			TextSize = 12,
 			Sub = "",
 			Position = UDim2.fromOffset(0, 6),
@@ -13661,6 +14272,7 @@ function UI._rebuildZones(self)
 				self:_fire("onBuyPass", "Checkpoints")
 			end,
 		})
+		self:_robuxButton(unlock)
 		withPrice(passId, Enum.InfoType.GamePass, function(price)
 			if unlock.sub.Parent then
 				unlock.sub.Text = "R$ " .. commas(price)
@@ -13735,6 +14347,17 @@ function UI._rebuildZones(self)
 		zoneRow(i, i > 0 and not unlocked, false)
 	end
 	zoneRow(reached + 1, true, true)
+	if reached > 0 then
+		text({
+			Name = "Note",
+			Text = "CHECKPOINT RUNS DON'T COUNT FOR BEST",
+			TextSize = 8,
+			TextColor3 = GREY,
+			Size = UDim2.new(1, 0, 0, 18),
+			LayoutOrder = reached + 10,
+			Parent = m.zones,
+		})
+	end
 	self:_restoreFocus(m.zones, focusPath, m.tabs[4].button)
 end
 
@@ -14054,6 +14677,7 @@ function UI._buildHud(self)
 			end,
 		})
 		fit(buy.holder)
+		self:_robuxButton(buy)
 		withPrice(pack.Id, Enum.InfoType.Product, function(price)
 			buy.sub.Text = "R$ " .. commas(price)
 		end)
@@ -14092,6 +14716,7 @@ function UI._buildHud(self)
 		fit(quick.holder)
 		quick.bump = new("UIScale", { Parent = quick.face })
 		quick.holder.Visible = false
+		self:_robuxButton(quick)
 		withPrice(shieldId, Enum.InfoType.Product, function(price)
 			quick.sub.Text = "R$ " .. commas(price)
 		end)
@@ -14457,6 +15082,26 @@ function UI._buildGameOver(self)
 	local actions = new("Frame", { Name = "Actions", BackgroundTransparency = 1, Position = UDim2.fromOffset(340, 48), Size = UDim2.fromOffset(188, 180), Parent = sheet })
 	list(actions, 6)
 
+	-- Save didn't load: said here instead of offering a revive.
+	local warning = new("Frame", { Name = "SaveWarning", BackgroundColor3 = INK, Size = UDim2.new(1, -SHADOW, 0, 52), LayoutOrder = 0, Visible = false, Parent = actions })
+	hatch(warning, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
+	capText(setAccent(text({
+		Text = "YOUR SAVE DIDN'T LOAD",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(16, 9),
+		Size = UDim2.new(1, -22, 0, 16),
+		Parent = warning,
+	}), "TextColor3"), 11, 7)
+	text({
+		Text = "REJOIN BEFORE BUYING ANYTHING",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(16, 29),
+		Size = UDim2.new(1, -22, 0, 12),
+		Parent = warning,
+	})
+	g.saveWarning = warning
+
 	local revive = Config.Products.Revive
 	local reviveGroup = new("Frame", { Name = "Revive", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), LayoutOrder = 1, Visible = false, Parent = actions })
 	g.reviveButton = hardButton(reviveGroup, {
@@ -14478,6 +15123,7 @@ function UI._buildGameOver(self)
 	local reviveTrack = new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.82, Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, -SHADOW, 0, 5), Parent = reviveGroup })
 	g.reviveBar = new("Frame", { BackgroundColor3 = DANGER, Size = UDim2.fromScale(1, 1), Parent = reviveTrack })
 	g.reviveGroup = reviveGroup
+	self:_robuxButton(g.reviveButton)
 	withPrice(revive.Id, Enum.InfoType.Product, function(price)
 		g.reviveButton.sub.Text = "R$ " .. commas(price)
 	end)
@@ -15361,8 +16007,61 @@ end
 
 -- Callback plumbing ------------------------------------------------------------------
 
+-- Robux buttons: drawn off until the save loaded; a tap then says why.
+function UI._robuxButton(self, button)
+	self._robuxButtons[button] = true
+	button.onBlocked = function()
+		self:_robuxRefused()
+	end
+	button.setEnabled(saveLoaded())
+	return button
+end
+
+function UI._robuxRefused(self)
+	if saveFailed() then
+		self:toast(SAVE_FAILED_TEXT, "error")
+	else
+		self:toast(SAVE_LOADING_TEXT, "info")
+	end
+end
+
+-- DataLoaded / DataFailed changed (or anything that shows Robux offers redrew).
+function UI._refreshSaveState(self)
+	local loaded = saveLoaded()
+	local failed = saveFailed()
+	for button in self._robuxButtons do
+		if button.holder.Parent then
+			if button.enabled ~= loaded then
+				button.setEnabled(loaded)
+			end
+		else
+			self._robuxButtons[button] = nil -- its row was rebuilt
+		end
+	end
+	local m = self._menu
+	if m.saveBanner.Visible ~= failed then
+		m.saveBanner.Visible = failed
+		local bottom = FOOTER_H + (if failed then SAVE_BANNER_H else 0)
+		for _, tab in m.tabs do
+			tab.page.Size = UDim2.new(1, 0, 1, -(TAB_H + 1 + bottom))
+		end
+	end
+	self._over.saveWarning.Visible = failed
+	if not loaded then
+		self:_hideTopUp()
+		self:hideRevive()
+	end
+	self:_refreshStarter()
+	self:_refreshSeasonUnlock()
+end
+
 -- Fire-and-forget callbacks run in their own thread so errors keep their stack trace.
+-- Robux prompts are refused (with the reason) until the save has loaded.
 function UI._fire(self, name, ...)
+	if ROBUX_CALLBACKS[name] and not saveLoaded() then
+		self:_robuxRefused()
+		return
+	end
 	local callback = self._callbacks[name]
 	if type(callback) == "function" then
 		task.spawn(callback, ...)
@@ -15398,6 +16097,7 @@ function UI._refreshAll(self)
 	self:_refreshSkins()
 	self:_refreshFx()
 	self:_refreshBoosts()
+	self:_refreshSaveState()
 end
 
 -- Gamepad selection -------------------------------------------------------------------
@@ -15592,6 +16292,7 @@ function UI.new(callbacks)
 	self._toastSerial = 0
 	self._connections = {}
 	self._menuOpens = 0
+	self._robuxButtons = setmetatable({}, { __mode = "k" }) -- see _robuxButton
 	self._runsEnded = 0 -- game overs this session (the "R2 THROW" hint shows until the first)
 	self._gamepad = gamepadAtStart()
 
@@ -15667,7 +16368,13 @@ function UI.new(callbacks)
 	end)
 	onAttribute("Checkpoint", function()
 		self:_rebuildZones()
+		self:_rebuildPasses() -- the CHECKPOINTS card shows once a zone is reached
 	end)
+	for _, name in { "DataLoaded", "DataFailed" } do
+		onAttribute(name, function()
+			self:_refreshSaveState()
+		end)
+	end
 	onAttribute("EquippedSkin", function()
 		self:_refreshSkins()
 	end)
@@ -15676,9 +16383,21 @@ function UI.new(callbacks)
 	end)
 	for _, name in { "NextDaily", "StreakDay", "StreakExpires" } do
 		onAttribute(name, function()
+			if name ~= "NextDaily" then
+				self._saverPendingUntil = nil -- the streak changed: the saver (if any) has landed
+			end
 			self:_refreshDaily()
 		end)
 	end
+	-- Streak saver prompt closed: cancelled frees CLAIM now; paid keeps it off
+	-- until the server saves the streak (the attribute change above).
+	connect(MarketplaceService.PromptProductPurchaseFinished, function(userId, id, purchased)
+		if userId ~= player.UserId or id ~= productId("StreakSaver") or self._saverPendingUntil == nil then
+			return
+		end
+		self._saverPendingUntil = if purchased then os.clock() + SAVER_GRANT_WAIT else nil
+		self:_refreshDaily()
+	end)
 	for _, name in { "Level", "XP", "XPNeeded" } do
 		onAttribute(name, function()
 			self:_refreshLevel()
@@ -15824,6 +16543,11 @@ function UI:showMenu()
 	self._menuOpens += 1
 	self:_refreshAll()
 	self:_maybeShowOffer()
+	-- Passes bought outside the game (or a check that failed on join) show up
+	-- without a rejoin. Fire-and-forget: the server sets the Pass_ attributes.
+	task.spawn(function()
+		self:_ask("onShop", "RecheckPasses")
+	end)
 
 	m.left.Position = UDim2.new(0, EDGE - 16, 0.5, 0)
 	tween(m.left, 0.35, { Position = UDim2.new(0, EDGE + 4, 0.5, 0) })
@@ -16071,7 +16795,8 @@ function UI:showGameOver(info)
 	end
 
 	self:hideRevive()
-	if info.canRevive and Config.Products.Revive.Id ~= 0 then
+	g.saveWarning.Visible = saveFailed()
+	if info.canRevive and Config.Products.Revive.Id ~= 0 and saveLoaded() then
 		g.reviveGroup.Visible = true
 		g.reviveBar.Size = UDim2.fromScale(1, 1)
 		local countdown = TweenService:Create(

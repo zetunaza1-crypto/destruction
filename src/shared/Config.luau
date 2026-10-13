@@ -189,6 +189,8 @@ end
 -- and paste the IDs here. An ID of 0 hides that button in the game.
 -- Suggested prices are just a starting point.
 Config.Products = {
+	-- Ball products: the server saves the balls first (BonusBalls), so bought
+	-- outside a run they start the next run instead of being lost.
 	Revive = { Id = 3718291625, Balls = 25 }, -- game over screen (~25 R$)
 	BallPack = { Id = 3718291633, Balls = 50 }, -- during a run (~15 R$)
 	-- Gem packs: bigger packs are better value.
@@ -220,7 +222,7 @@ Config.Products = {
 -- from streaks, level ups and the season pass so players get a taste first.
 Config.Boosts = {
 	Shield = { Name = "SHIELD", Text = "YOUR NEXT CRASH IS FREE", Gems = 150, Color = Color3.fromRGB(80, 200, 255) },
-	Magnet = { Name = "MAGNET", Text = "CRYSTALS FLY TO YOU", Gems = 120, Duration = 20, Range = 22, Color = Color3.fromRGB(255, 80, 120) },
+	Magnet = { Name = "MAGNET", Text = "CRYSTALS FLY TO YOU FOR 20S", Gems = 120, Duration = 20, Range = 22, Color = Color3.fromRGB(255, 80, 120) },
 	DoubleGems = { Name = "2X GEMS", Text = "DOUBLE GEMS THIS RUN", Gems = 200, Color = Color3.fromRGB(255, 200, 50) },
 	MegaBall = { Name = "MEGA BALL", Text = "NEXT 10 THROWS ARE GIANT", Gems = 150, Throws = 10, Scale = 3, Color = Color3.fromRGB(255, 120, 30) },
 	SlowMo = { Name = "SLOW-MO", Text = "SLOW TIME FOR 8 SECONDS", Gems = 100, Duration = 8, TimeScale = 0.5, Color = Color3.fromRGB(150, 110, 255) },

@@ -25,6 +25,12 @@
 	a segmented control that write straight to Settings.luau, which every other
 	module listens to. The UI itself follows "flashes" (no red flash / pulsing
 	alarm / shield burst when off) and "shake" (no HUD shake when off).
+
+	Robux: the server sets the DataLoaded attribute only after the player's save
+	really loaded (DataFailed when it couldn't). Until DataLoaded, every Robux
+	button is drawn pressed-flat and a tap only explains why, offers that depend
+	on the save (starter pack, season premium, revive, gem top-up) stay hidden,
+	and a DataFailed banner asks the player to rejoin before buying.
 ]]
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -106,6 +112,21 @@ local TOPUP_H = 56
 local TOPUP_BUY_W = 84
 local TOPUP_CLOSE_W = 50
 local SHIELD_USED_HOLD = 0.9 -- seconds the HUD shield plate reads USED after a crash
+
+-- Save state gate for Robux buttons (see the note at the top).
+local SAVE_FAILED_TEXT = "YOUR SAVE DIDN'T LOAD - REJOIN BEFORE BUYING"
+local SAVE_LOADING_TEXT = "STILL LOADING YOUR SAVE - TRY AGAIN IN A MOMENT"
+local SAVE_BANNER_H = 36 -- the DataFailed strip at the bottom of the menu panel
+local ROBUX_CALLBACKS = { onBuyProduct = true, onBuyPass = true, onRevive = true }
+
+-- Season premium stops being sold in the last days of a season.
+local SEASON_LAST_SALE = 3 * 86400
+
+-- Daily streak: a broken streak's CLAIM asks twice before restarting at day 1,
+-- and stays off while a streak saver purchase is on its way.
+local RESTART_CONFIRM_TIME = 4 -- seconds the "TAP AGAIN" confirm stays armed
+local SAVER_PROMPT_WAIT = 30 -- longest we wait for the Robux prompt to close
+local SAVER_GRANT_WAIT = 15 -- after paying, longest we wait for the server to save the streak
 
 -- Settings sheet (drawn on the same 600x340 sheet as everything else).
 local SETTINGS_W = 520
@@ -197,6 +218,26 @@ end
 
 local function hasPass(key)
 	return player:GetAttribute("Pass_" .. key) == true
+end
+
+-- True only once the server says the save really loaded (never on a failed load).
+local function saveLoaded()
+	return player:GetAttribute("DataLoaded") == true and player:GetAttribute("DataFailed") ~= true
+end
+
+local function saveFailed()
+	return player:GetAttribute("DataFailed") == true
+end
+
+-- When the season ends (0 = no end date set).
+local function seasonEnds()
+	return tonumber(ReplicatedStorage:GetAttribute("SeasonEnds")) or tonumber(Config.SEASON_ENDS) or 0
+end
+
+-- Premium isn't sold once less than SEASON_LAST_SALE is left (or the season is over).
+local function seasonSaleClosed(now)
+	local ends = seasonEnds()
+	return ends > 0 and ends - now < SEASON_LAST_SALE
 end
 
 -- Progression data ------------------------------------------------------------------
@@ -649,6 +690,7 @@ local FILLS = {
 	even on the smallest phone sheet.
 	opts: Name, Size, Position, AnchorPoint, LayoutOrder, Fill, Text, TextSize,
 	Align, Index (small label top-left), Sub (small second line), OnClick
+	A disabled button ignores taps, except that it calls button.onBlocked if set.
 ]]
 local function hardButton(parent, opts)
 	local holder = new("TextButton", {
@@ -763,8 +805,12 @@ local function hardButton(parent, opts)
 	holder.MouseLeave:Connect(release)
 	holder.Activated:Connect(function()
 		release()
-		if button.enabled and opts.OnClick then
-			opts.OnClick()
+		if button.enabled then
+			if opts.OnClick then
+				opts.OnClick()
+			end
+		elseif button.onBlocked then
+			button.onBlocked() -- e.g. a Robux button before the save loaded says why
 		end
 	end)
 
@@ -1656,6 +1702,7 @@ function UI._buildBoostPop(self, left, chipY)
 			end
 		end,
 	})
+	self:_robuxButton(pop.robux)
 	pop.gems.holder.NextSelectionUp = close
 	pop.robux.holder.NextSelectionUp = close
 	pop.gems.holder.NextSelectionRight = pop.robux.holder
@@ -1963,6 +2010,7 @@ function UI._buildTopUp(self, root)
 			self:_fire("onBuyProduct", "GemTopUp")
 		end,
 	})
+	self:_robuxButton(t.buy)
 	withPrice(id, Enum.InfoType.Product, function(price)
 		t.buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -1992,8 +2040,8 @@ end
 -- gives. Returns whether it is showing.
 function UI._offerTopUp(self, price, host)
 	local t = self._topUp
-	if not t or not host then
-		return false
+	if not t or not host or not saveLoaded() then
+		return false -- never push a Robux offer before the save loaded
 	end
 	local short = math.floor((tonumber(price) or 0) - attrNumber("Gems", 0))
 	if short <= 0 or short > Config.Products.GemTopUp.Gems then
@@ -2174,6 +2222,36 @@ function UI._buildMenuPanel(self, root)
 		Size = UDim2.new(0.6, -22, 1, -4),
 	}, Enum.HorizontalAlignment.Right)
 
+	-- Save didn't load: a strip above the footer (pages shrink to make room,
+	-- see _refreshSaveState). Robux buttons are off until they rejoin.
+	local banner = new("Frame", {
+		Name = "SaveBanner",
+		BackgroundColor3 = INK,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, -FOOTER_H),
+		Size = UDim2.new(1, 0, 0, SAVE_BANNER_H),
+		Visible = false,
+		Parent = panel,
+	})
+	hatch(banner, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
+	capText(setAccent(text({
+		Text = "YOUR SAVE DIDN'T LOAD",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(16, 4),
+		Size = UDim2.new(1, -24, 0, 16),
+		Parent = banner,
+	}), "TextColor3"), 11, 7)
+	text({
+		Text = "REJOIN BEFORE BUYING / ROBUX SHOP IS OFF UNTIL THEN",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(16, 21),
+		Size = UDim2.new(1, -24, 0, 11),
+		Parent = banner,
+	})
+	m.saveBanner = banner
+
 	-- 01 PLAY: global top runs + upgrades
 	local playPage = m.tabs[1].page
 	local _, runsRight = sectionHeader(playPage, 1, "01.1", "TOP RUNS")
@@ -2304,6 +2382,7 @@ function UI._buildGemPack(self, parent, order, key)
 			self:_fire("onBuyProduct", key)
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -2348,6 +2427,7 @@ function UI._buildStarterCard(self, parent, order)
 			self:_fire("onBuyProduct", "StarterPack")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		if buy.sub.Parent then
 			buy.sub.Text = "R$ " .. commas(price)
@@ -2739,9 +2819,14 @@ function UI._buildStreakSaver(self, sheet)
 		Position = UDim2.new(1, -2, 0.5, 0),
 		Size = UDim2.fromOffset(92, 50),
 		OnClick = function()
+			-- CLAIM stays off until this purchase is done (see _saverPending), so a
+			-- tap on CLAIM can't restart the streak before the saver lands.
+			self._saverPendingUntil = os.clock() + SAVER_PROMPT_WAIT
+			self:_refreshDaily()
 			self:_fire("onBuyProduct", "StreakSaver")
 		end,
 	})
+	self:_robuxButton(buy)
 	d.saverBuy = buy
 	withPrice(id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
@@ -2762,6 +2847,27 @@ function UI._layoutStreakSaver(self, saveDay)
 	d.sheet.Size = UDim2.fromOffset(d.sheet.Size.X.Offset, d.height + extra)
 	d.close.holder.Position = UDim2.fromOffset(12, 152 + extra)
 	d.claim.holder.Position = UDim2.fromOffset(116, 152 + extra)
+	-- Gamepad: UP from the bottom row reaches the SAVE button while it shows.
+	local saverButton = if show then d.saverBuy.holder else nil
+	d.close.holder.NextSelectionUp = saverButton
+	d.claim.holder.NextSelectionUp = saverButton
+	if d.saverBuy then
+		d.saverBuy.holder.NextSelectionDown = d.claim.holder
+	end
+	if not show then
+		d.restartArmedUntil = nil
+	end
+end
+
+-- True while a streak saver purchase is on its way (prompt open, or paid and
+-- waiting for the server). CLAIM stays off meanwhile; see _tickDailySheet.
+function UI._saverPending(self)
+	local untilTime = self._saverPendingUntil
+	if untilTime and os.clock() < untilTime then
+		return true
+	end
+	self._saverPendingUntil = nil
+	return false
 end
 
 -- Day cell states; only runs when the streak day / readiness changes.
@@ -2802,18 +2908,42 @@ function UI._tickDailySheet(self, state)
 		return
 	end
 	local reward = Config.DailyStreak[state.day] or {}
-	if state.ready ~= d.ready then
-		d.ready = state.ready
-		d.claim.setFill(if state.ready then "accent" else "paper")
-		d.claim.setEnabled(state.ready)
-	end
-	d.claim.index.Text = if state.ready then "CLAIM / DAY " .. state.day else "NEXT CLAIM IN"
-	if state.ready then
-		d.claim.setText("CLAIM +" .. commas(reward.Gems or 0) .. " GEMS")
-	elseif state.wait then
-		d.claim.setText(clock(state.wait))
+	local gems = commas(reward.Gems or 0)
+	-- While the streak can still be saved, claiming would restart it at day 1,
+	-- so the button says exactly that and asks twice.
+	local restart = state.ready and state.saveDay ~= nil
+	local mode
+	if not state.ready then
+		mode = "wait"
+	elseif restart and self:_saverPending() then
+		mode = "pending"
+	elseif restart and d.restartArmedUntil and os.clock() < d.restartArmedUntil then
+		mode = "confirm"
+	elseif restart then
+		mode = "restart"
 	else
-		d.claim.setText("--:--:--")
+		mode = "claim"
+	end
+	if mode ~= d.mode then
+		d.mode = mode
+		d.claim.setFill(if mode == "claim" or mode == "confirm" then "accent" else "paper")
+		d.claim.setEnabled(mode ~= "wait" and mode ~= "pending")
+	end
+	if mode == "wait" then
+		d.claim.index.Text = "NEXT CLAIM IN"
+		d.claim.setText(if state.wait then clock(state.wait) else "--:--:--")
+	elseif mode == "pending" then
+		d.claim.index.Text = "STREAK SAVER / ON ITS WAY"
+		d.claim.setText("SAVING STREAK...")
+	elseif mode == "confirm" then
+		d.claim.index.Text = "SURE? YOUR STREAK GOES BACK TO DAY 1"
+		d.claim.setText("TAP AGAIN TO RESTART")
+	elseif mode == "restart" then
+		d.claim.index.Text = "SKIP THE SAVER / CLAIM +" .. gems .. " GEMS"
+		d.claim.setText("RESTART AT DAY 1")
+	else
+		d.claim.index.Text = "CLAIM / DAY " .. state.day
+		d.claim.setText("CLAIM +" .. gems .. " GEMS")
 	end
 end
 
@@ -2876,6 +3006,7 @@ function UI._buildOfferSheet(self, layer)
 			self:_fire("onBuyProduct", "StarterPack")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
@@ -2891,8 +3022,8 @@ function UI._maybeShowOffer(self)
 	if self._menuOpens < OFFER_AFTER_MENU_OPENS then
 		return
 	end
-	if player:GetAttribute("Gems") == nil then
-		return -- data not loaded yet; we don't know if they own it
+	if not saveLoaded() then
+		return -- save not loaded (or failed to): we don't know if they own it
 	end
 	if player:GetAttribute("StarterPackBought") == true then
 		self._offerShown = true
@@ -2905,11 +3036,13 @@ end
 function UI._refreshStarter(self)
 	local m = self._menu
 	local bought = player:GetAttribute("StarterPackBought") == true
+	-- Until the save loads we can't know whether they already bought it.
+	local show = not bought and saveLoaded()
 	if m.starterCard then
-		m.starterCard.Visible = not bought
-		m.starterHeader.Visible = not bought
+		m.starterCard.Visible = show
+		m.starterHeader.Visible = show
 	end
-	if bought and m.modalOpen == "offer" then
+	if not show and m.modalOpen == "offer" then
 		self:_closeModal()
 	end
 end
@@ -3085,9 +3218,12 @@ function UI._buildMissionRow(self, parent, index, mission, rerolls)
 			Position = UDim2.new(1, -6, 0.5, 0),
 			Size = UDim2.fromOffset(88, 50),
 			OnClick = function()
-				self:_fire("onBuyProduct", "ExtraReroll")
+				-- The mission id rides along so the controller can swap this
+				-- mission as soon as the reroll is granted.
+				self:_fire("onBuyProduct", "ExtraReroll", mission.id)
 			end,
 		})
+		self:_robuxButton(button)
 		button.sub.TextSize = 7
 		withPrice(productId("ExtraReroll"), Enum.InfoType.Product, function(price)
 			if button.sub.Parent then
@@ -3229,11 +3365,14 @@ function UI._buildSeasonPage(self, page)
 			self:_fire("onBuyProduct", "SeasonPremium")
 		end,
 	})
+	self:_robuxButton(buy)
 	withPrice(product and product.Id, Enum.InfoType.Product, function(price)
 		buy.sub.Text = "R$ " .. commas(price)
 	end)
 	s.unlock = unlock
 	s.active = tag(page, "PREMIUM TRACK ACTIVE", { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = 3, Visible = false }, true)
+	-- Last days of a season: premium isn't sold any more, and this says why.
+	s.closed, s.closedLabel = tag(page, "PREMIUM CLOSED / SEASON ENDS SOON", { Size = UDim2.new(1, 0, 0, 18), LayoutOrder = 3, Visible = false })
 
 	local _, trackRight = sectionHeader(page, 4, "03.2", "REWARDS")
 	s.trackRight = trackRight
@@ -3307,6 +3446,30 @@ function UI._refreshSeasonProgress(self)
 	end
 end
 
+-- Premium UNLOCK card: only once the save loaded (we must know they don't own
+-- it), and never in the last SEASON_LAST_SALE of a season. Runs every second
+-- with the countdowns, so the card goes away on time.
+function UI._refreshSeasonUnlock(self)
+	local s = self._menu.season
+	local premium = player:GetAttribute("SeasonPremium") == true
+	local product = Config.Products.SeasonPremium
+	local onSale = product ~= nil and product.Id ~= 0 and not premium and saveLoaded()
+	local now = math.floor(workspace:GetServerTimeNow())
+	local closed = seasonSaleClosed(now)
+	local showUnlock = onSale and not closed
+	local showClosed = onSale and closed
+	if s.unlock.Visible ~= showUnlock then
+		s.unlock.Visible = showUnlock
+	end
+	if s.closed.Visible ~= showClosed then
+		s.closed.Visible = showClosed
+	end
+	if showClosed then
+		s.closedLabel.Text = if seasonEnds() > now then "PREMIUM CLOSED / SEASON ENDS SOON" else "SEASON ENDED / NEW SEASON SOON"
+	end
+	s.active.Visible = premium
+end
+
 -- Rebuilds the 30-tier track only when tier, ownership or claims change.
 function UI._rebuildSeason(self, force)
 	local m = self._menu
@@ -3320,9 +3483,7 @@ function UI._rebuildSeason(self, force)
 	end
 	s.key = key
 	local claimed = readSeasonClaimed()
-	local product = Config.Products.SeasonPremium
-	s.unlock.Visible = not premium and product ~= nil and product.Id ~= 0
-	s.active.Visible = premium
+	self:_refreshSeasonUnlock()
 
 	local focusPath = self:_captureFocus(s.scroll)
 	clearRows(s.scroll)
@@ -3537,12 +3698,13 @@ function UI._refreshCountdowns(self)
 	else
 		m.missionsReset.Text = ""
 	end
-	local ends = tonumber(ReplicatedStorage:GetAttribute("SeasonEnds")) or Config.SEASON_ENDS
-	if ends and ends > 0 then
+	local ends = seasonEnds()
+	if ends > 0 then
 		m.season.right.Text = if ends > now then "ENDS IN " .. longClock(ends - now) else "SEASON ENDED"
 	else
 		m.season.right.Text = ""
 	end
+	self:_refreshSeasonUnlock()
 end
 
 -- Menu data ---------------------------------------------------------------------------------
@@ -3655,11 +3817,25 @@ function UI._refreshDaily(self)
 end
 
 function UI._claimDaily(self)
-	if self._dailyBusy or not dailyState().ready then
+	local state = dailyState()
+	if self._dailyBusy or not state.ready then
 		return
 	end
-	self._dailyBusy = true
 	local d = self._dailySheet
+	if state.saveDay then
+		-- Claiming now restarts a streak that could still be saved: never while
+		-- a saver is being bought, and only on a second tap.
+		if self:_saverPending() then
+			return
+		end
+		if not (d.restartArmedUntil and os.clock() < d.restartArmedUntil) then
+			d.restartArmedUntil = os.clock() + RESTART_CONFIRM_TIME
+			self:_tickDailySheet(state)
+			return
+		end
+	end
+	d.restartArmedUntil = nil
+	self._dailyBusy = true
 	d.claim.setEnabled(false)
 	d.claim.setText("CLAIMING")
 	self._menu.daily.setText("CLAIMING")
@@ -3674,7 +3850,7 @@ function UI._claimDaily(self)
 		self._dailyBusy = false
 		self._dailyReady = nil
 		self._menu.dailyKey = nil
-		d.ready = nil
+		d.mode = nil
 		if ok then
 			-- The server's Reward event toasts the amount; here the day gets stamped.
 			local cell = d.cells[claimedDay]
@@ -3766,9 +3942,12 @@ function UI._rebuildPasses(self)
 	local focusPath = self:_captureFocus(m.passes)
 	clearRows(m.passes)
 	local shown = 0
+	-- Checkpoints only matters once there is a zone to start from.
+	local reached = math.max(0, math.floor(tonumber(player:GetAttribute("Checkpoint")) or 0))
 	for order, key in PASS_ORDER do
 		local pass = Config.GamePasses[key]
-		if pass and pass.Id ~= 0 and not hasPass(key) then
+		local useful = key ~= "Checkpoints" or reached > 0
+		if pass and pass.Id ~= 0 and not hasPass(key) and useful then
 			shown += 1
 			local info = PASS_INFO[key]
 			local card = new("Frame", { Name = key, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = order, Parent = m.passes })
@@ -3805,6 +3984,7 @@ function UI._rebuildPasses(self)
 					self:_fire("onBuyPass", key)
 				end,
 			})
+			self:_robuxButton(buy)
 			withPrice(pass.Id, Enum.InfoType.GamePass, function(price)
 				if buy.sub.Parent then
 					buy.sub.Text = "R$ " .. commas(price)
@@ -3831,7 +4011,7 @@ function UI._rebuildZones(self)
 		local unlock = hardButton(holder, {
 			Name = "UnlockAll",
 			Fill = "accent",
-			Text = "UNLOCK ALL ZONES",
+			Text = "START FROM ZONES YOU REACHED",
 			TextSize = 12,
 			Sub = "",
 			Position = UDim2.fromOffset(0, 6),
@@ -3840,6 +4020,7 @@ function UI._rebuildZones(self)
 				self:_fire("onBuyPass", "Checkpoints")
 			end,
 		})
+		self:_robuxButton(unlock)
 		withPrice(passId, Enum.InfoType.GamePass, function(price)
 			if unlock.sub.Parent then
 				unlock.sub.Text = "R$ " .. commas(price)
@@ -3914,6 +4095,17 @@ function UI._rebuildZones(self)
 		zoneRow(i, i > 0 and not unlocked, false)
 	end
 	zoneRow(reached + 1, true, true)
+	if reached > 0 then
+		text({
+			Name = "Note",
+			Text = "CHECKPOINT RUNS DON'T COUNT FOR BEST",
+			TextSize = 8,
+			TextColor3 = GREY,
+			Size = UDim2.new(1, 0, 0, 18),
+			LayoutOrder = reached + 10,
+			Parent = m.zones,
+		})
+	end
 	self:_restoreFocus(m.zones, focusPath, m.tabs[4].button)
 end
 
@@ -4233,6 +4425,7 @@ function UI._buildHud(self)
 			end,
 		})
 		fit(buy.holder)
+		self:_robuxButton(buy)
 		withPrice(pack.Id, Enum.InfoType.Product, function(price)
 			buy.sub.Text = "R$ " .. commas(price)
 		end)
@@ -4271,6 +4464,7 @@ function UI._buildHud(self)
 		fit(quick.holder)
 		quick.bump = new("UIScale", { Parent = quick.face })
 		quick.holder.Visible = false
+		self:_robuxButton(quick)
 		withPrice(shieldId, Enum.InfoType.Product, function(price)
 			quick.sub.Text = "R$ " .. commas(price)
 		end)
@@ -4636,6 +4830,26 @@ function UI._buildGameOver(self)
 	local actions = new("Frame", { Name = "Actions", BackgroundTransparency = 1, Position = UDim2.fromOffset(340, 48), Size = UDim2.fromOffset(188, 180), Parent = sheet })
 	list(actions, 6)
 
+	-- Save didn't load: said here instead of offering a revive.
+	local warning = new("Frame", { Name = "SaveWarning", BackgroundColor3 = INK, Size = UDim2.new(1, -SHADOW, 0, 52), LayoutOrder = 0, Visible = false, Parent = actions })
+	hatch(warning, { Name = "Hatch", Size = UDim2.new(0, 8, 1, 0) }, PAPER, 0.45, 3)
+	capText(setAccent(text({
+		Text = "YOUR SAVE DIDN'T LOAD",
+		Font = FONT_NUM,
+		Position = UDim2.fromOffset(16, 9),
+		Size = UDim2.new(1, -22, 0, 16),
+		Parent = warning,
+	}), "TextColor3"), 11, 7)
+	text({
+		Text = "REJOIN BEFORE BUYING ANYTHING",
+		TextSize = 8,
+		TextColor3 = PAPER,
+		Position = UDim2.fromOffset(16, 29),
+		Size = UDim2.new(1, -22, 0, 12),
+		Parent = warning,
+	})
+	g.saveWarning = warning
+
 	local revive = Config.Products.Revive
 	local reviveGroup = new("Frame", { Name = "Revive", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), LayoutOrder = 1, Visible = false, Parent = actions })
 	g.reviveButton = hardButton(reviveGroup, {
@@ -4657,6 +4871,7 @@ function UI._buildGameOver(self)
 	local reviveTrack = new("Frame", { BackgroundColor3 = INK, BackgroundTransparency = 0.82, Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, -SHADOW, 0, 5), Parent = reviveGroup })
 	g.reviveBar = new("Frame", { BackgroundColor3 = DANGER, Size = UDim2.fromScale(1, 1), Parent = reviveTrack })
 	g.reviveGroup = reviveGroup
+	self:_robuxButton(g.reviveButton)
 	withPrice(revive.Id, Enum.InfoType.Product, function(price)
 		g.reviveButton.sub.Text = "R$ " .. commas(price)
 	end)
@@ -5540,8 +5755,61 @@ end
 
 -- Callback plumbing ------------------------------------------------------------------
 
+-- Robux buttons: drawn off until the save loaded; a tap then says why.
+function UI._robuxButton(self, button)
+	self._robuxButtons[button] = true
+	button.onBlocked = function()
+		self:_robuxRefused()
+	end
+	button.setEnabled(saveLoaded())
+	return button
+end
+
+function UI._robuxRefused(self)
+	if saveFailed() then
+		self:toast(SAVE_FAILED_TEXT, "error")
+	else
+		self:toast(SAVE_LOADING_TEXT, "info")
+	end
+end
+
+-- DataLoaded / DataFailed changed (or anything that shows Robux offers redrew).
+function UI._refreshSaveState(self)
+	local loaded = saveLoaded()
+	local failed = saveFailed()
+	for button in self._robuxButtons do
+		if button.holder.Parent then
+			if button.enabled ~= loaded then
+				button.setEnabled(loaded)
+			end
+		else
+			self._robuxButtons[button] = nil -- its row was rebuilt
+		end
+	end
+	local m = self._menu
+	if m.saveBanner.Visible ~= failed then
+		m.saveBanner.Visible = failed
+		local bottom = FOOTER_H + (if failed then SAVE_BANNER_H else 0)
+		for _, tab in m.tabs do
+			tab.page.Size = UDim2.new(1, 0, 1, -(TAB_H + 1 + bottom))
+		end
+	end
+	self._over.saveWarning.Visible = failed
+	if not loaded then
+		self:_hideTopUp()
+		self:hideRevive()
+	end
+	self:_refreshStarter()
+	self:_refreshSeasonUnlock()
+end
+
 -- Fire-and-forget callbacks run in their own thread so errors keep their stack trace.
+-- Robux prompts are refused (with the reason) until the save has loaded.
 function UI._fire(self, name, ...)
+	if ROBUX_CALLBACKS[name] and not saveLoaded() then
+		self:_robuxRefused()
+		return
+	end
 	local callback = self._callbacks[name]
 	if type(callback) == "function" then
 		task.spawn(callback, ...)
@@ -5577,6 +5845,7 @@ function UI._refreshAll(self)
 	self:_refreshSkins()
 	self:_refreshFx()
 	self:_refreshBoosts()
+	self:_refreshSaveState()
 end
 
 -- Gamepad selection -------------------------------------------------------------------
@@ -5771,6 +6040,7 @@ function UI.new(callbacks)
 	self._toastSerial = 0
 	self._connections = {}
 	self._menuOpens = 0
+	self._robuxButtons = setmetatable({}, { __mode = "k" }) -- see _robuxButton
 	self._runsEnded = 0 -- game overs this session (the "R2 THROW" hint shows until the first)
 	self._gamepad = gamepadAtStart()
 
@@ -5846,7 +6116,13 @@ function UI.new(callbacks)
 	end)
 	onAttribute("Checkpoint", function()
 		self:_rebuildZones()
+		self:_rebuildPasses() -- the CHECKPOINTS card shows once a zone is reached
 	end)
+	for _, name in { "DataLoaded", "DataFailed" } do
+		onAttribute(name, function()
+			self:_refreshSaveState()
+		end)
+	end
 	onAttribute("EquippedSkin", function()
 		self:_refreshSkins()
 	end)
@@ -5855,9 +6131,21 @@ function UI.new(callbacks)
 	end)
 	for _, name in { "NextDaily", "StreakDay", "StreakExpires" } do
 		onAttribute(name, function()
+			if name ~= "NextDaily" then
+				self._saverPendingUntil = nil -- the streak changed: the saver (if any) has landed
+			end
 			self:_refreshDaily()
 		end)
 	end
+	-- Streak saver prompt closed: cancelled frees CLAIM now; paid keeps it off
+	-- until the server saves the streak (the attribute change above).
+	connect(MarketplaceService.PromptProductPurchaseFinished, function(userId, id, purchased)
+		if userId ~= player.UserId or id ~= productId("StreakSaver") or self._saverPendingUntil == nil then
+			return
+		end
+		self._saverPendingUntil = if purchased then os.clock() + SAVER_GRANT_WAIT else nil
+		self:_refreshDaily()
+	end)
 	for _, name in { "Level", "XP", "XPNeeded" } do
 		onAttribute(name, function()
 			self:_refreshLevel()
@@ -6003,6 +6291,11 @@ function UI:showMenu()
 	self._menuOpens += 1
 	self:_refreshAll()
 	self:_maybeShowOffer()
+	-- Passes bought outside the game (or a check that failed on join) show up
+	-- without a rejoin. Fire-and-forget: the server sets the Pass_ attributes.
+	task.spawn(function()
+		self:_ask("onShop", "RecheckPasses")
+	end)
 
 	m.left.Position = UDim2.new(0, EDGE - 16, 0.5, 0)
 	tween(m.left, 0.35, { Position = UDim2.new(0, EDGE + 4, 0.5, 0) })
@@ -6250,7 +6543,8 @@ function UI:showGameOver(info)
 	end
 
 	self:hideRevive()
-	if info.canRevive and Config.Products.Revive.Id ~= 0 then
+	g.saveWarning.Visible = saveFailed()
+	if info.canRevive and Config.Products.Revive.Id ~= 0 and saveLoaded() then
 		g.reviveGroup.Visible = true
 		g.reviveBar.Size = UDim2.fromScale(1, 1)
 		local countdown = TweenService:Create(
