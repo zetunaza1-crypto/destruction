@@ -28,6 +28,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Shatter = require(script.Parent.Shatter)
 local Sounds = require(script.Parent.Sounds)
 local TrackBuilder = require(script.Parent.TrackBuilder)
+local LightingFx = require(script.Parent.LightingFx)
 local UI = require(script.Parent.UI)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -54,7 +55,7 @@ local MAGNET_PICKUP = 1.5 -- this close to the camera = collected
 local SLOWMO_EASE = 0.35 -- seconds to slow down / speed back up
 local WHITE = Color3.new(1, 1, 1)
 local SHIELD_FLASH = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local BASE_SATURATION = 0.1
+local BASE_SATURATION = 0 -- zone grading already sets saturation; this layer stays neutral
 
 local RunController = {}
 
@@ -125,40 +126,22 @@ end
 
 -- Lighting -------------------------------------------------------------------
 
-local bloom
+-- Zone lighting lives in LightingFx. This extra color layer is only for
+-- gameplay effects (slow-mo desaturation, shield flash), stacked on top.
 local colorCorrection
 
 local function setupLighting()
-	-- The Baseplate template ships an Atmosphere (which overrides fog) and its own bloom.
-	-- Removing them here only affects this player's screen.
-	for _, child in Lighting:GetChildren() do
-		if child:IsA("Atmosphere") or child:IsA("BloomEffect") then
-			child:Destroy()
-		end
-	end
-
-	Lighting.FogStart = 60
-	Lighting.FogEnd = Config.ROOM_LENGTH * (Config.ROOMS_AHEAD - 1)
-	Lighting.Brightness = 2
-	Lighting.GlobalShadows = false
-	Lighting.Ambient = Color3.fromRGB(150, 150, 160)
-	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)
-
-	bloom = Instance.new("BloomEffect")
-	bloom.Intensity = 0.8
-	bloom.Size = 30
-	bloom.Threshold = 0.9
-	bloom.Parent = Lighting
+	LightingFx.setup()
 
 	colorCorrection = Instance.new("ColorCorrectionEffect")
-	colorCorrection.Contrast = 0.1
-	colorCorrection.Saturation = 0.1
+	colorCorrection.Name = "GameplayGrade"
+	colorCorrection.Saturation = BASE_SATURATION
 	colorCorrection.Parent = Lighting
 end
 
 local function applyTheme(zone)
 	local theme = TrackBuilder.themeFor(zone * Config.ROOMS_PER_CHECKPOINT)
-	Lighting.FogColor = theme.Fog
+	LightingFx.applyTheme(theme)
 	ui:setTheme(theme)
 end
 
@@ -893,14 +876,9 @@ local function onBoostsActivated(event)
 	if event.run ~= nil and event.run ~= runSerial then
 		return
 	end
-	local names = {}
+	-- The UI shows the "... ON" toast for BoostsActivated itself.
 	for _, boostId in ipairs(event.boosts) do
-		if activateBoost(boostId) then
-			table.insert(names, boostName(boostId))
-		end
-	end
-	if #names > 0 then
-		ui:toast(table.concat(names, " + ") .. " ON", "reward")
+		activateBoost(boostId)
 	end
 end
 

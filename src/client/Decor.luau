@@ -874,8 +874,9 @@ end
 
 local function fern(kit, side, d)
 	local x = kit:wallX(side, 1.3)
-	if plantModel(kit, x, 0, d - 1, 1.2) then
-		plantModel(kit, x, 0, d + 1.2, 0.9)
+	local plantX = kit:wallX(side, 1.6) -- far enough off the wall for the model's width
+	if plantModel(kit, plantX, 0, d - 1, 1.2) then
+		plantModel(kit, plantX, 0, d + 1.2, 0.9)
 		return
 	end
 	kit:ball(2.2, kit:at(x, 1, d - 1), leaf(kit), Material.Grass)
