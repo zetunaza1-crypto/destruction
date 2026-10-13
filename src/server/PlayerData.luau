@@ -65,7 +65,10 @@ local DEFAULT_DATA = {
 	SeasonClaimed = { free = {}, premium = {} },
 
 	StarterPackBought = false,
-	BonusBalls = 0, -- added to the next run
+	-- Added to the next run: daily streak balls, and Revive / Ball Pack balls
+	-- (saved here first so a purchase can never be lost; the device takes them
+	-- back out with "UseBonusBalls" when it uses them right away).
+	BonusBalls = 0,
 	Boosts = {}, -- { [boostId] = count }: welcome gift, level ups, streak, season, shop
 	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
 	Settings = table.clone(Config.DefaultSettings), -- volume, vibration, graphics...
@@ -223,6 +226,11 @@ function PlayerData.load(player)
 	-- If loading failed we never save, so we can't wipe their real data.
 	profiles[player] = { data = data, canSave = ok, dirty = false, saving = false }
 	publishAll(player, data)
+	-- Tells the UI whether it's safe to sell things. Robux buttons stay off until
+	-- DataLoaded is true; DataFailed shows "your save didn't load - rejoin".
+	-- Set after publishAll, so every other attribute is already there.
+	player:SetAttribute("DataFailed", not ok)
+	player:SetAttribute("DataLoaded", ok)
 end
 
 function PlayerData.get(player)
