@@ -167,6 +167,32 @@ function actions.RerollMission(player, data, missionId)
 end
 
 -- argument: { track = "Free" | "Premium", tier = number }
+-- Settings come from the client: keep only known keys with the right type/range.
+function actions.SaveSettings(player, data, incoming)
+	if type(incoming) ~= "table" then
+		return false
+	end
+	local clean = table.clone(data.Settings)
+	for key, default in Config.DefaultSettings do
+		local value = incoming[key]
+		if type(value) == type(default) then
+			if type(value) == "number" then
+				if value == value then -- not NaN
+					clean[key] = math.clamp(value, 0, 1)
+				end
+			elseif key == "graphics" then
+				if table.find(Config.GRAPHICS_OPTIONS, value) then
+					clean[key] = value
+				end
+			else
+				clean[key] = value
+			end
+		end
+	end
+	PlayerData.update(player, { Settings = clean })
+	return true
+end
+
 function actions.FinishTutorial(player, data)
 	if data.TutorialDone then
 		return true

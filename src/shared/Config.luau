@@ -252,6 +252,17 @@ Config.Sounds = {
 	Music = 0,
 }
 
+-- Player settings (saved per account; see src/client/Settings.luau) ------------------
+Config.DefaultSettings = {
+	music = 0.6, -- 0..1
+	sfx = 0.8, -- 0..1
+	vibration = true,
+	graphics = "Auto", -- one of GRAPHICS_OPTIONS
+	shake = true, -- camera shake + punch
+	flashes = true, -- red damage flash and other full-screen flashes
+}
+Config.GRAPHICS_OPTIONS = { "Auto", "Low", "High" }
+
 -- "Wait! Free gift" -----------------------------------------------------------------
 -- When a player opens the Roblox menu (maybe to leave) and closes it again, a free
 -- gift pops up with a big sound. Once per cooldown, after some real play time,

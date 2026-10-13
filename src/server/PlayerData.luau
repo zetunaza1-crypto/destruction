@@ -68,6 +68,7 @@ local DEFAULT_DATA = {
 	BonusBalls = 0, -- added to the next run
 	Boosts = {}, -- { [boostId] = count }: welcome gift, level ups, streak, season, shop
 	WelcomeGiven = false, -- the one-time Config.WELCOME_BOOSTS gift was given
+	Settings = table.clone(Config.DefaultSettings), -- volume, vibration, graphics...
 	TutorialDone = false, -- finished or skipped the first-run tutorial
 	Hints = {}, -- first-time tips already shown (keys of Config.Hints)
 
@@ -162,6 +163,9 @@ local publishers = {
 	end,
 	Boosts = function(player, data)
 		setJson(player, "Boosts", data.Boosts)
+	end,
+	Settings = function(player, data)
+		setJson(player, "Settings", data.Settings)
 	end,
 	Hints = function(player, data)
 		setJson(player, "Hints", data.Hints)
