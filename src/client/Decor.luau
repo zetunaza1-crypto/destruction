@@ -1342,8 +1342,10 @@ function Magma.room(kit)
 		kit:block(Vector3.new(0.15, length, 0.15), kit:at(x, H - length / 2, chainD), MAGMA_IRON, Material.Metal)
 		kit:block(Vector3.new(0.5, 0.5, 0.15), kit:at(x, H - length - 0.2, chainD), MAGMA_IRON, Material.Metal)
 	end
-	-- Iron girders across the ceiling.
-	for _, d in { 20, 40, 60 } do
+	-- Iron girders across the ceiling, between the depths where obstacles go
+	-- (20/26.7/40/53.3/60, and 10/30/50/70 in rooms with 4 groups) so they never
+	-- hide a FallingPane's edge.
+	for _, d in { 15, 35, 45, 65 } do
 		kit:block(Vector3.new(20, 0.9, 0.9), kit:at(0, H - 0.45, d), MAGMA_IRON, Material.Metal)
 		kit:block(Vector3.new(20, 0.15, 1.3), kit:at(0, H - 0.95, d), MAGMA_IRON:Lerp(BLACK, 0.3), Material.Metal)
 	end

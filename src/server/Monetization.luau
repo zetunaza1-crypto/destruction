@@ -129,12 +129,17 @@ end
 
 -- Premium ball products (BallSupernova...): the ball is theirs forever and is
 -- equipped right away. Already owned (bought twice, e.g. while an earlier save
--- failed)? They get gems worth the price instead, so a purchase is never wasted.
+-- failed)? They get gems worth what they really paid instead (receipt.CurrencySpent,
+-- which follows regional pricing and Creator Hub price changes; Config's Robux is
+-- only the fallback, e.g. for Studio test purchases that spend 0), so a purchase
+-- is never wasted.
 local function premiumBallReward(skin)
-	return function(player, data)
+	return function(player, data, receipt)
 		local name = string.upper(skin.Name)
 		if Progression.ownsSkin(data, skin.Id) then
-			local gems = math.floor((tonumber(skin.Robux) or 0) * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
+			local spent = tonumber(receipt and receipt.CurrencySpent)
+			local robux = if spent and spent > 0 then spent else (tonumber(skin.Robux) or 0)
+			local gems = math.floor(robux * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
 			data.Gems += gems
 			PlayerData.publish(player, { "Gems" })
 			Progression.fire(player, {
@@ -258,7 +263,7 @@ local function processReceipt(receipt)
 		if product.Id ~= 0 and product.Id == receipt.ProductId then
 			local reward = rewardFor(productKey, product)
 			if reward then
-				reward(player, PlayerData.get(player))
+				reward(player, PlayerData.get(player), receipt)
 			end
 			PlayerData.addReceipt(player, receipt.PurchaseId)
 

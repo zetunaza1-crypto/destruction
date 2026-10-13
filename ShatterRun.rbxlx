@@ -74,7 +74,7 @@ return {
 		Parts = {
 			Core = { Color = Color3.fromRGB(185, 232, 255), Material = Enum.Material.Glass, Transparency = 0.35 },
 			Heart = { Color = Color3.fromRGB(90, 185, 255), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.86, Max = 1.1, Hz = 0.9 } },
-			Spikes = { Color = Color3.fromRGB(165, 222, 255), Material = Enum.Material.Ice, Transparency = 0, Spin = { Axis = Vector3.new(0, -1, 0), Rps = 0.12 } },
+			Spikes = { Color = Color3.fromRGB(215, 242, 255), Material = Enum.Material.Ice, Transparency = 0, Spin = { Axis = Vector3.new(0, -1, 0), Rps = 0.12 } },
 			Shards = { Color = Color3.fromRGB(120, 205, 255), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.913, 0.407), Rps = 0.32 } },
 		},
 		Fx = {
@@ -122,9 +122,9 @@ return {
 	},
 	MagmaHeart = {
 		Diameter = 2,
-		Size = Vector3.new(1.804, 1.405, 1.843),
+		Size = Vector3.new(1.813, 1.462, 1.879),
 		Parts = {
-			Shell = { Color = Color3.fromRGB(42, 32, 30), Material = Enum.Material.Basalt, Transparency = 0 },
+			Shell = { Color = Color3.fromRGB(52, 40, 38), Material = Enum.Material.Basalt, Transparency = 0 },
 			Seams = { Color = Color3.fromRGB(255, 150, 25), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.96, Max = 1.05, Hz = 1.2 } },
 			Core = { Color = Color3.fromRGB(255, 72, 8), Material = Enum.Material.Neon, Transparency = 0 },
 			Chunks = { Color = Color3.fromRGB(255, 105, 35), Material = Enum.Material.CrackedLava, Transparency = 0, Spin = { Axis = Vector3.new(0.259, 0.908, -0.33), Rps = 0.4 } },
@@ -161,10 +161,10 @@ return {
 		Size = Vector3.new(1.775, 1.639, 1.732),
 		Parts = {
 			Core = { Color = Color3.fromRGB(255, 246, 215), Material = Enum.Material.Neon, Transparency = 0, Pulse = { Min = 0.88, Max = 1.14, Hz = 1.5 } },
-			Corona = { Color = Color3.fromRGB(255, 112, 10), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.22 } },
+			Corona = { Color = Color3.fromRGB(255, 150, 20), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 1, 0), Rps = 0.22 } },
 			Flares = { Color = Color3.fromRGB(255, 228, 150), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.282, 0.941, 0.188), Rps = -0.15 }, Pulse = { Min = 0.9, Max = 1.06, Hz = 2.2 } },
 			RingA = { Color = Color3.fromRGB(255, 205, 70), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0, 0.951, 0.309), Rps = 0.55 } },
-			RingB = { Color = Color3.fromRGB(255, 80, 30), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.765, 0.469, 0.442), Rps = -0.75 } },
+			RingB = { Color = Color3.fromRGB(255, 135, 35), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(0.765, 0.469, 0.442), Rps = -0.75 } },
 			RingC = { Color = Color3.fromRGB(255, 238, 170), Material = Enum.Material.Neon, Transparency = 0, Spin = { Axis = Vector3.new(-0.765, 0.469, 0.442), Rps = 0.95 } },
 		},
 		Fx = {
@@ -544,7 +544,7 @@ Config.Hints = {
 	ArmoredGlass = "ARMORED GLASS! HIT IT TWICE TO BREAK IT",
 	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
 	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
-	RingSpinner = "SPINNING RING! SMASH THE PANE COMING DOWN",
+	RingSpinner = "RING! SMASH THE ORANGE PANE - IT TURNS INTO YOUR PATH",
 }
 
 -- 3D models ------------------------------------------------------------------
@@ -2050,12 +2050,17 @@ end
 
 -- Premium ball products (BallSupernova...): the ball is theirs forever and is
 -- equipped right away. Already owned (bought twice, e.g. while an earlier save
--- failed)? They get gems worth the price instead, so a purchase is never wasted.
+-- failed)? They get gems worth what they really paid instead (receipt.CurrencySpent,
+-- which follows regional pricing and Creator Hub price changes; Config's Robux is
+-- only the fallback, e.g. for Studio test purchases that spend 0), so a purchase
+-- is never wasted.
 local function premiumBallReward(skin)
-	return function(player, data)
+	return function(player, data, receipt)
 		local name = string.upper(skin.Name)
 		if Progression.ownsSkin(data, skin.Id) then
-			local gems = math.floor((tonumber(skin.Robux) or 0) * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
+			local spent = tonumber(receipt and receipt.CurrencySpent)
+			local robux = if spent and spent > 0 then spent else (tonumber(skin.Robux) or 0)
+			local gems = math.floor(robux * Config.PREMIUM_BALL_REFUND_GEMS_PER_ROBUX)
 			data.Gems += gems
 			PlayerData.publish(player, { "Gems" })
 			Progression.fire(player, {
@@ -2179,7 +2184,7 @@ local function processReceipt(receipt)
 		if product.Id ~= 0 and product.Id == receipt.ProductId then
 			local reward = rewardFor(productKey, product)
 			if reward then
-				reward(player, PlayerData.get(player))
+				reward(player, PlayerData.get(player), receipt)
 			end
 			PlayerData.addReceipt(player, receipt.PurchaseId)
 
@@ -2264,6 +2269,8 @@ local DEFAULT_DATA = {
 	Best = 0, -- meters (only runs started from the beginning count)
 	Gems = 0,
 	Checkpoint = 0, -- highest zone reached
+	-- ZoneLength: rooms per zone the save's Checkpoint is counted in (missing in old
+	-- 10-room saves; Progression.migrateZoneLength converts them once and sets it).
 	OwnedSkins = { "Default" },
 	EquippedSkin = "Default",
 	OwnedFx = { "Classic" },
@@ -3210,6 +3217,42 @@ local function wholeNumber(value, minimum)
 	return math.max(minimum, math.floor(value))
 end
 
+-- Zones used to be 10 rooms long (saves from then have no ZoneLength). When the
+-- zone length changes, Checkpoint and Stats.bestZone are converted once to the new
+-- zone size by distance, so nobody starts further than they really flew. Zones the
+-- player flew through that way get their first-time reward now (ZonesRewarded makes
+-- sure each one is only ever given once), so a Checkpoints-pass start never skips them.
+local OLD_ZONE_LENGTH = 10
+
+function Progression.migrateZoneLength(data)
+	local zoneLength = Config.ROOMS_PER_CHECKPOINT
+	local savedLength = tonumber(data.ZoneLength) or OLD_ZONE_LENGTH
+	if savedLength == zoneLength then
+		return
+	end
+	if savedLength <= 0 or savedLength ~= math.floor(savedLength) then
+		savedLength = OLD_ZONE_LENGTH
+	end
+	-- Saves already played with the new zone length (before this conversion existed)
+	-- have their first-time zone rewards in new zones: those zones were really reached.
+	local rewardedUpTo = 0
+	for _, zone in data.ZonesRewarded do
+		rewardedUpTo = math.max(rewardedUpTo, zone)
+	end
+	local function convert(zone)
+		local rooms = wholeNumber(zone, 0) * savedLength
+		return math.max(rooms // zoneLength, rewardedUpTo)
+	end
+	local oldCheckpoint = wholeNumber(data.Checkpoint, 0)
+	data.Checkpoint = convert(oldCheckpoint)
+	data.Stats.bestZone = convert(data.Stats.bestZone)
+	-- Rewards for zones flown through under the old length (none are given twice).
+	if oldCheckpoint > 0 then
+		Progression.grantZoneRewards(data, 0, data.Checkpoint)
+	end
+	data.ZoneLength = zoneLength
+end
+
 -- Fixes up data right after it's loaded (old saves, new season, new day).
 function Progression.normalize(data, now)
 	data.Level = wholeNumber(data.Level, 1)
@@ -3267,6 +3310,8 @@ function Progression.normalize(data, now)
 		end
 	end
 	data.ZonesRewarded = zonesRewarded
+
+	Progression.migrateZoneLength(data)
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)
@@ -3913,11 +3958,10 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 		return
 	end
 
+	-- Every emitter is built (prototypes are cached for the whole session, whatever
+	-- the graphics level was then); on Low, rebalance() keeps only the first one on.
 	local low = graphicsLevel() == "Low"
 	for index, spec in fx.Particles or {} do
-		if low and index > 1 then
-			break
-		end
 		local size = spec.Size or { 0.3, 0 }
 		local lifetime = spec.Lifetime or { 0.3, 0.6 }
 		local speed = spec.Speed or { 1, 3 }
@@ -3938,8 +3982,9 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 		emitter.Drag = 3
 		emitter.LightEmission = spec.LightEmission or 1
 		emitter.Rate = spec.Rate or 10
+		emitter.Enabled = not low or index == 1
 		emitter.Parent = root
-		table.insert(proto.emitters, { name = emitter.Name, rate = spec.Rate or 10 })
+		table.insert(proto.emitters, { name = emitter.Name, rate = spec.Rate or 10, index = index })
 	end
 
 	local light = fx.Light
@@ -4008,6 +4053,7 @@ local function rebalance()
 		local entry = live[i]
 		for _, item in entry.emitters do
 			item.emitter.Rate = item.rate * rateScale
+			item.emitter.Enabled = level ~= "Low" or item.index == 1 -- Low: first emitter only
 		end
 		if entry.light then
 			entry.light.Enabled = lightsLeft > 0
@@ -4153,7 +4199,7 @@ function BallFx.create(skinId, radius, options)
 		for _, item in proto.emitters do
 			local emitter = root:FindFirstChild(item.name)
 			if emitter then
-				table.insert(entry.emitters, { emitter = emitter, rate = item.rate })
+				table.insert(entry.emitters, { emitter = emitter, rate = item.rate, index = item.index })
 			end
 		end
 		entry.light = if proto.hasLight then root:FindFirstChild("Glow") else nil
@@ -5610,8 +5656,10 @@ function Magma.room(kit)
 		kit:block(Vector3.new(0.15, length, 0.15), kit:at(x, H - length / 2, chainD), MAGMA_IRON, Material.Metal)
 		kit:block(Vector3.new(0.5, 0.5, 0.15), kit:at(x, H - length - 0.2, chainD), MAGMA_IRON, Material.Metal)
 	end
-	-- Iron girders across the ceiling.
-	for _, d in { 20, 40, 60 } do
+	-- Iron girders across the ceiling, between the depths where obstacles go
+	-- (20/26.7/40/53.3/60, and 10/30/50/70 in rooms with 4 groups) so they never
+	-- hide a FallingPane's edge.
+	for _, d in { 15, 35, 45, 65 } do
 		kit:block(Vector3.new(20, 0.9, 0.9), kit:at(0, H - 0.45, d), MAGMA_IRON, Material.Metal)
 		kit:block(Vector3.new(20, 0.15, 1.3), kit:at(0, H - 0.95, d), MAGMA_IRON:Lerp(BLACK, 0.3), Material.Metal)
 	end
@@ -7636,11 +7684,12 @@ local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) nev
 -- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
 local TOUCH_ONLY = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- Low graphics: lighter glow effects.
-local LOW_BLOOM_INTENSITY = 0.5 -- multiplier
-local LOW_BLOOM_SIZE = 0.7 -- multiplier
-local HIGH_SUNRAYS = 0.04
-local LOW_SUNRAYS = 0.015
+-- Low graphics: a small, faint bloom (a big bloom is several full-screen blur
+-- passes, the heaviest thing for a phone's GPU) and no sun rays at all.
+local LOW_BLOOM_INTENSITY = 0.5 -- multiplier...
+local LOW_BLOOM_MAX_INTENSITY = 0.4 -- ...but never more than this
+local LOW_BLOOM_MAX_SIZE = 12
+local SUNRAYS_INTENSITY = 0.04 -- High only (switched off on Low)
 
 -- Per zone style. Colors are Color3, numbers are the Lighting/effect properties.
 local PRESETS = {
@@ -7798,8 +7847,8 @@ local function bloomGoal(preset)
 		return preset.Bloom
 	end
 	return {
-		Intensity = preset.Bloom.Intensity * LOW_BLOOM_INTENSITY,
-		Size = preset.Bloom.Size * LOW_BLOOM_SIZE,
+		Intensity = math.min(preset.Bloom.Intensity * LOW_BLOOM_INTENSITY, LOW_BLOOM_MAX_INTENSITY),
+		Size = math.min(preset.Bloom.Size, LOW_BLOOM_MAX_SIZE),
 		Threshold = preset.Bloom.Threshold,
 	}
 end
@@ -7808,7 +7857,9 @@ end
 local function applyQuality()
 	Lighting.GlobalShadows = not low
 	if sunRays then
-		sunRays.Intensity = if low then LOW_SUNRAYS else HIGH_SUNRAYS
+		-- A full-screen pass that barely shows indoors (and not at all in the night zones).
+		sunRays.Intensity = SUNRAYS_INTENSITY
+		sunRays.Enabled = not low
 	end
 end
 
@@ -9039,6 +9090,22 @@ local function ownedBoosts()
 	return if ok and type(decoded) == "table" then decoded else {}
 end
 
+-- True if the player already owns this skin (OwnedSkins is a JSON list or set).
+local function ownsSkin(skinId)
+	local raw = player:GetAttribute("OwnedSkins")
+	if type(raw) ~= "string" then
+		return false
+	end
+	local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+	if not ok or type(decoded) ~= "table" then
+		return false
+	end
+	if decoded[skinId] then
+		return true
+	end
+	return table.find(decoded, skinId) ~= nil
+end
+
 -- The boosts picked in the menu that the player really has (distinct, max
 -- Config.MAX_BOOSTS_PER_RUN). The server checks again; this just avoids
 -- asking for boosts they don't own.
@@ -9594,6 +9661,12 @@ local function promptProduct(productKey, context)
 	end
 	if productKey == "SeasonPremium" and player:GetAttribute("SeasonPremium") == true then
 		ui:toast("ALREADY UNLOCKED", "reward")
+		return
+	end
+	-- Premium balls: never prompt for one that's already unlocked.
+	local skin = if type(product.Skin) == "string" then Config.getSkin(product.Skin) else nil
+	if skin and skin.Id == product.Skin and skin.Premium and ownsSkin(skin.Id) then
+		ui:toast("ALREADY OWNED", "reward")
 		return
 	end
 	-- A streak saver only does its real job right after the streak breaks
@@ -11331,10 +11404,26 @@ local RING_PANES = 6
 local RING_CENTER_HEIGHT = 9.5 -- above the floor; the wheel turns above the middle of the corridor
 local RING_INNER, RING_OUTER = 1, 4.4 -- each pane runs from this far from the center to this far
 local SPIN_RANGE = 260 -- RingSpinners further ahead than this (studs) stand still (past the fog)
+-- The wheel turns with the distance you fly, not with time: whatever your speed
+-- (slow-mo, a pause...) the marked pane is exactly at the bottom when you get there.
+-- Radians turned per stud flown (at 55 studs/s that is a slow 0.5-0.77 radians per second).
+local RING_TURN_PER_STUD = { 0.009, 0.014 }
+local RING_TARGET_TINT = 0.45 -- how orange the marked pane is
+
+-- Groups of obstacles in one room are spread evenly, but never closer than this (studs).
+local MIN_GROUP_SPACING = 20
 
 -- Glass visibility: less see-through than before, plus a glowing outline.
 local GLASS_TRANSPARENCY = 0.2
 local GLASS_OUTLINE_THICKNESS = 0.07
+local GLASS_OUTLINE_SURFACE = 0.82 -- the light tint inside the outline (Low graphics: edges only)
+-- Outlines only show in the camera's room and the next OUTLINE_ROOMS rooms (a
+-- room switches them on as it becomes the 2nd room ahead, 160+ studs away, so
+-- glass always has its outline long before it's close). Further rooms are past the fog.
+local OUTLINE_ROOMS = 2
+-- Small "extra" panes (the far parts of a Grid) only get an outline while the
+-- room has fewer than this many; the panes that matter always get one.
+local OUTLINE_CAP_PER_ROOM = 12
 
 -- Shared with Decor.luau.
 TrackBuilder.newPart = newPart
@@ -11375,7 +11464,9 @@ function TrackBuilder.new(parent, firstRoom, tutorial)
 	return self
 end
 
-function TrackBuilder:addGlass(room, position, size)
+-- optional = true: a small extra pane (part of a Grid) that only gets an outline
+-- while the room is under OUTLINE_CAP_PER_ROOM outlines.
+function TrackBuilder:addGlass(room, position, size, optional)
 	local glass = newPart(room.folder, "Glass", {
 		Name = "Glass",
 		Size = size,
@@ -11388,19 +11479,55 @@ function TrackBuilder:addGlass(room, position, size)
 
 	-- Glowing outline + light tint so glass is always easy to see, even far
 	-- away in the fog or against pale walls. It follows moving/spinning panes
-	-- and disappears with the pane when it shatters.
-	local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
-	local outline = Instance.new("SelectionBox")
-	outline.Name = "Outline"
-	outline.Adornee = glass
-	outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
-	outline.LineThickness = GLASS_OUTLINE_THICKNESS
-	outline.SurfaceColor3 = accent
-	outline.SurfaceTransparency = 0.82
-	outline.Parent = glass
+	-- and disappears with the pane when it shatters. Hidden until the room is
+	-- near (setOutlinesNear), and edges only on Low graphics.
+	if not optional or #room.outlines < OUTLINE_CAP_PER_ROOM then
+		local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+		local outline = Instance.new("SelectionBox")
+		outline.Name = "Outline"
+		outline.Adornee = glass
+		outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+		outline.LineThickness = GLASS_OUTLINE_THICKNESS
+		outline.SurfaceColor3 = accent
+		outline.SurfaceTransparency = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE
+		outline.Visible = room.outlinesOn == true
+		outline.Parent = glass
+		table.insert(room.outlines, outline)
+	end
 
 	table.insert(room.glass, glass)
 	return glass
+end
+
+-- Switches a room's glass outlines on (it's one of the rooms near the camera).
+local function showOutlines(room)
+	if room.outlinesOn then
+		return
+	end
+	room.outlinesOn = true
+	local surface = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE
+	for _, outline in room.outlines do
+		if outline.Parent then
+			outline.SurfaceTransparency = surface
+			outline.Visible = true
+		end
+	end
+end
+
+-- The camera moved into another room: outlines on for it and the next OUTLINE_ROOMS.
+-- (Rooms behind are deleted; rooms further ahead still have theirs hidden.)
+function TrackBuilder:setOutlinesNear(cameraZ)
+	local current = TrackBuilder.roomAt(cameraZ)
+	if current == self.outlineRoom then
+		return
+	end
+	self.outlineRoom = current
+	for roomIndex = current, current + OUTLINE_ROOMS do
+		local room = self.rooms[roomIndex]
+		if room then
+			showOutlines(room)
+		end
+	end
 end
 
 -- Uses the Blender gem when it's uploaded, a rotated neon cube otherwise.
@@ -11504,10 +11631,12 @@ function Patterns.Spinner(self, room, z)
 end
 
 -- A wall of small panes. You need several throws (or multiball) to clear a hole.
+-- The eye-level and bottom rows always get an outline; the top row only while
+-- the room has few outlines (it's above your head, the rows below show the wall).
 function Patterns.Grid(self, room, z)
 	for _, x in { -5, 0, 5 } do
 		for _, y in { 2.5, 6.5, 10.5 } do
-			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4))
+			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4), y > 10)
 		end
 	end
 end
@@ -11591,7 +11720,9 @@ end
 function Patterns.BobbingPane(self, room, z)
 	local rng = self.rng
 	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
-	local low = CFrame.new(x, ORIGIN.Y + 3.5, z) -- covers your eyes
+	-- Low: from 2 to 7 studs up, so its top edge is a full stud above your eyes
+	-- (it clearly covers them, and the crash check agrees with what you see).
+	local low = CFrame.new(x, ORIGIN.Y + 4.5, z)
 	local high = CFrame.new(x, ORIGIN.Y + 10.5, z) -- you fly under it
 	local startHigh = rng:NextNumber() < 0.5
 	local glass = self:addGlass(room, (if startHigh then high else low).Position, Vector3.new(rng:NextNumber(10, 12), 5, 0.4))
@@ -11612,13 +11743,25 @@ function Patterns.FallingPane(self, room, z)
 	local glass = self:addGlass(room, Vector3.new(x, upY, z), Vector3.new(width, height, 0.4))
 	table.insert(room.fallers, { glass = glass, goal = CFrame.new(x, downY, z), dropped = false })
 
-	-- Warning: blinking lights on the ceiling slot and a dashed stripe on the floor.
+	-- Warning: blinking lights hanging beside the pane's edge (below anything a
+	-- zone hangs on its ceiling, so decor can never hide them) and a dashed
+	-- stripe on the floor.
 	local blink = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local lightY = upY - height / 2 + 0.15 -- level with the pane's bottom edge
 	for _, side in { -1, 1 } do
+		local lightX = x + side * (width / 2 + 0.7)
+		local rod = newPart(room.folder, "Wall", {
+			Name = "WarningRod",
+			Size = Vector3.new(0.15, ORIGIN.Y + HEIGHT - lightY, 0.15),
+			CFrame = CFrame.new(lightX, (ORIGIN.Y + HEIGHT + lightY) / 2, z),
+			Color = Color3.fromRGB(60, 64, 74),
+			Material = Enum.Material.Metal,
+		})
+		rod:SetAttribute("Shell", true)
 		local light = newPart(room.folder, "Wall", {
 			Name = "Warning",
 			Size = Vector3.new(0.8, 0.3, 0.8),
-			CFrame = CFrame.new(x + side * (width / 2 + 0.7), ORIGIN.Y + HEIGHT - 0.15, z),
+			CFrame = CFrame.new(lightX, lightY, z),
 			Color = WARNING_COLOR,
 			Material = Enum.Material.Neon,
 		})
@@ -11637,25 +11780,41 @@ function Patterns.FallingPane(self, room, z)
 	end
 end
 
--- Six panes on a wheel turning above the middle of the corridor, with a gap.
--- Whatever pane points down when you get there is in your way: smash it, or
--- time it so the gap is at the bottom. Turned by TrackBuilder:update.
+-- Six panes on a wheel turning slowly above the middle of the corridor.
+-- One pane is marked orange: the wheel turns with the distance you fly, so that
+-- pane is always exactly at the bottom, in your way, when you get there. Smash
+-- it early (then the empty slot passes over you). Turned by updateMovers.
 function Patterns.RingSpinner(self, room, z)
 	local rng = self.rng
 	local center = CFrame.new(ORIGIN.X, ORIGIN.Y + RING_CENTER_HEIGHT, z)
+	local direction = if rng:NextNumber() < 0.5 then -1 else 1
+	local target = rng:NextInteger(0, RING_PANES - 1) -- the pane that ends up at the bottom
+	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
+	local targetSlotAngle = (firstSlot + target) * 2 * math.pi / RING_SLOTS
 	local ring = {
 		center = center,
-		angle = rng:NextNumber(0, 2 * math.pi),
-		speed = rng:NextNumber(1.3, 1.9) * (if rng:NextNumber() < 0.5 then -1 else 1),
+		-- Ring angle when the camera reaches the wheel: the target pane points down
+		-- (a pane at angle 0 points up, so down is pi).
+		arrivalAngle = math.pi - targetSlotAngle,
+		turnPerStud = rng:NextNumber(RING_TURN_PER_STUD[1], RING_TURN_PER_STUD[2]) * direction,
+		lastDistance = nil,
 		panes = {},
 	}
+	ring.angle = ring.arrivalAngle + ring.turnPerStud * SPIN_RANGE -- standing still until in range
 	local length = RING_OUTER - RING_INNER
 	local offset = CFrame.new(0, RING_INNER + length / 2, 0)
-	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
 	for i = 0, RING_PANES - 1 do
 		local slotAngle = (firstSlot + i) * 2 * math.pi / RING_SLOTS
 		local glass = self:addGlass(room, center.Position, Vector3.new(1.6, length, 0.4))
 		glass.CFrame = center * CFrame.Angles(0, 0, ring.angle + slotAngle) * offset
+		if i == target then
+			glass.Color = Config.GLASS_COLOR:Lerp(WARNING_COLOR, RING_TARGET_TINT)
+			local outline = glass:FindFirstChild("Outline")
+			if outline then
+				outline.Color3 = WARNING_COLOR
+				outline.SurfaceColor3 = WARNING_COLOR
+			end
+		end
 		table.insert(ring.panes, { glass = glass, slotAngle = slotAngle, offset = offset })
 	end
 	-- Hub the panes hang on (above your head, so it never gets in the way).
@@ -11797,7 +11956,19 @@ function TrackBuilder:buildShell(roomIndex)
 	folder.Name = "Room" .. roomIndex
 	folder.Parent = self.folder
 	-- fallers: FallingPanes still waiting to drop; rings: RingSpinners to turn (both in update).
-	local room = { folder = folder, theme = theme, glass = {}, doors = {}, crystals = {}, fallers = {}, rings = {}, finished = false }
+	-- outlines: the glass outlines (SelectionBoxes), shown once the room is near (setOutlinesNear).
+	local room = {
+		folder = folder,
+		theme = theme,
+		glass = {},
+		doors = {},
+		crystals = {},
+		fallers = {},
+		rings = {},
+		outlines = {},
+		outlinesOn = self.outlineRoom ~= nil and roomIndex <= self.outlineRoom + OUTLINE_ROOMS,
+		finished = false,
+	}
 	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
@@ -11864,8 +12035,9 @@ function TrackBuilder:buildShell(roomIndex)
 		self:buildTutorialRoom(room, roomIndex, startZ)
 	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
 		-- Difficulty climbs inside each zone and keeps climbing zone to zone
-		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4
-		-- (the 4th only once difficulty goes past 1, in the endless zones after zone 10).
+		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4.
+		-- The 4th only comes in the endless zones after the designed ones (ZONE 10+),
+		-- and then the groups are 20 studs apart (MIN_GROUP_SPACING), never closer.
 		local difficulty = Config.difficultyFor(zone, roomIndex % Config.ROOMS_PER_CHECKPOINT)
 
 		local groups = 1
@@ -11875,11 +12047,14 @@ function TrackBuilder:buildShell(roomIndex)
 		if rng:NextNumber() < difficulty * 0.6 then
 			groups += 1
 		end
-		if rng:NextNumber() < (difficulty - 1) * 0.6 then
+		if zone >= #Config.ZoneDifficulty and rng:NextNumber() < (difficulty - 1) * 0.6 then
 			groups += 1
 		end
+		-- Evenly spread (1 group: the middle; 3 groups: 20/40/60), centered in the room.
+		local spacing = math.max(LENGTH / (groups + 1), MIN_GROUP_SPACING)
+		local first = (LENGTH - spacing * (groups - 1)) / 2
 		for group = 1, groups do
-			self:addObstacle(room, startZ - LENGTH * group / (groups + 1), zone)
+			self:addObstacle(room, startZ - (first + spacing * (group - 1)), zone)
 		end
 
 		-- Fewer crystals in later zones (Config.ZoneCrystals), so every ball counts.
@@ -12036,9 +12211,12 @@ function TrackBuilder:updateMovers(cameraZ, dt)
 				TweenService:Create(glass, info, { CFrame = faller.goal }):Play()
 			end
 		end
-		if dt > 0 then
-			for _, ring in room.rings do
-				ring.angle = (ring.angle + ring.speed * dt) % (2 * math.pi)
+		for _, ring in room.rings do
+			-- Angle from the distance still to fly (0 = the camera is at the wheel).
+			local distance = math.clamp(cameraZ - ring.center.Position.Z, 0, SPIN_RANGE)
+			if distance ~= ring.lastDistance then
+				ring.lastDistance = distance
+				ring.angle = ring.arrivalAngle + ring.turnPerStud * distance
 				for _, pane in ring.panes do
 					local glass = pane.glass
 					if glass.Parent then
@@ -12074,6 +12252,7 @@ function TrackBuilder:update(cameraZ, dt)
 	self:updateMovers(cameraZ, dt)
 
 	self:queueAhead(cameraZ)
+	self:setOutlinesNear(cameraZ)
 
 	-- Safety net: never let the camera reach an unfinished room.
 	local queue = self.buildQueue
@@ -12855,6 +13034,7 @@ local SEASON_LAST_SALE = 3 * 86400
 local RESTART_CONFIRM_TIME = 4 -- seconds the "TAP AGAIN" confirm stays armed
 local SAVER_PROMPT_WAIT = 30 -- longest we wait for the Robux prompt to close
 local SAVER_GRANT_WAIT = 15 -- after paying, longest we wait for the server to save the streak
+local PREMIUM_GRANT_WAIT = 15 -- after paying for a premium ball, longest we wait for the server to unlock it
 
 -- Settings sheet (drawn on the same 600x340 sheet as everything else).
 local SETTINGS_W = 520
@@ -17024,6 +17204,13 @@ function UI._buildPremiumBalls(self, parent, order)
 		end,
 	})
 	self:_robuxButton(p.buy)
+	p.buy.onBlocked = function()
+		if p.selected and self:_premiumPending(p.selected) then
+			self:toast("UNLOCKING " .. string.upper(Config.getSkin(p.selected).Name) .. "...", "info")
+		else
+			self:_robuxRefused()
+		end
+	end
 	p.equip = hardButton(card, {
 		Name = "Equip",
 		Fill = "paper",
@@ -17157,6 +17344,22 @@ local function premiumPrice(p, skin)
 	return if price then "R$ " .. commas(price) else ""
 end
 
+-- True while a paid premium ball is on its way from the server (the Robux prompt
+-- closed with "purchased", but OwnedSkins hasn't got it yet). BUY stays off
+-- meanwhile so a second tap can't charge the player twice.
+function UI._premiumPending(self, id)
+	local pending = self._premiumPendingUntil
+	local untilTime = pending and pending[id]
+	if not untilTime then
+		return false
+	end
+	if os.clock() < untilTime and not ownedSkins()[id] then
+		return true
+	end
+	pending[id] = nil
+	return false
+end
+
 function UI._refreshPremium(self)
 	local p = self._menu and self._menu.premium
 	if not p or not p.selected then
@@ -17172,7 +17375,11 @@ function UI._refreshPremium(self)
 			ownedCount += 1
 		end
 		chip.setFill(if id == p.selected then "ink" else "paper")
-		chip.sub.Text = if equipped == id then "EQUIPPED" elseif owned[id] then "OWNED" else premiumPrice(p, skin)
+		chip.sub.Text = if equipped == id
+			then "EQUIPPED"
+			elseif owned[id] then "OWNED"
+			elseif self:_premiumPending(id) then "UNLOCKING"
+			else premiumPrice(p, skin)
 	end
 	p.right.Text = ownedCount .. " / " .. #Config.PremiumBalls .. " OWNED"
 
@@ -17201,9 +17408,14 @@ function UI._refreshPremium(self)
 			end
 		end
 	else
+		local pending = self:_premiumPending(skin.Id)
 		p.price.Text = if forSale then premiumPrice(p, skin) else "COMING SOON"
-		p.buy.setText(if forSale then "BUY" else "SOON")
-		p.buy.sub.Text = if forSale then premiumPrice(p, skin) else ""
+		p.buy.setText(if pending then "UNLOCKING..." elseif forSale then "BUY" else "SOON")
+		p.buy.sub.Text = if forSale and not pending then premiumPrice(p, skin) else ""
+		local enabled = saveLoaded() and not pending
+		if p.buy.enabled ~= enabled then
+			p.buy.setEnabled(enabled)
+		end
 	end
 
 	-- Gamepad: action button <-> first row of chips.
@@ -17221,6 +17433,10 @@ function UI._buyPremium(self)
 	if ownedSkins()[skin.Id] then
 		self:toast("YOU ALREADY OWN " .. string.upper(skin.Name), "info")
 		self:_refreshPremium()
+		return
+	end
+	if self:_premiumPending(skin.Id) then
+		self:toast("UNLOCKING " .. string.upper(skin.Name) .. "...", "info")
 		return
 	end
 	if not product or (tonumber(product.Id) or 0) == 0 then
@@ -18884,6 +19100,7 @@ function UI._refreshSaveState(self)
 	end
 	self:_refreshStarter()
 	self:_refreshSeasonUnlock()
+	self:_refreshPremium() -- keeps BUY off while a paid ball is unlocking
 end
 
 -- Fire-and-forget callbacks run in their own thread so errors keep their stack trace.
@@ -19228,6 +19445,25 @@ function UI.new(callbacks)
 		end
 		self._saverPendingUntil = if purchased then os.clock() + SAVER_GRANT_WAIT else nil
 		self:_refreshDaily()
+	end)
+	-- Premium ball paid for: BUY shows UNLOCKING... (and can't be pressed) until
+	-- OwnedSkins has it (the OwnedSkins handler above refreshes) or the wait ends.
+	connect(MarketplaceService.PromptProductPurchaseFinished, function(userId, id, purchased)
+		if userId ~= player.UserId or not purchased then
+			return
+		end
+		for _, ballId in Config.PremiumBalls do
+			local skin = Config.getSkin(ballId)
+			if skin and skin.ProductKey and id == productId(skin.ProductKey) and id ~= 0 then
+				self._premiumPendingUntil = self._premiumPendingUntil or {}
+				self._premiumPendingUntil[ballId] = os.clock() + PREMIUM_GRANT_WAIT
+				self:_refreshPremium()
+				task.delay(PREMIUM_GRANT_WAIT + 0.1, function()
+					self:_refreshPremium()
+				end)
+				break
+			end
+		end
 	end)
 	for _, name in { "Level", "XP", "XPNeeded" } do
 		onAttribute(name, function()

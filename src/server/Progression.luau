@@ -569,6 +569,42 @@ local function wholeNumber(value, minimum)
 	return math.max(minimum, math.floor(value))
 end
 
+-- Zones used to be 10 rooms long (saves from then have no ZoneLength). When the
+-- zone length changes, Checkpoint and Stats.bestZone are converted once to the new
+-- zone size by distance, so nobody starts further than they really flew. Zones the
+-- player flew through that way get their first-time reward now (ZonesRewarded makes
+-- sure each one is only ever given once), so a Checkpoints-pass start never skips them.
+local OLD_ZONE_LENGTH = 10
+
+function Progression.migrateZoneLength(data)
+	local zoneLength = Config.ROOMS_PER_CHECKPOINT
+	local savedLength = tonumber(data.ZoneLength) or OLD_ZONE_LENGTH
+	if savedLength == zoneLength then
+		return
+	end
+	if savedLength <= 0 or savedLength ~= math.floor(savedLength) then
+		savedLength = OLD_ZONE_LENGTH
+	end
+	-- Saves already played with the new zone length (before this conversion existed)
+	-- have their first-time zone rewards in new zones: those zones were really reached.
+	local rewardedUpTo = 0
+	for _, zone in data.ZonesRewarded do
+		rewardedUpTo = math.max(rewardedUpTo, zone)
+	end
+	local function convert(zone)
+		local rooms = wholeNumber(zone, 0) * savedLength
+		return math.max(rooms // zoneLength, rewardedUpTo)
+	end
+	local oldCheckpoint = wholeNumber(data.Checkpoint, 0)
+	data.Checkpoint = convert(oldCheckpoint)
+	data.Stats.bestZone = convert(data.Stats.bestZone)
+	-- Rewards for zones flown through under the old length (none are given twice).
+	if oldCheckpoint > 0 then
+		Progression.grantZoneRewards(data, 0, data.Checkpoint)
+	end
+	data.ZoneLength = zoneLength
+end
+
 -- Fixes up data right after it's loaded (old saves, new season, new day).
 function Progression.normalize(data, now)
 	data.Level = wholeNumber(data.Level, 1)
@@ -626,6 +662,8 @@ function Progression.normalize(data, now)
 		end
 	end
 	data.ZonesRewarded = zonesRewarded
+
+	Progression.migrateZoneLength(data)
 
 	Progression.ensureSeason(data)
 	data.SeasonTier = math.clamp(wholeNumber(data.SeasonTier, 0), 0, MAX_TIER)

@@ -359,7 +359,7 @@ Config.Hints = {
 	ArmoredGlass = "ARMORED GLASS! HIT IT TWICE TO BREAK IT",
 	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
 	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",
-	RingSpinner = "SPINNING RING! SMASH THE PANE COMING DOWN",
+	RingSpinner = "RING! SMASH THE ORANGE PANE - IT TURNS INTO YOUR PATH",
 }
 
 -- 3D models ------------------------------------------------------------------

@@ -35,11 +35,12 @@ local SHADOW_CASTER_MIN_SIZE = 1.5 -- tiny details (seams, trim, glyph bars) nev
 -- Phones and tablets: no shadow-casting lights (too heavy for their GPUs).
 local TOUCH_ONLY = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- Low graphics: lighter glow effects.
-local LOW_BLOOM_INTENSITY = 0.5 -- multiplier
-local LOW_BLOOM_SIZE = 0.7 -- multiplier
-local HIGH_SUNRAYS = 0.04
-local LOW_SUNRAYS = 0.015
+-- Low graphics: a small, faint bloom (a big bloom is several full-screen blur
+-- passes, the heaviest thing for a phone's GPU) and no sun rays at all.
+local LOW_BLOOM_INTENSITY = 0.5 -- multiplier...
+local LOW_BLOOM_MAX_INTENSITY = 0.4 -- ...but never more than this
+local LOW_BLOOM_MAX_SIZE = 12
+local SUNRAYS_INTENSITY = 0.04 -- High only (switched off on Low)
 
 -- Per zone style. Colors are Color3, numbers are the Lighting/effect properties.
 local PRESETS = {
@@ -197,8 +198,8 @@ local function bloomGoal(preset)
 		return preset.Bloom
 	end
 	return {
-		Intensity = preset.Bloom.Intensity * LOW_BLOOM_INTENSITY,
-		Size = preset.Bloom.Size * LOW_BLOOM_SIZE,
+		Intensity = math.min(preset.Bloom.Intensity * LOW_BLOOM_INTENSITY, LOW_BLOOM_MAX_INTENSITY),
+		Size = math.min(preset.Bloom.Size, LOW_BLOOM_MAX_SIZE),
 		Threshold = preset.Bloom.Threshold,
 	}
 end
@@ -207,7 +208,9 @@ end
 local function applyQuality()
 	Lighting.GlobalShadows = not low
 	if sunRays then
-		sunRays.Intensity = if low then LOW_SUNRAYS else HIGH_SUNRAYS
+		-- A full-screen pass that barely shows indoors (and not at all in the night zones).
+		sunRays.Intensity = SUNRAYS_INTENSITY
+		sunRays.Enabled = not low
 	end
 end
 

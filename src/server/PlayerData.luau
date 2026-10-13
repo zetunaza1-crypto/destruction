@@ -27,6 +27,8 @@ local DEFAULT_DATA = {
 	Best = 0, -- meters (only runs started from the beginning count)
 	Gems = 0,
 	Checkpoint = 0, -- highest zone reached
+	-- ZoneLength: rooms per zone the save's Checkpoint is counted in (missing in old
+	-- 10-room saves; Progression.migrateZoneLength converts them once and sets it).
 	OwnedSkins = { "Default" },
 	EquippedSkin = "Default",
 	OwnedFx = { "Classic" },

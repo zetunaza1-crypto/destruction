@@ -137,6 +137,7 @@ local SEASON_LAST_SALE = 3 * 86400
 local RESTART_CONFIRM_TIME = 4 -- seconds the "TAP AGAIN" confirm stays armed
 local SAVER_PROMPT_WAIT = 30 -- longest we wait for the Robux prompt to close
 local SAVER_GRANT_WAIT = 15 -- after paying, longest we wait for the server to save the streak
+local PREMIUM_GRANT_WAIT = 15 -- after paying for a premium ball, longest we wait for the server to unlock it
 
 -- Settings sheet (drawn on the same 600x340 sheet as everything else).
 local SETTINGS_W = 520
@@ -4306,6 +4307,13 @@ function UI._buildPremiumBalls(self, parent, order)
 		end,
 	})
 	self:_robuxButton(p.buy)
+	p.buy.onBlocked = function()
+		if p.selected and self:_premiumPending(p.selected) then
+			self:toast("UNLOCKING " .. string.upper(Config.getSkin(p.selected).Name) .. "...", "info")
+		else
+			self:_robuxRefused()
+		end
+	end
 	p.equip = hardButton(card, {
 		Name = "Equip",
 		Fill = "paper",
@@ -4439,6 +4447,22 @@ local function premiumPrice(p, skin)
 	return if price then "R$ " .. commas(price) else ""
 end
 
+-- True while a paid premium ball is on its way from the server (the Robux prompt
+-- closed with "purchased", but OwnedSkins hasn't got it yet). BUY stays off
+-- meanwhile so a second tap can't charge the player twice.
+function UI._premiumPending(self, id)
+	local pending = self._premiumPendingUntil
+	local untilTime = pending and pending[id]
+	if not untilTime then
+		return false
+	end
+	if os.clock() < untilTime and not ownedSkins()[id] then
+		return true
+	end
+	pending[id] = nil
+	return false
+end
+
 function UI._refreshPremium(self)
 	local p = self._menu and self._menu.premium
 	if not p or not p.selected then
@@ -4454,7 +4478,11 @@ function UI._refreshPremium(self)
 			ownedCount += 1
 		end
 		chip.setFill(if id == p.selected then "ink" else "paper")
-		chip.sub.Text = if equipped == id then "EQUIPPED" elseif owned[id] then "OWNED" else premiumPrice(p, skin)
+		chip.sub.Text = if equipped == id
+			then "EQUIPPED"
+			elseif owned[id] then "OWNED"
+			elseif self:_premiumPending(id) then "UNLOCKING"
+			else premiumPrice(p, skin)
 	end
 	p.right.Text = ownedCount .. " / " .. #Config.PremiumBalls .. " OWNED"
 
@@ -4483,9 +4511,14 @@ function UI._refreshPremium(self)
 			end
 		end
 	else
+		local pending = self:_premiumPending(skin.Id)
 		p.price.Text = if forSale then premiumPrice(p, skin) else "COMING SOON"
-		p.buy.setText(if forSale then "BUY" else "SOON")
-		p.buy.sub.Text = if forSale then premiumPrice(p, skin) else ""
+		p.buy.setText(if pending then "UNLOCKING..." elseif forSale then "BUY" else "SOON")
+		p.buy.sub.Text = if forSale and not pending then premiumPrice(p, skin) else ""
+		local enabled = saveLoaded() and not pending
+		if p.buy.enabled ~= enabled then
+			p.buy.setEnabled(enabled)
+		end
 	end
 
 	-- Gamepad: action button <-> first row of chips.
@@ -4503,6 +4536,10 @@ function UI._buyPremium(self)
 	if ownedSkins()[skin.Id] then
 		self:toast("YOU ALREADY OWN " .. string.upper(skin.Name), "info")
 		self:_refreshPremium()
+		return
+	end
+	if self:_premiumPending(skin.Id) then
+		self:toast("UNLOCKING " .. string.upper(skin.Name) .. "...", "info")
 		return
 	end
 	if not product or (tonumber(product.Id) or 0) == 0 then
@@ -6166,6 +6203,7 @@ function UI._refreshSaveState(self)
 	end
 	self:_refreshStarter()
 	self:_refreshSeasonUnlock()
+	self:_refreshPremium() -- keeps BUY off while a paid ball is unlocking
 end
 
 -- Fire-and-forget callbacks run in their own thread so errors keep their stack trace.
@@ -6510,6 +6548,25 @@ function UI.new(callbacks)
 		end
 		self._saverPendingUntil = if purchased then os.clock() + SAVER_GRANT_WAIT else nil
 		self:_refreshDaily()
+	end)
+	-- Premium ball paid for: BUY shows UNLOCKING... (and can't be pressed) until
+	-- OwnedSkins has it (the OwnedSkins handler above refreshes) or the wait ends.
+	connect(MarketplaceService.PromptProductPurchaseFinished, function(userId, id, purchased)
+		if userId ~= player.UserId or not purchased then
+			return
+		end
+		for _, ballId in Config.PremiumBalls do
+			local skin = Config.getSkin(ballId)
+			if skin and skin.ProductKey and id == productId(skin.ProductKey) and id ~= 0 then
+				self._premiumPendingUntil = self._premiumPendingUntil or {}
+				self._premiumPendingUntil[ballId] = os.clock() + PREMIUM_GRANT_WAIT
+				self:_refreshPremium()
+				task.delay(PREMIUM_GRANT_WAIT + 0.1, function()
+					self:_refreshPremium()
+				end)
+				break
+			end
+		end
 	end)
 	for _, name in { "Level", "XP", "XPNeeded" } do
 		onAttribute(name, function()

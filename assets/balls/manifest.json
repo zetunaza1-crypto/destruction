@@ -41,8 +41,8 @@
       },
       "Spikes": {
         "color": [
-          165,
-          222,
+          215,
+          242,
           255
         ],
         "material": "Ice",
@@ -413,16 +413,16 @@
     "diameter": 2.0,
     "triangles": 2204,
     "size": [
-      1.804,
-      1.405,
-      1.843
+      1.813,
+      1.462,
+      1.879
     ],
     "parts": {
       "Shell": {
         "color": [
-          42,
-          32,
-          30
+          52,
+          40,
+          38
         ],
         "material": "Basalt",
         "transparency": 0.0,
@@ -735,8 +735,8 @@
       "Corona": {
         "color": [
           255,
-          112,
-          10
+          150,
+          20
         ],
         "material": "Neon",
         "transparency": 0.0,
@@ -799,8 +799,8 @@
       "RingB": {
         "color": [
           255,
-          80,
-          30
+          135,
+          35
         ],
         "material": "Neon",
         "transparency": 0.0,

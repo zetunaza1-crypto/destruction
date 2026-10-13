@@ -30,6 +30,7 @@ adds the key for apis.roblox.com). The key is never printed.
 """
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -554,24 +555,53 @@ def ball_styles_luau(manifest, source):
     return "\n".join(out) + "\n"
 
 
-def write_ball_styles(manifest_path=BALL_MANIFEST, out_path=BALL_STYLES_FILE):
-    """Regenerates src/shared/BallStyles.luau from the ball manifest (if there is one)."""
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def write_ball_styles(ids=None, force=False, manifest_path=BALL_MANIFEST, out_path=BALL_STYLES_FILE):
+    """Regenerates src/shared/BallStyles.luau from the ball manifest (if there is one).
+
+    Safe to run again and again:
+      - if the file already matches the manifest, nothing is written;
+      - if the file was edited by hand since it was last generated (no "Generated from"
+        header, or it no longer matches what this script last wrote), it is NOT
+        overwritten - copy the hand-tuned values into assets/balls/manifest.json first,
+        or pass --regen-ball-styles to overwrite it anyway.
+    """
     if not os.path.exists(manifest_path):
         print("  no assets/balls/manifest.json - BallStyles.luau left as it is")
         return False
     with open(manifest_path) as f:
         manifest = json.load(f)
     text = ball_styles_luau(manifest, os.path.relpath(manifest_path, ROOT))
+    current = None
+    if os.path.exists(out_path):
+        with open(out_path) as f:
+            current = f.read()
+    done = ids["Done"] if ids is not None else {}
+    if current == text:
+        done["ballStylesHash"] = _sha(text)
+        print("  src/shared/BallStyles.luau already matches the manifest")
+        return False
+    if current is not None and not force:
+        generated = "Generated from" in current and done.get("ballStylesHash") == _sha(current)
+        if not generated:
+            print("  WARNING: src/shared/BallStyles.luau was edited by hand and differs from")
+            print("  assets/balls/manifest.json - left as it is. Copy the tuned values into the")
+            print("  manifest (or run again with --regen-ball-styles to overwrite the file).")
+            return False
     if DRY_RUN:
         print("  would regenerate src/shared/BallStyles.luau")
         return True
     with open(out_path, "w") as f:
         f.write(text)
+    done["ballStylesHash"] = _sha(text)
     print("  regenerated src/shared/BallStyles.luau")
     return True
 
 
-def step_config(ids):
+def step_config(ids, regen_ball_styles=False):
     print("\n[7/9] Writing IDs into src/shared/Config.luau")
     with open(CONFIG_FILE) as f:
         text = f.read()
@@ -593,7 +623,8 @@ def step_config(ids):
     with open(CONFIG_FILE, "w") as f:
         f.write(text)
     print("  done")
-    write_ball_styles()
+    write_ball_styles(ids, force=regen_ball_styles)
+    save_ids(ids)
 
 
 def step_build():
@@ -626,6 +657,8 @@ def main():
                         help="Only upload sounds + models and write their IDs (no experience needed)")
     parser.add_argument("--dry-run", action="store_true", help="Only print what would happen")
     parser.add_argument("--no-publish", action="store_true", help="Do everything except publishing")
+    parser.add_argument("--regen-ball-styles", action="store_true",
+                        help="Overwrite src/shared/BallStyles.luau from the manifest even if it was edited by hand")
     args = parser.parse_args()
     DRY_RUN = args.dry_run
 
@@ -634,7 +667,7 @@ def main():
     step_models(ids)
     step_balls(ids)
     if args.assets_only:
-        step_config(ids)
+        step_config(ids, args.regen_ball_styles)
         step_build()
         print("\nSounds and models (incl. premium balls) done (--assets-only).")
         return
@@ -648,7 +681,7 @@ def main():
     print("\n[5/9] Developer products")
     create_items(ids, "Products", PRODUCTS, args.universe, "product")
     step_settings(ids, args.universe, args.place)
-    step_config(ids)
+    step_config(ids, args.regen_ball_styles)
     step_build()
     if args.no_publish:
         print("\nSkipped publishing (--no-publish).")

@@ -667,6 +667,22 @@ local function ownedBoosts()
 	return if ok and type(decoded) == "table" then decoded else {}
 end
 
+-- True if the player already owns this skin (OwnedSkins is a JSON list or set).
+local function ownsSkin(skinId)
+	local raw = player:GetAttribute("OwnedSkins")
+	if type(raw) ~= "string" then
+		return false
+	end
+	local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+	if not ok or type(decoded) ~= "table" then
+		return false
+	end
+	if decoded[skinId] then
+		return true
+	end
+	return table.find(decoded, skinId) ~= nil
+end
+
 -- The boosts picked in the menu that the player really has (distinct, max
 -- Config.MAX_BOOSTS_PER_RUN). The server checks again; this just avoids
 -- asking for boosts they don't own.
@@ -1222,6 +1238,12 @@ local function promptProduct(productKey, context)
 	end
 	if productKey == "SeasonPremium" and player:GetAttribute("SeasonPremium") == true then
 		ui:toast("ALREADY UNLOCKED", "reward")
+		return
+	end
+	-- Premium balls: never prompt for one that's already unlocked.
+	local skin = if type(product.Skin) == "string" then Config.getSkin(product.Skin) else nil
+	if skin and skin.Id == product.Skin and skin.Premium and ownsSkin(skin.Id) then
+		ui:toast("ALREADY OWNED", "reward")
 		return
 	end
 	-- A streak saver only does its real job right after the streak breaks

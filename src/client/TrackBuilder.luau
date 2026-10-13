@@ -117,10 +117,26 @@ local RING_PANES = 6
 local RING_CENTER_HEIGHT = 9.5 -- above the floor; the wheel turns above the middle of the corridor
 local RING_INNER, RING_OUTER = 1, 4.4 -- each pane runs from this far from the center to this far
 local SPIN_RANGE = 260 -- RingSpinners further ahead than this (studs) stand still (past the fog)
+-- The wheel turns with the distance you fly, not with time: whatever your speed
+-- (slow-mo, a pause...) the marked pane is exactly at the bottom when you get there.
+-- Radians turned per stud flown (at 55 studs/s that is a slow 0.5-0.77 radians per second).
+local RING_TURN_PER_STUD = { 0.009, 0.014 }
+local RING_TARGET_TINT = 0.45 -- how orange the marked pane is
+
+-- Groups of obstacles in one room are spread evenly, but never closer than this (studs).
+local MIN_GROUP_SPACING = 20
 
 -- Glass visibility: less see-through than before, plus a glowing outline.
 local GLASS_TRANSPARENCY = 0.2
 local GLASS_OUTLINE_THICKNESS = 0.07
+local GLASS_OUTLINE_SURFACE = 0.82 -- the light tint inside the outline (Low graphics: edges only)
+-- Outlines only show in the camera's room and the next OUTLINE_ROOMS rooms (a
+-- room switches them on as it becomes the 2nd room ahead, 160+ studs away, so
+-- glass always has its outline long before it's close). Further rooms are past the fog.
+local OUTLINE_ROOMS = 2
+-- Small "extra" panes (the far parts of a Grid) only get an outline while the
+-- room has fewer than this many; the panes that matter always get one.
+local OUTLINE_CAP_PER_ROOM = 12
 
 -- Shared with Decor.luau.
 TrackBuilder.newPart = newPart
@@ -161,7 +177,9 @@ function TrackBuilder.new(parent, firstRoom, tutorial)
 	return self
 end
 
-function TrackBuilder:addGlass(room, position, size)
+-- optional = true: a small extra pane (part of a Grid) that only gets an outline
+-- while the room is under OUTLINE_CAP_PER_ROOM outlines.
+function TrackBuilder:addGlass(room, position, size, optional)
 	local glass = newPart(room.folder, "Glass", {
 		Name = "Glass",
 		Size = size,
@@ -174,19 +192,55 @@ function TrackBuilder:addGlass(room, position, size)
 
 	-- Glowing outline + light tint so glass is always easy to see, even far
 	-- away in the fog or against pale walls. It follows moving/spinning panes
-	-- and disappears with the pane when it shatters.
-	local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
-	local outline = Instance.new("SelectionBox")
-	outline.Name = "Outline"
-	outline.Adornee = glass
-	outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
-	outline.LineThickness = GLASS_OUTLINE_THICKNESS
-	outline.SurfaceColor3 = accent
-	outline.SurfaceTransparency = 0.82
-	outline.Parent = glass
+	-- and disappears with the pane when it shatters. Hidden until the room is
+	-- near (setOutlinesNear), and edges only on Low graphics.
+	if not optional or #room.outlines < OUTLINE_CAP_PER_ROOM then
+		local accent = if room.theme and room.theme.Accent then room.theme.Accent else Color3.fromRGB(90, 200, 255)
+		local outline = Instance.new("SelectionBox")
+		outline.Name = "Outline"
+		outline.Adornee = glass
+		outline.Color3 = accent:Lerp(Color3.new(1, 1, 1), 0.25)
+		outline.LineThickness = GLASS_OUTLINE_THICKNESS
+		outline.SurfaceColor3 = accent
+		outline.SurfaceTransparency = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE
+		outline.Visible = room.outlinesOn == true
+		outline.Parent = glass
+		table.insert(room.outlines, outline)
+	end
 
 	table.insert(room.glass, glass)
 	return glass
+end
+
+-- Switches a room's glass outlines on (it's one of the rooms near the camera).
+local function showOutlines(room)
+	if room.outlinesOn then
+		return
+	end
+	room.outlinesOn = true
+	local surface = if LightingFx.isLow() then 1 else GLASS_OUTLINE_SURFACE
+	for _, outline in room.outlines do
+		if outline.Parent then
+			outline.SurfaceTransparency = surface
+			outline.Visible = true
+		end
+	end
+end
+
+-- The camera moved into another room: outlines on for it and the next OUTLINE_ROOMS.
+-- (Rooms behind are deleted; rooms further ahead still have theirs hidden.)
+function TrackBuilder:setOutlinesNear(cameraZ)
+	local current = TrackBuilder.roomAt(cameraZ)
+	if current == self.outlineRoom then
+		return
+	end
+	self.outlineRoom = current
+	for roomIndex = current, current + OUTLINE_ROOMS do
+		local room = self.rooms[roomIndex]
+		if room then
+			showOutlines(room)
+		end
+	end
 end
 
 -- Uses the Blender gem when it's uploaded, a rotated neon cube otherwise.
@@ -290,10 +344,12 @@ function Patterns.Spinner(self, room, z)
 end
 
 -- A wall of small panes. You need several throws (or multiball) to clear a hole.
+-- The eye-level and bottom rows always get an outline; the top row only while
+-- the room has few outlines (it's above your head, the rows below show the wall).
 function Patterns.Grid(self, room, z)
 	for _, x in { -5, 0, 5 } do
 		for _, y in { 2.5, 6.5, 10.5 } do
-			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4))
+			self:addGlass(room, Vector3.new(ORIGIN.X + x, ORIGIN.Y + y, z), Vector3.new(4.6, 3.8, 0.4), y > 10)
 		end
 	end
 end
@@ -377,7 +433,9 @@ end
 function Patterns.BobbingPane(self, room, z)
 	local rng = self.rng
 	local x = ORIGIN.X + rng:NextNumber(-1.5, 1.5)
-	local low = CFrame.new(x, ORIGIN.Y + 3.5, z) -- covers your eyes
+	-- Low: from 2 to 7 studs up, so its top edge is a full stud above your eyes
+	-- (it clearly covers them, and the crash check agrees with what you see).
+	local low = CFrame.new(x, ORIGIN.Y + 4.5, z)
 	local high = CFrame.new(x, ORIGIN.Y + 10.5, z) -- you fly under it
 	local startHigh = rng:NextNumber() < 0.5
 	local glass = self:addGlass(room, (if startHigh then high else low).Position, Vector3.new(rng:NextNumber(10, 12), 5, 0.4))
@@ -398,13 +456,25 @@ function Patterns.FallingPane(self, room, z)
 	local glass = self:addGlass(room, Vector3.new(x, upY, z), Vector3.new(width, height, 0.4))
 	table.insert(room.fallers, { glass = glass, goal = CFrame.new(x, downY, z), dropped = false })
 
-	-- Warning: blinking lights on the ceiling slot and a dashed stripe on the floor.
+	-- Warning: blinking lights hanging beside the pane's edge (below anything a
+	-- zone hangs on its ceiling, so decor can never hide them) and a dashed
+	-- stripe on the floor.
 	local blink = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local lightY = upY - height / 2 + 0.15 -- level with the pane's bottom edge
 	for _, side in { -1, 1 } do
+		local lightX = x + side * (width / 2 + 0.7)
+		local rod = newPart(room.folder, "Wall", {
+			Name = "WarningRod",
+			Size = Vector3.new(0.15, ORIGIN.Y + HEIGHT - lightY, 0.15),
+			CFrame = CFrame.new(lightX, (ORIGIN.Y + HEIGHT + lightY) / 2, z),
+			Color = Color3.fromRGB(60, 64, 74),
+			Material = Enum.Material.Metal,
+		})
+		rod:SetAttribute("Shell", true)
 		local light = newPart(room.folder, "Wall", {
 			Name = "Warning",
 			Size = Vector3.new(0.8, 0.3, 0.8),
-			CFrame = CFrame.new(x + side * (width / 2 + 0.7), ORIGIN.Y + HEIGHT - 0.15, z),
+			CFrame = CFrame.new(lightX, lightY, z),
 			Color = WARNING_COLOR,
 			Material = Enum.Material.Neon,
 		})
@@ -423,25 +493,41 @@ function Patterns.FallingPane(self, room, z)
 	end
 end
 
--- Six panes on a wheel turning above the middle of the corridor, with a gap.
--- Whatever pane points down when you get there is in your way: smash it, or
--- time it so the gap is at the bottom. Turned by TrackBuilder:update.
+-- Six panes on a wheel turning slowly above the middle of the corridor.
+-- One pane is marked orange: the wheel turns with the distance you fly, so that
+-- pane is always exactly at the bottom, in your way, when you get there. Smash
+-- it early (then the empty slot passes over you). Turned by updateMovers.
 function Patterns.RingSpinner(self, room, z)
 	local rng = self.rng
 	local center = CFrame.new(ORIGIN.X, ORIGIN.Y + RING_CENTER_HEIGHT, z)
+	local direction = if rng:NextNumber() < 0.5 then -1 else 1
+	local target = rng:NextInteger(0, RING_PANES - 1) -- the pane that ends up at the bottom
+	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
+	local targetSlotAngle = (firstSlot + target) * 2 * math.pi / RING_SLOTS
 	local ring = {
 		center = center,
-		angle = rng:NextNumber(0, 2 * math.pi),
-		speed = rng:NextNumber(1.3, 1.9) * (if rng:NextNumber() < 0.5 then -1 else 1),
+		-- Ring angle when the camera reaches the wheel: the target pane points down
+		-- (a pane at angle 0 points up, so down is pi).
+		arrivalAngle = math.pi - targetSlotAngle,
+		turnPerStud = rng:NextNumber(RING_TURN_PER_STUD[1], RING_TURN_PER_STUD[2]) * direction,
+		lastDistance = nil,
 		panes = {},
 	}
+	ring.angle = ring.arrivalAngle + ring.turnPerStud * SPIN_RANGE -- standing still until in range
 	local length = RING_OUTER - RING_INNER
 	local offset = CFrame.new(0, RING_INNER + length / 2, 0)
-	local firstSlot = rng:NextInteger(0, RING_SLOTS - 1)
 	for i = 0, RING_PANES - 1 do
 		local slotAngle = (firstSlot + i) * 2 * math.pi / RING_SLOTS
 		local glass = self:addGlass(room, center.Position, Vector3.new(1.6, length, 0.4))
 		glass.CFrame = center * CFrame.Angles(0, 0, ring.angle + slotAngle) * offset
+		if i == target then
+			glass.Color = Config.GLASS_COLOR:Lerp(WARNING_COLOR, RING_TARGET_TINT)
+			local outline = glass:FindFirstChild("Outline")
+			if outline then
+				outline.Color3 = WARNING_COLOR
+				outline.SurfaceColor3 = WARNING_COLOR
+			end
+		end
 		table.insert(ring.panes, { glass = glass, slotAngle = slotAngle, offset = offset })
 	end
 	-- Hub the panes hang on (above your head, so it never gets in the way).
@@ -583,7 +669,19 @@ function TrackBuilder:buildShell(roomIndex)
 	folder.Name = "Room" .. roomIndex
 	folder.Parent = self.folder
 	-- fallers: FallingPanes still waiting to drop; rings: RingSpinners to turn (both in update).
-	local room = { folder = folder, theme = theme, glass = {}, doors = {}, crystals = {}, fallers = {}, rings = {}, finished = false }
+	-- outlines: the glass outlines (SelectionBoxes), shown once the room is near (setOutlinesNear).
+	local room = {
+		folder = folder,
+		theme = theme,
+		glass = {},
+		doors = {},
+		crystals = {},
+		fallers = {},
+		rings = {},
+		outlines = {},
+		outlinesOn = self.outlineRoom ~= nil and roomIndex <= self.outlineRoom + OUTLINE_ROOMS,
+		finished = false,
+	}
 	self.rooms[roomIndex] = room
 
 	-- Shell parts collide so glass shards can bounce off the floor and walls.
@@ -650,8 +748,9 @@ function TrackBuilder:buildShell(roomIndex)
 		self:buildTutorialRoom(room, roomIndex, startZ)
 	elseif roomIndex >= Config.SAFE_ROOMS and not isZoneStart then
 		-- Difficulty climbs inside each zone and keeps climbing zone to zone
-		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4
-		-- (the 4th only once difficulty goes past 1, in the endless zones after zone 10).
+		-- (Config.difficultyFor). More difficulty = more obstacle groups, up to 4.
+		-- The 4th only comes in the endless zones after the designed ones (ZONE 10+),
+		-- and then the groups are 20 studs apart (MIN_GROUP_SPACING), never closer.
 		local difficulty = Config.difficultyFor(zone, roomIndex % Config.ROOMS_PER_CHECKPOINT)
 
 		local groups = 1
@@ -661,11 +760,14 @@ function TrackBuilder:buildShell(roomIndex)
 		if rng:NextNumber() < difficulty * 0.6 then
 			groups += 1
 		end
-		if rng:NextNumber() < (difficulty - 1) * 0.6 then
+		if zone >= #Config.ZoneDifficulty and rng:NextNumber() < (difficulty - 1) * 0.6 then
 			groups += 1
 		end
+		-- Evenly spread (1 group: the middle; 3 groups: 20/40/60), centered in the room.
+		local spacing = math.max(LENGTH / (groups + 1), MIN_GROUP_SPACING)
+		local first = (LENGTH - spacing * (groups - 1)) / 2
 		for group = 1, groups do
-			self:addObstacle(room, startZ - LENGTH * group / (groups + 1), zone)
+			self:addObstacle(room, startZ - (first + spacing * (group - 1)), zone)
 		end
 
 		-- Fewer crystals in later zones (Config.ZoneCrystals), so every ball counts.
@@ -822,9 +924,12 @@ function TrackBuilder:updateMovers(cameraZ, dt)
 				TweenService:Create(glass, info, { CFrame = faller.goal }):Play()
 			end
 		end
-		if dt > 0 then
-			for _, ring in room.rings do
-				ring.angle = (ring.angle + ring.speed * dt) % (2 * math.pi)
+		for _, ring in room.rings do
+			-- Angle from the distance still to fly (0 = the camera is at the wheel).
+			local distance = math.clamp(cameraZ - ring.center.Position.Z, 0, SPIN_RANGE)
+			if distance ~= ring.lastDistance then
+				ring.lastDistance = distance
+				ring.angle = ring.arrivalAngle + ring.turnPerStud * distance
 				for _, pane in ring.panes do
 					local glass = pane.glass
 					if glass.Parent then
@@ -860,6 +965,7 @@ function TrackBuilder:update(cameraZ, dt)
 	self:updateMovers(cameraZ, dt)
 
 	self:queueAhead(cameraZ)
+	self:setOutlinesNear(cameraZ)
 
 	-- Safety net: never let the camera reach an unfinished room.
 	local queue = self.buildQueue

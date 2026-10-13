@@ -339,11 +339,10 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 		return
 	end
 
+	-- Every emitter is built (prototypes are cached for the whole session, whatever
+	-- the graphics level was then); on Low, rebalance() keeps only the first one on.
 	local low = graphicsLevel() == "Low"
 	for index, spec in fx.Particles or {} do
-		if low and index > 1 then
-			break
-		end
 		local size = spec.Size or { 0.3, 0 }
 		local lifetime = spec.Lifetime or { 0.3, 0.6 }
 		local speed = spec.Speed or { 1, 3 }
@@ -364,8 +363,9 @@ local function addFx(proto, skin, style, diameter, lite, scale)
 		emitter.Drag = 3
 		emitter.LightEmission = spec.LightEmission or 1
 		emitter.Rate = spec.Rate or 10
+		emitter.Enabled = not low or index == 1
 		emitter.Parent = root
-		table.insert(proto.emitters, { name = emitter.Name, rate = spec.Rate or 10 })
+		table.insert(proto.emitters, { name = emitter.Name, rate = spec.Rate or 10, index = index })
 	end
 
 	local light = fx.Light
@@ -434,6 +434,7 @@ local function rebalance()
 		local entry = live[i]
 		for _, item in entry.emitters do
 			item.emitter.Rate = item.rate * rateScale
+			item.emitter.Enabled = level ~= "Low" or item.index == 1 -- Low: first emitter only
 		end
 		if entry.light then
 			entry.light.Enabled = lightsLeft > 0
@@ -579,7 +580,7 @@ function BallFx.create(skinId, radius, options)
 		for _, item in proto.emitters do
 			local emitter = root:FindFirstChild(item.name)
 			if emitter then
-				table.insert(entry.emitters, { emitter = emitter, rate = item.rate })
+				table.insert(entry.emitters, { emitter = emitter, rate = item.rate, index = item.index })
 			end
 		end
 		entry.light = if proto.hasLight then root:FindFirstChild("Glow") else nil
