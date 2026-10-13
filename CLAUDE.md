@@ -25,6 +25,7 @@ First-person on-rails glass smasher inspired by the *gameplay* of the mobile gam
 - The repo is the master copy. The owner doesn't publish from Studio (it would be overwritten); they play on Roblox
   or File -> Open from Roblox to see the latest.
 - Roblox key: network secret on apis.roblox.com that adds the x-api-key header automatically (no env var).
+- HTTP 409 "Server is busy" on publish = the owner has the place open in Roblox Studio. Ask them to fully close Studio, then retry.
 
 ## Building
 The owner works from cloud sessions only (no local Rojo/Studio connection). After code changes, rebuild the ready-to-open place file and commit it:
