@@ -14369,7 +14369,6 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 
 local Tutorial = {}
 
@@ -14666,8 +14665,8 @@ local function buildUi()
 		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
 		Parent = player:WaitForChild("PlayerGui"),
 	})
-	-- The pointer covers the whole screen (no insets), so its coordinates are
-	-- exactly what camera:WorldToViewportPoint returns.
+	-- The pointer covers the whole screen (no insets); ringAt converts world
+	-- positions into its coordinates.
 	pointerGui = new("ScreenGui", {
 		Name = "TutorialPointer",
 		ResetOnSpawn = false,
@@ -14886,10 +14885,14 @@ end
 
 -- The ring over a spot in the world. Returns false when it is off screen.
 local function ringAt(worldPosition)
-	local screen, onScreen = camera:WorldToViewportPoint(worldPosition)
+	-- WorldToScreenPoint is in GUI coordinates (below Roblox's top bar); taking off
+	-- where the pointer layer itself starts keeps the ring on target on phones with
+	-- a notch or a different top bar, not only on a computer.
+	local screen, onScreen = workspace.CurrentCamera:WorldToScreenPoint(worldPosition)
 	ring.Visible = onScreen
 	if onScreen then
-		ring.Position = UDim2.fromOffset(screen.X, screen.Y)
+		local origin = pointerGui.AbsolutePosition
+		ring.Position = UDim2.fromOffset(screen.X - origin.X, screen.Y - origin.Y)
 		local pulse = 1 + math.sin(os.clock() * 6) * 0.12
 		ring.Size = UDim2.fromOffset(84 * pulse, 84 * pulse)
 	end
@@ -14930,7 +14933,7 @@ local function findDecoration(cameraZ)
 		if rank > bestRank or (rank == bestRank and ahead >= bestAhead) then
 			return
 		end
-		local _, onScreen = camera:WorldToViewportPoint(part.Position)
+		local _, onScreen = workspace.CurrentCamera:WorldToViewportPoint(part.Position)
 		if onScreen then
 			best, bestAhead, bestRank = part, ahead, rank
 		end
