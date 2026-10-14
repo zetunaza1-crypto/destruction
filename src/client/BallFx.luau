@@ -449,6 +449,42 @@ local function partKey(skinId, part)
 	return string.match(name, "_(%w+)$") or name
 end
 
+-- Balls with a face (Config.Skins FaceTop / FaceBottom, e.g. Grinny): the game
+-- shows a ball's +Z side to the camera, but an imported model can come in turned
+-- any way. This finds the face from its parts (eyes on top, mouth below) and
+-- returns the turn that puts it on +Z, eyes up. Other balls: no turn.
+local function faceTurn(skinId, parts, center)
+	local skin = Config.getSkin(skinId)
+	if skin.Id ~= skinId or not skin.FaceTop or not skin.FaceBottom then
+		return CFrame.identity
+	end
+	local top, bottom
+	for _, part in parts do
+		local key = partKey(skinId, part)
+		if key == skin.FaceTop then
+			top = part.Position - center
+		elseif key == skin.FaceBottom then
+			bottom = part.Position - center
+		end
+	end
+	if not top or not bottom then
+		return CFrame.identity
+	end
+	local front = top + bottom
+	local upward = top - bottom
+	if front.Magnitude < 1e-3 or upward.Magnitude < 1e-3 then
+		return CFrame.identity
+	end
+	front = front.Unit
+	upward = upward - front * upward:Dot(front) -- straight up across the face
+	if upward.Magnitude < 1e-3 then
+		return CFrame.identity
+	end
+	upward = upward.Unit
+	-- The face's own axes as a frame; its inverse turns them onto X / Y / Z.
+	return CFrame.fromMatrix(Vector3.zero, upward:Cross(front), upward, front):Inverse()
+end
+
 local function buildMesh(proto, skinId, style, template, diameter, lite)
 	local model = template:Clone()
 	if model:IsA("BasePart") then
@@ -499,6 +535,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 	if not center then
 		center = model:GetBoundingBox().Position
 	end
+	local turn = faceTurn(skinId, parts, center)
 
 	local partStyles = style.Parts or {}
 	-- Lite: only the parts that don't spin (usually the core and shell), plus
@@ -536,7 +573,7 @@ local function buildMesh(proto, skinId, style, template, diameter, lite)
 		end
 		quiet(part, false)
 		part.Name = key .. "_" .. index -- unique, so a clone can find its animated parts
-		local rest = CFrame.new(part.Position - center) * part.CFrame.Rotation
+		local rest = turn * (CFrame.new(part.Position - center) * part.CFrame.Rotation)
 		if lite or not partStyle then
 			attach(proto, part, rest)
 		else

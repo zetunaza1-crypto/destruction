@@ -220,7 +220,7 @@ Config.Skins = {
 	-- Grinny: a cute smiley that glitches into a creepy grin every few seconds
 	-- (BallStyles Show windows swap the two faces). Shell / Ring / Trail: the
 	-- part-built look until the model is uploaded.
-	{ Id = "Grinny", Name = "Grinny", Price = 25000, Animated = true, Facing = true, Text = "A HAPPY LITTLE HELPER... OR IS IT?", Color = Color3.fromRGB(255, 214, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 236, 140), Ring = Color3.fromRGB(255, 190, 30), Trail = Color3.fromRGB(255, 220, 60) },
+	{ Id = "Grinny", Name = "Grinny", Price = 25000, Animated = true, Facing = true, FaceTop = "GrinEyes", FaceBottom = "Mouth", Text = "A HAPPY LITTLE HELPER... OR IS IT?", Color = Color3.fromRGB(255, 214, 40), Material = Enum.Material.Neon, Shell = Color3.fromRGB(255, 236, 140), Ring = Color3.fromRGB(255, 190, 30), Trail = Color3.fromRGB(255, 220, 60) },
 }
 
 -- True for balls drawn as an animated model (premium Robux balls AND earned
