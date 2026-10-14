@@ -1,0 +1,44 @@
+{
+  "name": "shatter-run",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "RunStarted": {
+          "$className": "RemoteEvent"
+        },
+        "RunEnded": {
+          "$className": "RemoteEvent"
+        },
+        "RoomReached": {
+          "$className": "RemoteEvent"
+        },
+        "PurchaseGranted": {
+          "$className": "RemoteEvent"
+        },
+        "Progress": {
+          "$className": "RemoteEvent"
+        },
+        "ShopRequest": {
+          "$className": "RemoteFunction"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}

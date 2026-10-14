@@ -1,0 +1,18 @@
+# Roblox place files (the code lives in src/, Rojo syncs it into Studio)
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+
+# Editor / OS junk
+.DS_Store
+.vscode/settings.json
+sourcemap.json
+
+# The ready-to-open build of the game is kept in the repo
+!ShatterRun.rbxlx
+
+# Python cache
+__pycache__/
