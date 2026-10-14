@@ -180,6 +180,7 @@ local SETTINGS_ROW = 50 -- every control is a full 50-unit touch target
 local SETTINGS_LABEL_W = 96 -- label column on the left of sliders / graphics
 local SETTINGS_PCT_W = 52 -- "100%" readout on the right of sliders
 local SETTINGS_GEAR_W = 62 -- the gear button next to DAILY / MENU
+local SETTINGS_REPLAY_W = 180 -- REPLAY TUTORIAL, bottom-left of the sheet
 local SETTINGS_ACTION = "ShatterRunSettingsAdjust" -- gamepad left/right on a slider (only bound while open)
 local SLIDER_STEP = 0.1 -- one D-pad press
 local SLIDER_REPEAT_DELAY = 0.4 -- holding the D-pad / stick: first repeat...
@@ -2135,17 +2136,27 @@ function UI._refreshPlayIndex(self)
 end
 
 -- New players arrive with a starter set of boosts: say so once per session.
+-- It waits while popups are held (the first-run tutorial, see setPopupsHeld)
+-- and until the menu is showing with nothing open over it, so for a brand-new
+-- player it comes on the menu after the tutorial run.
 function UI._checkWelcome(self, counts)
 	if self._welcomeDone then
 		return
 	end
-	local stats = decodeJson(player:GetAttribute("Stats"))
-	if player:GetAttribute("Level") == nil or type(stats) ~= "table" then
-		return -- progress not loaded yet
+	if not self._welcomeWaiting then
+		local stats = decodeJson(player:GetAttribute("Stats"))
+		if player:GetAttribute("Level") == nil or type(stats) ~= "table" then
+			return -- progress not loaded yet
+		end
+		local level = levelInfo()
+		if level > 1 or (tonumber(stats.runs) or 0) > 0 then
+			self._welcomeDone = true
+			return
+		end
+		self._welcomeWaiting = true -- a brand-new player (still true after their tutorial run)
 	end
-	local level = levelInfo()
-	if level > 1 or (tonumber(stats.runs) or 0) > 0 then
-		self._welcomeDone = true
+	local m = self._menu
+	if self._popupsHeld or not m.root.Visible or m.modalOpen then
 		return
 	end
 	local total = 0
@@ -2875,6 +2886,7 @@ function UI._closeModal(self)
 	m.modal.Visible = false
 	self:_syncBack()
 	self:_returnFocus(m.modal, m.modalReturn)
+	self:_checkWelcome() -- it waits for popovers to close
 end
 
 -- The button a popover's gamepad selection starts on.
@@ -3232,7 +3244,7 @@ end
 -- Once per session, after the player's first run, if they haven't bought it.
 function UI._maybeShowOffer(self)
 	local m = self._menu
-	if self._offerShown or not m.sheets.offer or m.modalOpen then
+	if self._offerShown or not m.sheets.offer or m.modalOpen or self._popupsHeld then
 		return
 	end
 	if self._menuOpens < OFFER_AFTER_MENU_OPENS then
@@ -5528,6 +5540,7 @@ function UI._buildHud(self)
 		Parent = root,
 	})
 	fit(plate, HUD_SCALE)
+	h.plate = plate -- the tutorial points at it (see ballsPlate)
 	h.plateStroke = stroke(plate, 1.5)
 	h.alarm = new("Frame", { Name = "Alarm", BackgroundColor3 = DANGER, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = plate })
 	cropMarks(plate, 6, 3)
@@ -6520,7 +6533,7 @@ end
 --   01 MUSIC slider / 02 SOUND FX slider (full width, 50 tall)
 --   graphics hint line, then 03 GRAPHICS  AUTO | LOW | HIGH
 --   04 VIBRATION | 05 CAMERA SHAKE | 06 FLASHES toggles
---   note (or controller hints) and CLOSE
+--   07 REPLAY TUTORIAL, note (or controller hints) and CLOSE
 -- On a short screen the sheet is cut to fit and the body scrolls.
 
 local GRAPHICS_LABELS = { Auto = "AUTO", Low = "LOW", High = "HIGH" }
@@ -6620,18 +6633,34 @@ function UI._buildSettings(self)
 		self:_buildSettingsToggle(toggleRow, spec.key, spec.label, order)
 	end
 
-	-- Bottom row: a note (touch / mouse) or controller hints, and CLOSE.
+	-- Bottom row: REPLAY TUTORIAL, a note (touch / mouse) or controller hints, and CLOSE.
+	-- REPLAY TUTORIAL makes the next run from the start a guided first run again.
+	s.replay = hardButton(body, {
+		Name = "ReplayTutorial",
+		Fill = "paper",
+		Text = "REPLAY TUTORIAL",
+		TextSize = 11,
+		Align = Enum.TextXAlignment.Left,
+		Index = "07 / FIRST RUN",
+		Position = UDim2.fromOffset(12, 240),
+		Size = UDim2.fromOffset(SETTINGS_REPLAY_W, SETTINGS_ROW),
+		OnClick = function()
+			self:_closeSettings()
+			self:_fire("onReplayTutorial")
+		end,
+	})
+	local middle = 12 + SETTINGS_REPLAY_W + 10 -- the note sits between REPLAY and CLOSE
 	s.note = text({
 		Text = "CHANGES APPLY RIGHT AWAY",
 		TextSize = 8,
 		TextColor3 = GREY,
-		Position = UDim2.fromOffset(12, 258),
-		Size = UDim2.new(1, -190, 0, 12),
+		Position = UDim2.fromOffset(middle, 258),
+		Size = UDim2.new(1, -(middle + 170), 0, 12),
 		Parent = body,
 	})
 	s.hint = inputHint(body, { { "D-PAD", "ADJUST" }, { "B", "CLOSE" } }, {
-		Position = UDim2.fromOffset(12, 257),
-		Size = UDim2.new(1, -190, 0, 14),
+		Position = UDim2.fromOffset(middle, 257),
+		Size = UDim2.new(1, -(middle + 170), 0, 14),
 	}, Enum.HorizontalAlignment.Left)
 	s.close = hardButton(body, {
 		Name = "Close",
@@ -6670,19 +6699,25 @@ function UI._buildSettings(self)
 		local below = toggles[math.min(i, #toggles)]
 		button.NextSelectionDown = below and below.button.holder
 	end
+	local replay = s.replay.holder
 	for i, entry in toggles do
 		local holder = entry.button.holder
 		local above = s.segments[math.min(i, #s.segments)]
 		holder.NextSelectionUp = above and above.button
 		holder.NextSelectionLeft = if i > 1 then toggles[i - 1].button.holder else holder
 		holder.NextSelectionRight = if i < #toggles then toggles[i + 1].button.holder else holder
-		holder.NextSelectionDown = s.close.holder
+		-- Down from the left toggle lands on REPLAY TUTORIAL (under it), the others on CLOSE.
+		holder.NextSelectionDown = if i == 1 then replay else s.close.holder
 	end
 	local close = s.close.holder
 	close.NextSelectionUp = if #toggles > 0 then toggles[#toggles].button.holder else sfx
 	close.NextSelectionDown = close
-	close.NextSelectionLeft = close
+	close.NextSelectionLeft = replay
 	close.NextSelectionRight = close
+	replay.NextSelectionUp = if #toggles > 0 then toggles[1].button.holder else sfx
+	replay.NextSelectionDown = replay
+	replay.NextSelectionLeft = replay
+	replay.NextSelectionRight = close
 
 	-- Dragging keeps following the finger / mouse even when it leaves the row.
 	table.insert(self._connections, UserInputService.InputChanged:Connect(function(input)
@@ -7926,8 +7961,9 @@ function UI:showMenu()
 	local m = self._menu
 	m.root.Visible = true
 	self._menuOpens += 1
-	self:_refreshAll()
+	-- The offer first, so the welcome toast (checked in _refreshAll) waits until it's closed.
 	self:_maybeShowOffer()
+	self:_refreshAll()
 	-- Passes bought outside the game (or a check that failed on join) show up
 	-- without a rejoin. Fire-and-forget: the server sets the Pass_ attributes.
 	task.spawn(function()
@@ -8349,6 +8385,40 @@ end
 
 function UI:isMenuOpen()
 	return self._menu.root.Visible
+end
+
+-- The menu's PLAY button (the first-run spotlight leaves only it lit).
+function UI:playButton()
+	return self._menu.play.holder
+end
+
+-- Closes anything open over the menu (daily / offer sheet, settings, boost
+-- popover, top-up strip), e.g. before the first-run spotlight dims it.
+function UI:closePopovers()
+	self:_hideTopUp()
+	self:_closeBoostPop()
+	self:_closeModal()
+	self:_closeSettings(true)
+end
+
+-- The HUD balls counter (the tutorial's "balls = your life" card points at it).
+function UI:ballsPlate()
+	return self._hud.plate
+end
+
+-- held = true while a player still needs the first-run tutorial: nothing pops
+-- up on its own (starter offer, welcome toast), so it can't cover the PLAY
+-- spotlight or the lessons. Released, they come the next time the menu shows.
+function UI:setPopupsHeld(held)
+	held = held == true
+	if held == (self._popupsHeld == true) then
+		return
+	end
+	self._popupsHeld = held
+	if not held and self._menu.root.Visible then
+		self:_maybeShowOffer()
+		self:_checkWelcome()
+	end
 end
 
 -- The equipped ball (RunController calls it at run start and when EquippedSkin

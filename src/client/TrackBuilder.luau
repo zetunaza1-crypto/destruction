@@ -160,7 +160,8 @@ end
 function TrackBuilder.new(parent, firstRoom, tutorial)
 	local self = setmetatable({}, TrackBuilder)
 	self.tutorial = tutorial == true
-	self.tutorialTargets = {} -- step number -> part the player must break/collect
+	self.tutorialTargets = {} -- 1 = the first pane, 2 = the first crystal (see buildTutorialRoom)
+	self.tutorialDecor = nil -- the glass vase the "that's just decoration" lesson points at
 	self.folder = Instance.new("Folder")
 	self.folder.Name = "Track"
 	self.folder.Parent = parent
@@ -639,22 +640,28 @@ function TrackBuilder:addObstacle(room, z, zone)
 	end
 end
 
+-- Where the first tutorial room's glass vase stands (Decor builds it, see
+-- Decor.decorate's info.showpiece): on a pedestal by the left wall, in the wall
+-- bay 55 studs into the room. That is well past the first pane (40), so right
+-- after you break the pane it is in plain view ahead, off to the side.
+local TUTORIAL_SHOWPIECE = { side = -1, d = 55 }
+
 -- The first-run tutorial: one simple lesson per room. Each lesson's target is
 -- remembered so the Tutorial module can slow time and point at it.
+--   room 1: one pane (lesson "throw"), then a glass vase at the side (lesson
+--           "that's just decoration", built by Decor)
+--   room 2: a crystal (lesson "grab crystals", then "balls = your life"), then an easy pane
+--   room 3: a full wall: the first real obstacle once the lessons are over
 function TrackBuilder:buildTutorialRoom(room, roomIndex, startZ)
 	local step = table.find(Config.TUTORIAL_ROOMS, roomIndex)
 	if step == 1 then
-		-- Lesson 1: a single pane right in front of you.
 		self.tutorialTargets[1] = self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, startZ - 40), Vector3.new(8, 8, 0.4))
 	elseif step == 2 then
-		-- Lesson 2: a crystal, then an easy pane.
 		self:addCrystal(room, Vector3.new(ORIGIN.X + 2, EYE_Y + 1, startZ - 30))
 		self.tutorialTargets[2] = room.crystals[#room.crystals]
 		self:addGlass(room, Vector3.new(ORIGIN.X, EYE_Y, startZ - 62), Vector3.new(8, 8, 0.4))
 	elseif step == 3 then
-		-- Lesson 3: a full wall you must break or crash into.
-		self.tutorialTargets[3] =
-			self:addGlass(room, Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT / 2, startZ - 40), Vector3.new(WIDTH, HEIGHT, 0.4))
+		self:addGlass(room, Vector3.new(ORIGIN.X, ORIGIN.Y + HEIGHT / 2, startZ - 40), Vector3.new(WIDTH, HEIGHT, 0.4))
 		self:addCrystal(room, Vector3.new(ORIGIN.X - 4, EYE_Y - 1, startZ - 55))
 	end
 end
@@ -800,6 +807,8 @@ function TrackBuilder:buildShell(roomIndex)
 			isZoneStart = isZoneStart,
 			rng = rng,
 			low = LightingFx.isLow(), -- Low graphics: Decor skips its little animations
+			-- The first tutorial room always gets a glass vase to point at.
+			showpiece = if self.tutorial and roomIndex == Config.TUTORIAL_ROOMS[1] then TUTORIAL_SHOWPIECE else nil,
 		}
 end
 
@@ -807,6 +816,9 @@ end
 function TrackBuilder:buildRoomSteps(roomIndex)
 	local room, info = self:buildShell(roomIndex)
 	Decor.decorate(self, room, info)
+	if room.showpiece then
+		self.tutorialDecor = room.showpiece
+	end
 	-- Real lights from the room's glowing parts, shadows from decorations.
 	LightingFx.lightRoom(room.folder, info.theme, pauseIfOverBudget)
 	room.finished = true

@@ -399,8 +399,9 @@ Config.LeaveGift = {
 }
 
 -- Tutorial & first-time tips ----------------------------------------------------
--- The first run teaches the basics in rooms 1-3 (time slows until you do it).
--- After that, each tip shows once, the first time that thing appears.
+-- The first run teaches the basics in rooms 1-3 (time slows until you do it):
+-- throw, "decorations don't block you", crystals, balls = your life. Room 3 is
+-- the first real wall. After that, each tip shows once, the first time that thing appears.
 Config.TUTORIAL_ROOMS = { 1, 2, 3 }
 Config.Hints = {
 	Door = "HIT THE RED BUTTON TO OPEN THE DOOR",
@@ -409,7 +410,7 @@ Config.Hints = {
 	Grid = "SMALL PANES - THROW A FEW BALLS",
 	Double = "TWO PANES IN A ROW - THROW TWICE",
 	Multiball = "MULTIBALL! EVERY TAP NOW THROWS MORE BALLS",
-	Props = "BREAK DECORATIONS FOR MISSIONS AND XP",
+	Props = "DECORATIONS ARE JUST FOR FUN - ONLY GLOWING GLASS BLOCKS YOUR WAY",
 	ArmoredGlass = "ARMORED GLASS! HIT IT TWICE TO BREAK IT",
 	BobbingPane = "THIS GLASS BOBS UP AND DOWN - TIME YOUR THROW",
 	FallingPane = "WATCH THE CEILING! GLASS DROPS IN FRONT OF YOU",

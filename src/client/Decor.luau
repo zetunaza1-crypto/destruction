@@ -343,15 +343,17 @@ end
 
 -- Shared props -----------------------------------------------------------------------
 
--- Round glass vase standing with its base at height y.
+-- Round glass vase standing with its base at height y. Returns its Model.
 local function vase(kit, x, y, d, color, scale)
-	if kit:place("GlassVase", kit:at(x, y, d), { anchor = "floor", scale = scale * 0.85, colors = { Glass = color } }) then
-		return
+	local placed = kit:place("GlassVase", kit:at(x, y, d), { anchor = "floor", scale = scale * 0.85, colors = { Glass = color } })
+	if placed then
+		return placed
 	end
 	local model = kit:breakable("Vase")
 	local body = 1.6 * scale
 	kit:glass(model, BallShape, Vector3.one * body, kit:at(x, y + body / 2, d), color)
 	kit:glass(model, CylinderShape, Vector3.new(0.9, 0.7, 0.7) * scale, kit:at(x, y + body + 0.3 * scale, d) * UPRIGHT, color)
+	return model
 end
 
 -- Wide-bellied urn with a neck and a lip.
@@ -1983,6 +1985,24 @@ function Core.gate(kit, d)
 	kit:fixed(kit:glow(Vector3.new(15.2, 0.04, 0.5), kit:at(0, 0.02, d), kit.theme.Accent))
 end
 
+-- First-run tutorial ------------------------------------------------------------------
+
+-- A big glass vase on a dark pedestal by the wall, so the tutorial's "that's just
+-- decoration" lesson always has something to point at. It stays out of the
+-- flight path (its inner edge is about 7.5 studs from the middle).
+-- Returns one breakable part of the vase.
+local function showpiece(kit, side, d)
+	local x = kit:wallX(side, 1.4)
+	kit:block(Vector3.new(2, 2.5, 2), kit:at(x, 1.25, d), kit.theme.Wall:Lerp(BLACK, 0.35))
+	local model = vase(kit, x, 2.5, d, kit:tint(0.45), 1.3)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and part:GetAttribute("Kind") == "Prop" then
+			return part
+		end
+	end
+	return nil
+end
+
 -- Dispatch --------------------------------------------------------------------------
 
 local STYLES = {
@@ -2007,6 +2027,13 @@ function Decor.decorate(builder, room, info)
 		style.gate(kit, GATE_DEPTH)
 	end
 
+	-- First tutorial room: the vase the "just decoration" lesson points at (its bay
+	-- gets nothing else, so nothing hides it).
+	local spot = info.showpiece
+	if spot then
+		room.showpiece = showpiece(kit, spot.side, spot.d)
+	end
+
 	-- One feature per wall bay, never the same twice in a row on one wall.
 	local previous = {}
 	for _, d in BAYS do
@@ -2014,6 +2041,9 @@ function Decor.decorate(builder, room, info)
 			continue -- the gate stands here
 		end
 		for _, side in SIDES do
+			if spot and side == spot.side and d == spot.d then
+				continue
+			end
 			local feature = kit:pickWeighted(style.features)
 			if feature == previous[side] then
 				feature = kit:pickWeighted(style.features)

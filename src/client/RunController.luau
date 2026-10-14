@@ -1038,6 +1038,27 @@ end
 
 -- Run lifecycle ----------------------------------------------------------------
 
+-- A player who still needs the first-run tutorial, or whose save hasn't said
+-- yet (TutorialDone not loaded): popups that open by themselves (starter
+-- offer, welcome toast, leave gift) wait, so nothing covers the PLAY spotlight
+-- or the lessons. They come after the first run.
+local function firstRunPending()
+	return Tutorial.isNeeded() or player:GetAttribute("TutorialDone") == nil
+end
+
+-- Brand-new players (and REPLAY TUTORIAL): the menu dims everything but PLAY
+-- and points at it, until a run starts. Anything already open on the menu
+-- (daily sheet, settings...) closes first, so it can't sit over PLAY.
+local function syncFirstRunHelp()
+	ui:setPopupsHeld(firstRunPending())
+	if state == "Menu" and Tutorial.needsMenuSpotlight() and ui:isMenuOpen() then
+		ui:closePopovers()
+		Tutorial.showMenuSpotlight(ui:playButton())
+	else
+		Tutorial.hideMenuSpotlight()
+	end
+end
+
 local function gameOver()
 	if state ~= "Running" then
 		return
@@ -1237,6 +1258,10 @@ local function startRun(checkpoint, boostIds)
 		checkpoint = 0
 	end
 	checkpoint = math.min(checkpoint, player:GetAttribute("Checkpoint") or 0)
+	-- The guided first run (or a replayed one) always starts from the beginning.
+	if Tutorial.isNeeded() then
+		checkpoint = 0
+	end
 	startCheckpoint = checkpoint
 	-- Zone rewards up to here are already earned (anything further is new on this run).
 	rewardedUpTo = player:GetAttribute("Checkpoint") or 0
@@ -1245,11 +1270,12 @@ local function startRun(checkpoint, boostIds)
 	unusedBoostsSent = false
 
 	-- Brand-new players get the guided first run.
-	local tutorialRun = checkpoint == 0 and Tutorial.isNeeded()
+	local tutorialRun = Tutorial.isNeeded()
+	Tutorial.hideMenuSpotlight()
 	Tutorial.reset()
 	resetWorld(checkpoint, tutorialRun)
 	if tutorialRun then
-		Tutorial.start(track)
+		Tutorial.start(track, ui:ballsPlate())
 	end
 
 	-- Bonus balls from the daily streak, and Revive / Ball Pack balls bought
@@ -1324,7 +1350,10 @@ local function showMenu()
 	state = "Menu"
 	Tutorial.reset()
 	resetWorld(0)
+	-- Popups are held (or let go) before the menu opens, the spotlight goes on after.
+	ui:setPopupsHeld(firstRunPending())
 	ui:showMenu()
+	syncFirstRunHelp()
 	-- A game pass bought outside this server (website, another server) shows up
 	-- without rejoining. The server limits how often this really checks.
 	task.spawn(shopRequest, "RecheckPasses")
@@ -1688,6 +1717,10 @@ local function onGamepadThrowButton(keyCode, gameProcessed)
 	if keyCode == Enum.KeyCode.ButtonA and (gameProcessed or GuiService.SelectedObject ~= nil) then
 		return
 	end
+	-- A tutorial card that's waiting for a tap takes it (no ball is thrown).
+	if Tutorial.takeTap() then
+		return
+	end
 	if throwAtViewport(GamepadAim.viewportPosition()) then
 		GamepadAim.pulse()
 	end
@@ -1712,9 +1745,10 @@ function RunController.start()
 		claim = function()
 			return shopRequest("ClaimLeaveGift")
 		end,
-		-- Never pops up in the middle of a run (it waits for the menu / game over).
+		-- Never pops up in the middle of a run (it waits for the menu / game over),
+		-- nor before the first-run tutorial is done.
 		canShow = function()
-			return state ~= "Running"
+			return state ~= "Running" and not firstRunPending()
 		end,
 	})
 
@@ -1747,11 +1781,21 @@ function RunController.start()
 		onShop = shopRequest,
 		-- A ready boost tapped in the HUD boost bar.
 		onUseBoost = useReadyBoost,
+		-- Settings: REPLAY TUTORIAL. The next run from the start is a guided one
+		-- (on the menu, the PLAY spotlight shows it right away).
+		onReplayTutorial = function()
+			Tutorial.replay()
+			ui:toast("TUTORIAL ON - IT PLAYS ON YOUR NEXT RUN", "info")
+			syncFirstRunHelp()
+		end,
 	})
 
 	setupLighting()
 	applyEquippedSkin()
 	player:GetAttributeChangedSignal("EquippedSkin"):Connect(applyEquippedSkin)
+	-- The save says whether this player still needs the tutorial (it can load
+	-- after the menu is already up).
+	player:GetAttributeChangedSignal("TutorialDone"):Connect(syncFirstRunHelp)
 	showMenu()
 	-- Music plays from the moment you join, not only once a run starts.
 	Sounds.startMusic()
@@ -1806,6 +1850,10 @@ function RunController.start()
 			input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
 		then
+			-- A tutorial card that's waiting for a tap takes it (no ball is thrown).
+			if state == "Running" and Tutorial.takeTap() then
+				return
+			end
 			throw(input.Position)
 		end
 	end)
